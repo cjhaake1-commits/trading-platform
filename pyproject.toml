@@ -11,7 +11,9 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
-tradingagents = ["tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@main"]
+# Exact source snapshot supplied for the project. Pinning avoids silently changing
+# the research foundation while we validate our own risk/execution layer.
+tradingagents = ["tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f"]
 
 [project.scripts]
 autotrader = "autotrader.app:main"
