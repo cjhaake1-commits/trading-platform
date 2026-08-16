@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from threading import Event
-from typing import Callable, Protocol
+from typing import Protocol
 
 from .audit import SQLiteAuditStore
 from .models import AuditEvent
@@ -56,11 +57,7 @@ class RuntimeConfig:
 
 
 class AutonomousRuntime:
-    """Long-running supervisor for market, research, learning, and execution jobs.
-
-    The runtime owns scheduling, health state, audit events, and fail-closed job
-    isolation. Trading logic remains in individual jobs and broker adapters.
-    """
+    """Long-running supervisor for market, research, learning, and execution jobs."""
 
     def __init__(
         self,
@@ -121,7 +118,7 @@ class AutonomousRuntime:
             started = self._monotonic()
             try:
                 result = job.run(now)
-            except Exception as exc:  # runtime boundary intentionally isolates jobs
+            except Exception as exc:
                 result = JobResult(False, "Job raised an exception", {"error": str(exc)})
 
             finished = self._monotonic()
