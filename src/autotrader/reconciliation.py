@@ -49,14 +49,22 @@ class PositionReconciler:
     ) -> ReconciliationResult:
         broker_by_symbol: dict[str, float] = {}
         for position in broker_positions:
-            broker_by_symbol[position.symbol] = broker_by_symbol.get(position.symbol, 0.0) + position.quantity
+            broker_by_symbol[position.symbol] = (
+                broker_by_symbol.get(position.symbol, 0.0) + position.quantity
+            )
 
         ledger_symbols = set(portfolio.positions)
-        broker_symbols = {symbol for symbol, quantity in broker_by_symbol.items() if abs(quantity) > self.quantity_tolerance}
+        broker_symbols = {
+            symbol
+            for symbol, quantity in broker_by_symbol.items()
+            if abs(quantity) > self.quantity_tolerance
+        }
         issues: list[ReconciliationIssue] = []
 
         for symbol in sorted(ledger_symbols | broker_symbols):
-            ledger_quantity = portfolio.positions.get(symbol).quantity if symbol in portfolio.positions else 0.0
+            ledger_quantity = (
+                portfolio.positions.get(symbol).quantity if symbol in portfolio.positions else 0.0
+            )
             broker_quantity = broker_by_symbol.get(symbol, 0.0)
             if isclose(
                 ledger_quantity,
