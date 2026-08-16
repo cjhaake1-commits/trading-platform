@@ -12,11 +12,13 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
 marketdata = ["yfinance>=1.4.1"]
+streaming = ["websockets>=15.0"]
 # Exact source snapshot supplied for the project. Pinning avoids silently changing
 # the research foundation while we validate our own risk/execution layer.
 tradingagents = ["tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f"]
 full = [
     "yfinance>=1.4.1",
+    "websockets>=15.0",
     "tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f",
 ]
 
@@ -25,6 +27,7 @@ autotrader = "autotrader.app:main"
 autotrader-scan = "autotrader.scan_app:main"
 autotrader-runtime = "autotrader.runtime_app:main"
 autotrader-connectivity = "autotrader.connectivity_app:main"
+autotrader-stream = "autotrader.streaming_app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
