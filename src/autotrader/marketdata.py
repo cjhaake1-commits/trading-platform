@@ -77,7 +77,9 @@ class YahooHistoricalData:
             try:
                 frame = frame.xs(symbol, axis=1, level=1)
             except (KeyError, ValueError):
-                frame.columns = [col[0] if isinstance(col, tuple) else col for col in frame.columns]
+                frame.columns = [
+                    col[0] if isinstance(col, tuple) else col for col in frame.columns
+                ]
 
         bars: list[MarketBar] = []
         for index, row in frame.iterrows():
@@ -91,7 +93,8 @@ class YahooHistoricalData:
             high_price = float(row["High"])
             low_price = float(row["Low"])
             close_price = float(row["Close"])
-            volume = float(row["Volume"]) if "Volume" in row and row["Volume"] == row["Volume"] else 0.0
+            volume_value = row["Volume"] if "Volume" in row else 0.0
+            volume = float(volume_value) if volume_value == volume_value else 0.0
 
             bars.append(
                 MarketBar(
