@@ -7,16 +7,23 @@ from .models import PortfolioState, RiskDecision, Side, TradeIntent, TradePropos
 
 @dataclass(frozen=True)
 class RiskLimits:
-    risk_per_trade_pct: float = 0.005
-    max_daily_loss_pct: float = 0.02
-    max_weekly_loss_pct: float = 0.05
-    max_peak_drawdown_pct: float = 0.08
-    soft_drawdown_pct: float = 0.04
-    soft_drawdown_risk_scale: float = 0.50
-    max_open_positions: int = 3
-    max_position_notional_pct: float = 0.35
+    """Default competitive paper/shadow risk limits.
+
+    These defaults intentionally favor a higher-return test profile than the
+    original bootstrap configuration while preserving hard operational controls.
+    Live trading remains independently locked by the runtime.
+    """
+
+    risk_per_trade_pct: float = 0.0125
+    max_daily_loss_pct: float = 0.05
+    max_weekly_loss_pct: float = 0.10
+    max_peak_drawdown_pct: float = 0.15
+    soft_drawdown_pct: float = 0.075
+    soft_drawdown_risk_scale: float = 0.75
+    max_open_positions: int = 6
+    max_position_notional_pct: float = 0.60
     max_gross_notional_pct: float = 1.00
-    max_asset_class_notional_pct: float = 0.60
+    max_asset_class_notional_pct: float = 0.90
     min_confidence: float = 0.0
     allow_short_selling: bool = False
     allow_leverage: bool = False
