@@ -11,7 +11,7 @@ from .risk import RiskContext, RiskEngine
 
 @dataclass(frozen=True)
 class RiskStackPolicy:
-    max_portfolio_open_risk_pct: float = 0.03
+    max_portfolio_open_risk_pct: float = 0.075
     min_scaled_quantity: float = 1e-12
 
 
