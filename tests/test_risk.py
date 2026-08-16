@@ -29,11 +29,11 @@ def portfolio(**overrides):
     return PortfolioState(**data)
 
 
-def test_sizes_trade_to_half_percent_risk():
+def test_sizes_trade_to_one_and_quarter_percent_risk():
     decision = RiskEngine().evaluate(proposal(), portfolio())
     assert decision.approved
-    assert decision.max_loss_dollars <= 5.0 + 1e-9
-    assert decision.quantity == 2.5
+    assert decision.max_loss_dollars <= 12.5 + 1e-9
+    assert decision.quantity == 6.25
 
 
 def test_rejects_short_selling_by_default():
@@ -46,7 +46,7 @@ def test_rejects_short_selling_by_default():
 
 
 def test_rejects_after_daily_loss_limit():
-    decision = RiskEngine().evaluate(proposal(), portfolio(daily_pnl=-20.0))
+    decision = RiskEngine().evaluate(proposal(), portfolio(daily_pnl=-50.0))
     assert not decision.approved
     assert "Daily loss" in decision.reason
 
@@ -101,18 +101,18 @@ def test_reduce_caps_quantity_to_existing_position():
 def test_soft_drawdown_contracts_risk_without_stopping_trading():
     decision = RiskEngine().evaluate(
         proposal(),
-        portfolio(equity=950.0, cash=950.0),
+        portfolio(equity=920.0, cash=920.0),
         RiskContext(peak_equity=1000.0),
     )
     assert decision.approved
-    assert decision.risk_scale == 0.5
-    assert decision.max_loss_dollars <= 950.0 * 0.005 * 0.5 + 1e-9
+    assert decision.risk_scale == 0.75
+    assert decision.max_loss_dollars <= 920.0 * 0.0125 * 0.75 + 1e-9
 
 
 def test_hard_peak_drawdown_blocks_new_exposure():
     decision = RiskEngine().evaluate(
         proposal(),
-        portfolio(equity=919.0, cash=919.0),
+        portfolio(equity=849.0, cash=849.0),
         RiskContext(peak_equity=1000.0),
     )
     assert not decision.approved
@@ -127,7 +127,7 @@ def test_health_and_liquidity_scales_reduce_position_size():
     )
     assert decision.approved
     assert decision.risk_scale == 0.25
-    assert decision.quantity == 0.625
+    assert decision.quantity == 1.5625
 
 
 def test_gross_exposure_limit_can_block_new_trade():
