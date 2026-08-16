@@ -8,40 +8,49 @@
 - [x] Add paper broker
 - [x] Add TradingAgents adapter boundary
 - [x] Add core unit tests
-- [ ] Add CI workflow
+- [x] Add CI workflow
 - [ ] Run tests on the VM
 
 ## Phase 1 - Market data and scanner
 
-- [ ] Normalize symbols across stocks, crypto, and forex
-- [ ] Add candle / quote interfaces
+- [x] Add normalized instrument and candle/bar models
+- [ ] Add symbol-normalization rules across stocks, crypto, and forex
 - [ ] Add first stock data adapter
 - [ ] Add first crypto data adapter
-- [ ] Add candidate scanner
-- [ ] Log every candidate and rejected candidate
+- [ ] Add first forex data adapter
+- [x] Add deterministic candidate scanner
+- [ ] Add persistent candidate / rejection audit log
+- [ ] Add scheduled universe scanning
 
 ## Phase 2 - Strategy layer
 
-- [ ] Momentum strategy
-- [ ] Mean-reversion strategy
-- [ ] Breakout strategy
-- [ ] Standard strategy signal schema
-- [ ] Walk-forward backtest harness
-- [ ] Fees and slippage model
+- [x] Add transparent SMA trend baseline
+- [x] Add mean-reversion baseline
+- [x] Add breakout baseline
+- [x] Standardize strategy output as TradeProposal
+- [x] Add core return / Sharpe / drawdown metric calculations
+- [ ] Add walk-forward simulation harness
+- [ ] Add fees and slippage model
+- [ ] Add MACD and RSI/KDJ baselines for closer source-paper reproduction
 
 ## Phase 3 - TradingAgents integration
 
-- [ ] Pin an upstream TradingAgents version/commit
-- [ ] Configure selected LLM provider
-- [ ] Convert five-tier portfolio rating into normalized proposals
+- [x] Pin supplied TradingAgents source commit
+- [ ] Configure selected LLM provider on VM
+- [ ] Parse five-tier portfolio rating deterministically
+- [ ] Convert TradingAgents rating into normalized proposals
 - [ ] Add confidence / disagreement handling
 - [ ] Cache research results to control cost
 - [ ] Add timeout/failure fallbacks
+- [ ] Gate expensive multi-agent analysis behind scanner ranking
 
 ## Phase 4 - Portfolio and risk
 
-- [ ] Position-level stops
-- [ ] Daily / weekly circuit breakers
+- [x] Per-trade risk sizing
+- [x] Daily / weekly circuit breakers
+- [x] Position-count limit
+- [x] No leverage / no shorts by default
+- [ ] Position-level stop execution
 - [ ] Correlation and sector exposure limits
 - [ ] Per-asset-class capital buckets
 - [ ] Maximum gross exposure
