@@ -50,6 +50,26 @@
 - [ ] Cache research results to control cost
 - [ ] Add timeout/failure fallbacks
 
+## Phase 3A - Quantitative / alternative data
+
+- [x] Add alternative-data observation schema with recency and confidence decay
+- [x] Add Quiver REST client with environment-based API key
+- [x] Add Congress trade ingestion path
+- [x] Add government-contract ingestion path
+- [x] Add corporate-lobbying ingestion path
+- [x] Add corporate-donor ingestion path
+- [x] Add institutional 13F ingestion path
+- [x] Add top-shareholder ingestion path
+- [x] Add off-exchange / dark-pool ingestion path
+- [x] Add app-ratings ingestion path
+- [x] Add conservative signal normalization for Congress, contracts, institutions, and off-exchange data
+- [ ] Add insider Form 4 endpoint once plan access is enabled
+- [ ] Add patents and executive-compensation endpoints once plan access is enabled
+- [ ] Add Quiver newsfeed / full-picture composite endpoints once plan access is enabled
+- [ ] Add dataset-level caching, freshness, rate-limit, and retry controls
+- [ ] Backtest each alternative dataset independently before assigning material model weight
+- [ ] Add licensed social/news providers in addition to TradingAgents' existing news/social analysts
+
 ## Phase 4 - Portfolio and risk
 
 - [x] Per-trade risk sizing
