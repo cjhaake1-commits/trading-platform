@@ -8,13 +8,20 @@ from .models import PortfolioState, Position
 
 @dataclass(frozen=True)
 class ProtectiveRiskPolicy:
-    max_peak_drawdown_pct: float = 0.08
-    hard_daily_loss_pct: float = 0.02
-    hard_weekly_loss_pct: float = 0.05
+    """Competitive paper/shadow protection profile.
+
+    Hard operational safeguards remain in force, but default market-risk limits
+    allow materially more room than the original bootstrap profile so paper
+    tests can reveal upside as well as downside behavior.
+    """
+
+    max_peak_drawdown_pct: float = 0.15
+    hard_daily_loss_pct: float = 0.05
+    hard_weekly_loss_pct: float = 0.10
     trailing_stop_pct: float | None = None
-    break_even_trigger_r: float | None = 1.0
-    trailing_trigger_r: float | None = 2.0
-    trailing_distance_r: float = 1.0
+    break_even_trigger_r: float | None = 1.5
+    trailing_trigger_r: float | None = 3.0
+    trailing_distance_r: float = 1.5
 
 
 @dataclass(frozen=True)
