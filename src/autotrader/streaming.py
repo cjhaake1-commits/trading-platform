@@ -149,6 +149,36 @@ def normalize_oanda_message(message: dict[str, object]) -> StreamEvent | None:
     )
 
 
+def validate_oanda_price_events(events: list[StreamEvent]) -> None:
+    """Require at least one executable-looking PRICE event before readiness.
+
+    OANDA heartbeats prove that authentication and transport are alive, but they
+    do not prove that the requested instrument is currently producing prices.
+    """
+
+    quotes = [
+        event
+        for event in events
+        if event.provider == "oanda"
+        and event.kind == "quote"
+        and event.symbol
+        and event.bid is not None
+        and event.ask is not None
+        and event.bid > 0
+        and event.ask > 0
+        and event.ask >= event.bid
+    ]
+    if quotes:
+        return
+    heartbeat_count = sum(
+        1 for event in events if event.provider == "oanda" and event.kind == "heartbeat"
+    )
+    raise RuntimeError(
+        "OANDA stream transport is alive but no valid PRICE event was received "
+        f"({heartbeat_count} heartbeat events). Do not submit a practice order yet."
+    )
+
+
 def _select_oanda_account_id(
     accounts_payload: dict[str, object],
     configured_account_id: str = "",
@@ -294,4 +324,5 @@ def stream_oanda_prices(
             if event is not None:
                 events.append(event)
                 print(event.to_json(), flush=True)
+    validate_oanda_price_events(events)
     return events
