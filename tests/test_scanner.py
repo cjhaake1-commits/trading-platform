@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from autotrader.models import AssetClass, Instrument, MarketBar
 from autotrader.scanner import CandidateScanner, ScannerConfig
@@ -6,7 +6,7 @@ from autotrader.scanner import CandidateScanner, ScannerConfig
 
 def bars(symbol: str, closes: list[float], volumes: list[float] | None = None):
     volumes = volumes or [100.0] * len(closes)
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
     return [
         MarketBar(
             symbol=symbol,
