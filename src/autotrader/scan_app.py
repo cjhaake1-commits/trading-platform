@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from .audit import SQLiteAuditStore
 from .marketdata import YahooHistoricalData
-from .models import AssetClass, AuditEvent, Instrument
+from .models import AssetClass, AuditEvent, Instrument, MarketBar
 from .scanner import CandidateScanner
 from .symbols import SymbolNormalizer
 
@@ -15,7 +15,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("symbols", nargs="+", help="Symbols to scan")
     parser.add_argument(
         "--asset-class",
-        choices=[AssetClass.STOCK.value, AssetClass.ETF.value, AssetClass.CRYPTO.value, AssetClass.FOREX.value],
+        choices=[
+            AssetClass.STOCK.value,
+            AssetClass.ETF.value,
+            AssetClass.CRYPTO.value,
+            AssetClass.FOREX.value,
+        ],
         default=AssetClass.STOCK.value,
     )
     parser.add_argument("--lookback-days", type=int, default=45)
@@ -35,7 +40,7 @@ def main() -> None:
     end = datetime.now(UTC)
     start = end - timedelta(days=max(args.lookback_days, 1))
 
-    histories: dict[Instrument, list] = {}
+    histories: dict[Instrument, list[MarketBar]] = {}
     for raw in args.symbols:
         instrument = normalizer.normalize(raw, asset_class)
         bars = feed.history(instrument, start, end)
