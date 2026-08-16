@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     BUY = "buy"
     SELL = "sell"
 
 
-class AssetClass(str, Enum):
+class AssetClass(StrEnum):
     STOCK = "stock"
     ETF = "etf"
     CRYPTO = "crypto"
@@ -106,4 +106,4 @@ class AuditEvent:
     event_type: str
     message: str
     data: dict[str, object] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
