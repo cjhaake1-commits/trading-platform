@@ -13,6 +13,17 @@ The platform is being designed to pursue **daily realized P&L opportunities** th
 
 The system should maximize the quality and speed of the information pipeline while minimizing unnecessary latency and expensive LLM calls.
 
+## Role as an autonomous income pillar
+
+This trading platform is intended to operate as a **standalone autonomous income and capital-growth pillar** alongside the owner's other automated businesses.
+
+It has two complementary mandates:
+
+1. **Active income engine:** continuously seek high-quality short-horizon opportunities across approved global markets and trading sessions, with daily realized P&L as the operating target.
+2. **Long-term capital engine:** retain and compound capital through a diversified ETF-like portfolio and systematically allocate a share of realized profits toward long-horizon growth.
+
+The trading pillar must remain financially and operationally isolated from the other business pillars. It may report performance into a shared command center, but operating cash from other businesses must not be automatically transferred into trading, and trading losses must not be funded automatically from other business accounts.
+
 ## Important interpretation of "daily P&L"
 
 Daily positive profit is a **business target, not a guaranteed system property**. The software must never manufacture trades simply to force daily activity. On days when expected edge is weak, preserving capital or making no trade is an acceptable and desirable outcome.
@@ -20,6 +31,8 @@ Daily positive profit is a **business target, not a guaranteed system property**
 The engineering target is therefore:
 
 > maximize risk-adjusted expected daily P&L and opportunity capture while keeping drawdowns, execution costs, slippage, and failure risk inside explicit limits.
+
+A **20%+ daily return** is tracked as an exceptional-outcome metric, not as a required daily quota. The system may pursue opportunities capable of producing outsized days when measured edge and risk capacity justify them, but it must never increase leverage, trade frequency, or position size merely because the account has not reached a 20% target.
 
 ## Risk posture: aggressive, not reckless
 
@@ -127,6 +140,7 @@ Track at minimum:
 - net P&L after fees, spread, financing, and estimated slippage
 - average daily P&L
 - percentage of profitable days
+- frequency and conditions of 20%+ exceptional-return days
 - best / worst day
 - maximum daily and rolling drawdown
 - Sharpe / Sortino-like risk-adjusted measures
