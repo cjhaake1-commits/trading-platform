@@ -20,6 +20,46 @@ class AssetClass(str, Enum):
 
 
 @dataclass(frozen=True)
+class Instrument:
+    symbol: str
+    asset_class: AssetClass
+
+
+@dataclass(frozen=True)
+class MarketBar:
+    symbol: str
+    asset_class: AssetClass
+    timestamp: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float = 0.0
+
+    def __post_init__(self) -> None:
+        if min(self.open, self.high, self.low, self.close) <= 0:
+            raise ValueError("OHLC prices must be positive")
+        if self.high < max(self.open, self.close, self.low):
+            raise ValueError("High price must be greater than or equal to OHLC values")
+        if self.low > min(self.open, self.close, self.high):
+            raise ValueError("Low price must be less than or equal to OHLC values")
+        if self.volume < 0:
+            raise ValueError("Volume cannot be negative")
+
+
+@dataclass(frozen=True)
+class ScanCandidate:
+    instrument: Instrument
+    score: float
+    last_price: float
+    momentum_pct: float
+    average_range_pct: float
+    volume_ratio: float | None
+    suggested_stop: float
+    reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class TradeProposal:
     symbol: str
     asset_class: AssetClass
@@ -65,4 +105,5 @@ class RiskDecision:
 class AuditEvent:
     event_type: str
     message: str
+    data: dict[str, object] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
