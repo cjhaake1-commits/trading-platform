@@ -1,4 +1,11 @@
-from autotrader.models import AssetClass, PortfolioState, Side, TradeProposal
+from autotrader.models import (
+    AssetClass,
+    PortfolioState,
+    Position,
+    Side,
+    TradeIntent,
+    TradeProposal,
+)
 from autotrader.risk import RiskEngine
 
 
@@ -48,3 +55,44 @@ def test_rejects_bad_long_stop():
     decision = RiskEngine().evaluate(proposal(stop_price=101.0), portfolio())
     assert not decision.approved
     assert "Long trade stop" in decision.reason
+
+
+def test_exit_long_is_allowed_even_when_short_selling_disabled():
+    state = portfolio(
+        cash=500.0,
+        positions={
+            "NVDA": Position("NVDA", AssetClass.STOCK, 2.0, 100.0, 98.0),
+        },
+    )
+    decision = RiskEngine().evaluate(
+        proposal(
+            side=Side.SELL,
+            intent=TradeIntent.EXIT,
+            entry_price=105.0,
+            stop_price=104.0,
+        ),
+        state,
+    )
+    assert decision.approved
+    assert decision.quantity == 2.0
+    assert decision.max_loss_dollars == 0.0
+
+
+def test_reduce_caps_quantity_to_existing_position():
+    state = portfolio(
+        positions={
+            "NVDA": Position("NVDA", AssetClass.STOCK, 2.0, 100.0, 98.0),
+        }
+    )
+    decision = RiskEngine().evaluate(
+        proposal(
+            side=Side.SELL,
+            intent=TradeIntent.REDUCE,
+            requested_quantity=10.0,
+            entry_price=101.0,
+            stop_price=100.0,
+        ),
+        state,
+    )
+    assert decision.approved
+    assert decision.quantity == 2.0
