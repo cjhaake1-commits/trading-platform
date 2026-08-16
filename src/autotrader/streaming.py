@@ -128,6 +128,51 @@ def normalize_oanda_message(message: dict[str, object]) -> StreamEvent | None:
     )
 
 
+def _select_oanda_account_id(
+    accounts_payload: dict[str, object],
+    configured_account_id: str = "",
+) -> str:
+    accounts = accounts_payload.get("accounts")
+    if not isinstance(accounts, list):
+        accounts = []
+    account_ids = [
+        str(account.get("id"))
+        for account in accounts
+        if isinstance(account, dict) and account.get("id")
+    ]
+
+    configured = configured_account_id.strip()
+    if configured:
+        if account_ids and configured not in account_ids:
+            raise RuntimeError("Configured OANDA practice account is not authorized by this token")
+        return configured
+
+    if len(account_ids) == 1:
+        return account_ids[0]
+    if not account_ids:
+        raise RuntimeError("OANDA token returned no accessible practice accounts")
+    raise RuntimeError(
+        "OANDA token can access multiple accounts. Set OANDA_PRACTICE_ACCOUNT_ID "
+        "to choose one explicitly."
+    )
+
+
+def _discover_oanda_account_id(token: str, timeout_seconds: float) -> str:
+    configured = os.getenv("OANDA_PRACTICE_ACCOUNT_ID", "").strip()
+    rest_base = os.getenv(
+        "OANDA_PRACTICE_BASE_URL",
+        "https://api-fxpractice.oanda.com",
+    ).rstrip("/")
+    request = Request(
+        f"{rest_base}/v3/accounts",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        method="GET",
+    )
+    with urlopen(request, timeout=timeout_seconds) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    return _select_oanda_account_id(payload, configured)
+
+
 async def stream_alpaca_quotes(
     symbols: list[str],
     *,
@@ -190,14 +235,9 @@ def stream_oanda_prices(
     timeout_seconds: float = 30.0,
 ) -> list[StreamEvent]:
     token = os.getenv("OANDA_PRACTICE_TOKEN", "").strip()
-    account_id = os.getenv("OANDA_PRACTICE_ACCOUNT_ID", "").strip()
     if not token:
         raise RuntimeError("Missing OANDA_PRACTICE_TOKEN")
-    if not account_id:
-        raise RuntimeError(
-            "Missing OANDA_PRACTICE_ACCOUNT_ID. Use the selected_account_id from "
-            "autotrader-connectivity output."
-        )
+    account_id = _discover_oanda_account_id(token, timeout_seconds)
 
     instruments = [symbol.strip().upper().replace("/", "_") for symbol in symbols if symbol.strip()]
     if not instruments:
