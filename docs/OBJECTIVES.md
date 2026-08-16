@@ -26,15 +26,15 @@ The trading pillar must remain financially and operationally isolated from the o
 
 ## Daily return ambition
 
-The system's **stretch objective is to discover and exploit enough genuine edge that 20-30% positive days become achievable under exceptional market conditions**. That ambition is part of the product goal and should influence how aggressively the platform searches for information, improves execution, extends its trading day across suitable markets, and learns which signals are actually useful.
+The platform's **stretch performance bar is the ability to produce 20-30% positive days when genuine, unusually strong edge and market conditions make that achievable**. Engineering, research, market coverage, information acquisition, execution quality, capital utilization, and strategy discovery should all be optimized with that upper-end capability in mind.
 
-A 20-30% return is **not a guaranteed daily result and not a quota that overrides risk controls**. The platform must never manufacture trades, chase losses, or increase leverage merely because a daily target has not been reached.
+A 20-30% return is **not a guaranteed daily result and not a quota that overrides risk controls**. The platform must never manufacture trades, chase losses, increase leverage merely because a daily target has not been reached, or reinterpret a lack of opportunity as a reason to relax validation.
 
 The engineering objective is therefore:
 
 > continuously improve the probability and magnitude of positive daily P&L, including the ability to capture exceptional 20-30% days when real edge exists, while keeping drawdowns, execution costs, slippage, and failure risk inside explicit limits.
 
-The dashboard should track progress toward 10%, 20%, and 30% daily return thresholds, but the risk engine remains independent of those thresholds.
+The dashboard should track progress toward 10%, 20%, and 30% daily return thresholds, but the risk engine remains independent of those thresholds. Missing a threshold is diagnostic information, not an execution signal.
 
 ## Continuous intelligence and evolution mandate
 
@@ -146,11 +146,11 @@ Fast deterministic code should handle continuous scanning. Slower multi-agent LL
 
 The platform should optimize in this order:
 
-1. survive and preserve capital
-2. maintain reliable data and execution
-3. produce positive expectancy after all costs
-4. improve consistency of daily/weekly realized P&L
-5. increase capital utilization only when edge is present
+1. maintain reliable data and execution
+2. produce positive expectancy after all costs
+3. preserve enough capital to continue exploiting edge
+4. improve consistency and magnitude of daily/weekly realized P&L
+5. increase capital utilization when measured net edge is present
 6. capture exceptional-return opportunities when evidence supports them
 7. scale position size only after adequate evidence
 
@@ -179,6 +179,8 @@ Track at minimum:
 - incremental value of TradingAgents versus deterministic baselines
 - feature decay / drift statistics
 - provider latency, freshness, uptime, and cost-to-edge contribution
+- latency-adjusted expected edge before every new exposure decision
+- stressed performance under higher slippage, costs, latency, and adverse regimes
 
 ## Risk principle
 
