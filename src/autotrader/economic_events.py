@@ -28,13 +28,13 @@ class EconomicEvent:
 
 @dataclass(frozen=True)
 class EventRiskPolicy:
-    high_pre_seconds: int = 300
-    high_post_seconds: int = 180
-    medium_pre_seconds: int = 120
-    medium_post_seconds: int = 60
-    high_risk_scale: float = 0.25
-    medium_risk_scale: float = 0.60
-    block_new_entries_seconds: int = 30
+    high_pre_seconds: int = 180
+    high_post_seconds: int = 90
+    medium_pre_seconds: int = 60
+    medium_post_seconds: int = 30
+    high_risk_scale: float = 0.50
+    medium_risk_scale: float = 0.80
+    block_new_entries_seconds: int = 10
 
 
 @dataclass(frozen=True)
