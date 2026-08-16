@@ -7,9 +7,9 @@ from .models import PortfolioState, TradeProposal
 
 @dataclass(frozen=True)
 class CorrelationBucketPolicy:
-    max_bucket_notional_pct: float = 0.50
-    soft_bucket_notional_pct: float = 0.35
-    soft_risk_scale: float = 0.50
+    max_bucket_notional_pct: float = 0.75
+    soft_bucket_notional_pct: float = 0.55
+    soft_risk_scale: float = 0.80
 
 
 @dataclass(frozen=True)
@@ -100,7 +100,7 @@ class CorrelationBucketEngine:
 
 
 def default_symbol_buckets() -> dict[str, str]:
-    """Conservative starter buckets, intended to be expanded from validation data."""
+    """Starter buckets intended to be refined from validation data."""
     return {
         "SPY": "us_equity_beta",
         "QQQ": "us_equity_beta",
