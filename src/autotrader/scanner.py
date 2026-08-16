@@ -73,7 +73,11 @@ class CandidateScanner:
 
         normalized_momentum = min(abs(momentum_pct) / 10.0, 1.0)
         normalized_range = min(average_range_pct / 5.0, 1.0)
-        normalized_volume = 0.0 if volume_ratio is None else min(max(volume_ratio - 1.0, 0.0), 2.0) / 2.0
+        normalized_volume = (
+            0.0
+            if volume_ratio is None
+            else min(max(volume_ratio - 1.0, 0.0), 2.0) / 2.0
+        )
 
         score = 100.0 * (
             self.config.momentum_weight * normalized_momentum
