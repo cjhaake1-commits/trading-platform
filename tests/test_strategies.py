@@ -1,11 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from autotrader.models import AssetClass, Instrument, MarketBar, Side
 from autotrader.strategies import BaselineStrategies, StrategyConfig
 
 
 def make_bars(closes: list[float]):
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2026, 1, 1, tzinfo=UTC)
     return [
         MarketBar(
             symbol="TEST",
