@@ -6,7 +6,7 @@ from autotrader.models import (
     TradeIntent,
     TradeProposal,
 )
-from autotrader.risk import RiskEngine
+from autotrader.risk import RiskContext, RiskEngine
 
 
 def proposal(**overrides):
@@ -96,3 +96,45 @@ def test_reduce_caps_quantity_to_existing_position():
     )
     assert decision.approved
     assert decision.quantity == 2.0
+
+
+def test_soft_drawdown_contracts_risk_without_stopping_trading():
+    decision = RiskEngine().evaluate(
+        proposal(),
+        portfolio(equity=950.0, cash=950.0),
+        RiskContext(peak_equity=1000.0),
+    )
+    assert decision.approved
+    assert decision.risk_scale == 0.5
+    assert decision.max_loss_dollars <= 950.0 * 0.005 * 0.5 + 1e-9
+
+
+def test_hard_peak_drawdown_blocks_new_exposure():
+    decision = RiskEngine().evaluate(
+        proposal(),
+        portfolio(equity=919.0, cash=919.0),
+        RiskContext(peak_equity=1000.0),
+    )
+    assert not decision.approved
+    assert "drawdown" in decision.reason.lower()
+
+
+def test_health_and_liquidity_scales_reduce_position_size():
+    decision = RiskEngine().evaluate(
+        proposal(),
+        portfolio(),
+        RiskContext(health_scale=0.25, liquidity_scale=0.5),
+    )
+    assert decision.approved
+    assert decision.risk_scale == 0.25
+    assert decision.quantity == 0.625
+
+
+def test_gross_exposure_limit_can_block_new_trade():
+    decision = RiskEngine().evaluate(
+        proposal(),
+        portfolio(),
+        RiskContext(gross_notional=1000.0),
+    )
+    assert not decision.approved
+    assert "risk capacity" in decision.reason.lower()
