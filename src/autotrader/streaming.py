@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from urllib.parse import urlencode
@@ -22,6 +23,9 @@ class StreamEvent:
     ask_size: float | None = None
     latency_ms: float | None = None
     raw_type: str | None = None
+    received_wall_ns: int = 0
+    received_monotonic_ns: int = 0
+    source_time_raw: str | None = None
 
     def to_json(self) -> str:
         payload = asdict(self)
@@ -40,7 +44,6 @@ def parse_timestamp(value: object) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError:
-        # Some feeds use nanosecond precision while Python datetime supports microseconds.
         if "." in normalized:
             prefix, suffix = normalized.split(".", 1)
             zone = "+00:00" if suffix.endswith("+00:00") else ""
@@ -62,11 +65,19 @@ def _latency_ms(source_time: datetime | None, received_at: datetime) -> float | 
     return max((received_at - source_time).total_seconds() * 1000.0, 0.0)
 
 
+def _receive_stamps() -> tuple[datetime, int, int]:
+    wall_ns = time.time_ns()
+    monotonic_ns = time.perf_counter_ns()
+    received = datetime.fromtimestamp(wall_ns / 1_000_000_000, tz=UTC)
+    return received, wall_ns, monotonic_ns
+
+
 def normalize_alpaca_message(message: dict[str, object]) -> StreamEvent | None:
     if message.get("T") != "q":
         return None
-    received = datetime.now(UTC)
-    source = parse_timestamp(message.get("t"))
+    received, wall_ns, monotonic_ns = _receive_stamps()
+    source_raw = str(message.get("t")) if message.get("t") is not None else None
+    source = parse_timestamp(source_raw)
     return StreamEvent(
         provider="alpaca",
         kind="quote",
@@ -79,6 +90,9 @@ def normalize_alpaca_message(message: dict[str, object]) -> StreamEvent | None:
         ask_size=float(message["as"]) if message.get("as") is not None else None,
         latency_ms=_latency_ms(source, received),
         raw_type="q",
+        received_wall_ns=wall_ns,
+        received_monotonic_ns=monotonic_ns,
+        source_time_raw=source_raw,
     )
 
 
@@ -97,8 +111,9 @@ def normalize_oanda_message(message: dict[str, object]) -> StreamEvent | None:
     message_type = str(message.get("type") or "")
     if message_type not in {"PRICE", "HEARTBEAT"}:
         return None
-    received = datetime.now(UTC)
-    source = parse_timestamp(message.get("time"))
+    received, wall_ns, monotonic_ns = _receive_stamps()
+    source_raw = str(message.get("time")) if message.get("time") is not None else None
+    source = parse_timestamp(source_raw)
     if message_type == "HEARTBEAT":
         return StreamEvent(
             provider="oanda",
@@ -108,6 +123,9 @@ def normalize_oanda_message(message: dict[str, object]) -> StreamEvent | None:
             received_at=received,
             latency_ms=_latency_ms(source, received),
             raw_type=message_type,
+            received_wall_ns=wall_ns,
+            received_monotonic_ns=monotonic_ns,
+            source_time_raw=source_raw,
         )
     bid, bid_size = _best_price(message.get("bids"))
     ask, ask_size = _best_price(message.get("asks"))
@@ -125,6 +143,9 @@ def normalize_oanda_message(message: dict[str, object]) -> StreamEvent | None:
         ask_size=ask_size,
         latency_ms=_latency_ms(source, received),
         raw_type=message_type,
+        received_wall_ns=wall_ns,
+        received_monotonic_ns=monotonic_ns,
+        source_time_raw=source_raw,
     )
 
 
@@ -239,11 +260,18 @@ def stream_oanda_prices(
         raise RuntimeError("Missing OANDA_PRACTICE_TOKEN")
     account_id = _discover_oanda_account_id(token, timeout_seconds)
 
-    instruments = [symbol.strip().upper().replace("/", "_") for symbol in symbols if symbol.strip()]
+    instruments = [
+        symbol.strip().upper().replace("/", "_")
+        for symbol in symbols
+        if symbol.strip()
+    ]
     if not instruments:
         raise ValueError("At least one OANDA symbol is required")
 
-    base = os.getenv("OANDA_PRACTICE_STREAM_URL", "https://stream-fxpractice.oanda.com").rstrip("/")
+    base = os.getenv(
+        "OANDA_PRACTICE_STREAM_URL",
+        "https://stream-fxpractice.oanda.com",
+    ).rstrip("/")
     query = urlencode({"instruments": ",".join(instruments), "snapshot": "true"})
     url = f"{base}/v3/accounts/{account_id}/pricing/stream?{query}"
     request = Request(
