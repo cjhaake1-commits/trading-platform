@@ -8,10 +8,10 @@ from autotrader.models import AssetClass, Side, TradeProposal
 
 @dataclass
 class TradingAgentsAdapter:
-    """Thin wrapper around TauricResearch/TradingAgents.
+    """Thin wrapper around the pinned TauricResearch/TradingAgents foundation.
 
-    The import is intentionally lazy so the deterministic core and its tests can
-    run without requiring LLM/API dependencies.
+    The import is intentionally lazy so the deterministic scanner, strategy,
+    risk, and backtest layers can run without LLM/API dependencies.
     """
 
     debug: bool = False
@@ -25,6 +25,7 @@ class TradingAgentsAdapter:
         stop_price: float,
     ) -> TradeProposal | None:
         try:
+            from tradingagents.agents.utils.rating import parse_rating
             from tradingagents.default_config import DEFAULT_CONFIG
             from tradingagents.graph.trading_graph import TradingAgentsGraph
         except ImportError as exc:
@@ -34,15 +35,18 @@ class TradingAgentsAdapter:
 
         graph = TradingAgentsGraph(debug=self.debug, config=DEFAULT_CONFIG.copy())
         _, decision = graph.propagate(symbol, analysis_date.isoformat())
-        rating = str(decision).strip().lower()
+        decision_text = str(decision)
+        rating = parse_rating(decision_text)
 
-        if "buy" in rating or "overweight" in rating:
-            side = Side.BUY
-        elif "sell" in rating or "underweight" in rating:
-            # Short selling is disabled by default, so this proposal will normally
-            # be rejected by the deterministic risk engine during bootstrap.
-            side = Side.SELL
-        else:
+        mapping = {
+            "Buy": (Side.BUY, 0.90),
+            "Overweight": (Side.BUY, 0.70),
+            "Hold": (None, 0.50),
+            "Underweight": (Side.SELL, 0.70),
+            "Sell": (Side.SELL, 0.90),
+        }
+        side, confidence = mapping[rating]
+        if side is None:
             return None
 
         return TradeProposal(
@@ -51,7 +55,7 @@ class TradingAgentsAdapter:
             side=side,
             entry_price=market_price,
             stop_price=stop_price,
-            confidence=0.5,
-            source="TradingAgents",
-            rationale=str(decision),
+            confidence=confidence,
+            source=f"TradingAgents:{rating}",
+            rationale=decision_text,
         )
