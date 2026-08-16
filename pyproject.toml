@@ -13,12 +13,14 @@ dependencies = []
 dev = ["pytest>=8.0", "ruff>=0.6"]
 marketdata = ["yfinance>=1.4.1"]
 streaming = ["websockets>=15.0"]
+qlib = ["pyqlib"]
 # Exact source snapshot supplied for the project. Pinning avoids silently changing
 # the research foundation while we validate our own risk/execution layer.
 tradingagents = ["tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f"]
 full = [
     "yfinance>=1.4.1",
     "websockets>=15.0",
+    "pyqlib",
     "tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f",
 ]
 
@@ -39,8 +41,8 @@ testpaths = ["tests"]
 addopts = "-ra"
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E", "F", "I", "B"]
