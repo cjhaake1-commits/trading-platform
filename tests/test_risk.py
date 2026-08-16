@@ -29,11 +29,12 @@ def portfolio(**overrides):
     return PortfolioState(**data)
 
 
-def test_sizes_trade_to_one_and_quarter_percent_risk():
+def test_sizes_trade_to_competitive_risk_with_position_cap():
     decision = RiskEngine().evaluate(proposal(), portfolio())
     assert decision.approved
-    assert decision.max_loss_dollars <= 12.5 + 1e-9
-    assert decision.quantity == 6.25
+    assert decision.quantity == 6.0
+    assert decision.max_loss_dollars == 12.0
+    assert decision.binding_constraint == "position_notional"
 
 
 def test_rejects_short_selling_by_default():
