@@ -14,13 +14,15 @@
 ## Phase 1 - Market data and scanner
 
 - [x] Add normalized instrument and candle/bar models
-- [ ] Add symbol-normalization rules across stocks, crypto, and forex
-- [ ] Add first stock data adapter
-- [ ] Add first crypto data adapter
-- [ ] Add first forex data adapter
+- [x] Add symbol-normalization rules across stocks, crypto, and forex
+- [x] Add first stock historical-data adapter
+- [x] Add first crypto historical-data adapter
+- [x] Add first forex historical-data adapter
 - [x] Add deterministic candidate scanner
-- [ ] Add persistent candidate / rejection audit log
-- [ ] Add scheduled universe scanning
+- [x] Add persistent candidate audit log
+- [x] Add historical universe scanner CLI
+- [ ] Add streaming/live quote adapters
+- [ ] Add scheduled universe scanning service
 
 ## Phase 2 - Strategy layer
 
@@ -29,20 +31,24 @@
 - [x] Add breakout baseline
 - [x] Standardize strategy output as TradeProposal
 - [x] Add core return / Sharpe / drawdown metric calculations
-- [ ] Add walk-forward simulation harness
-- [ ] Add fees and slippage model
+- [x] Add walk-forward simulation harness
+- [x] Add fees and slippage model
+- [x] Add next-bar execution to prevent same-bar look-ahead
+- [x] Add simulated stop execution
 - [ ] Add MACD and RSI/KDJ baselines for closer source-paper reproduction
+- [ ] Add multi-instrument portfolio backtesting
 
 ## Phase 3 - TradingAgents integration
 
 - [x] Pin supplied TradingAgents source commit
 - [ ] Configure selected LLM provider on VM
-- [ ] Parse five-tier portfolio rating deterministically
-- [ ] Convert TradingAgents rating into normalized proposals
-- [ ] Add confidence / disagreement handling
+- [x] Parse five-tier portfolio rating deterministically
+- [x] Convert TradingAgents rating into normalized proposals
+- [x] Add basic confidence mapping from five-tier ratings
+- [x] Gate expensive multi-agent analysis behind scanner ranking
+- [ ] Add debate/disagreement metadata to proposal confidence
 - [ ] Cache research results to control cost
 - [ ] Add timeout/failure fallbacks
-- [ ] Gate expensive multi-agent analysis behind scanner ranking
 
 ## Phase 4 - Portfolio and risk
 
@@ -50,7 +56,7 @@
 - [x] Daily / weekly circuit breakers
 - [x] Position-count limit
 - [x] No leverage / no shorts by default
-- [ ] Position-level stop execution
+- [x] Position-level stop execution in simulation
 - [ ] Correlation and sector exposure limits
 - [ ] Per-asset-class capital buckets
 - [ ] Maximum gross exposure
