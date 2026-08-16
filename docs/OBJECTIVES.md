@@ -24,19 +24,43 @@ It has two complementary mandates:
 
 The trading pillar must remain financially and operationally isolated from the other business pillars. It may report performance into a shared command center, but operating cash from other businesses must not be automatically transferred into trading, and trading losses must not be funded automatically from other business accounts.
 
-## Important interpretation of "daily P&L"
+## Daily return ambition
 
-Daily positive profit is a **business target, not a guaranteed system property**. The software must never manufacture trades simply to force daily activity. On days when expected edge is weak, preserving capital or making no trade is an acceptable and desirable outcome.
+The system's **stretch objective is to discover and exploit enough genuine edge that 20-30% positive days become achievable under exceptional market conditions**. That ambition is part of the product goal and should influence how aggressively the platform searches for information, improves execution, extends its trading day across suitable markets, and learns which signals are actually useful.
 
-The engineering target is therefore:
+A 20-30% return is **not a guaranteed daily result and not a quota that overrides risk controls**. The platform must never manufacture trades, chase losses, or increase leverage merely because a daily target has not been reached.
 
-> maximize risk-adjusted expected daily P&L and opportunity capture while keeping drawdowns, execution costs, slippage, and failure risk inside explicit limits.
+The engineering objective is therefore:
 
-A **20%+ daily return** is tracked as an exceptional-outcome metric, not as a required daily quota. The system may pursue opportunities capable of producing outsized days when measured edge and risk capacity justify them, but it must never increase leverage, trade frequency, or position size merely because the account has not reached a 20% target.
+> continuously improve the probability and magnitude of positive daily P&L, including the ability to capture exceptional 20-30% days when real edge exists, while keeping drawdowns, execution costs, slippage, and failure risk inside explicit limits.
+
+The dashboard should track progress toward 10%, 20%, and 30% daily return thresholds, but the risk engine remains independent of those thresholds.
+
+## Continuous intelligence and evolution mandate
+
+The platform must operate as a learning system rather than a static strategy bundle.
+
+It should continuously:
+
+- monitor approved market, news, macro, social, political, institutional, insider, derivatives, microstructure, and alternative-data sources
+- timestamp and normalize incoming information into a common feature model
+- measure latency, reliability, cost, and freshness for every provider
+- attribute realized and unrealized P&L to strategies, signals, data sources, asset classes, market sessions, and execution venues
+- detect when a previously useful signal is decaying or failing in a new regime
+- discover candidate new features and combinations from accumulated data
+- re-estimate signal usefulness using timestamp-correct historical and recent out-of-sample evidence
+- compare fast deterministic strategies with TradingAgents-assisted decisions
+- maintain market/session-specific models rather than assuming one strategy works everywhere
+- identify gaps in the information base and evaluate additional legitimate APIs or datasets
+- continuously improve execution routing, capital utilization, and data-processing latency
+
+No data source or model receives permanent trust. Its weight must be earned and re-earned through evidence.
+
+The system may automate measurement, ranking, parameter research, and candidate-model generation, but **live risk limits and execution permissions may not self-relax without passing predefined validation and deployment gates**.
 
 ## Risk posture: aggressive, not reckless
 
-The initial $1,000 pilot should pursue growth aggressively **when measurable edge is present**, while treating capital preservation as a hard constraint rather than a suggestion.
+The initial pilot should pursue growth aggressively **when measurable edge is present**, while treating capital preservation as a hard constraint rather than a suggestion.
 
 Aggressive means:
 
@@ -51,12 +75,12 @@ Aggressive does **not** mean:
 
 - maximum broker leverage
 - increasing size after losses to recover money
-- trading simply to meet a daily activity target
+- trading simply to meet a daily activity or return target
 - ignoring spreads, slippage, financing, liquidity, correlation, or event risk
 - allowing one position or one market to threaten the account
 - relaxing daily/weekly circuit breakers because a signal appears attractive
 
-The preferred behavior is **dynamic aggression**: risk capacity rises when signal quality, liquidity, execution quality, and recent strategy performance are strong, and falls when drawdown, volatility, correlation, spreads, uncertainty, or system-health risk increase.
+The preferred behavior is **dynamic aggression**: risk capacity rises when signal quality, liquidity, execution quality, and validated strategy performance are strong, and falls when drawdown, volatility, correlation, spreads, uncertainty, or system-health risk increase.
 
 ## Information advantage
 
@@ -127,7 +151,8 @@ The platform should optimize in this order:
 3. produce positive expectancy after all costs
 4. improve consistency of daily/weekly realized P&L
 5. increase capital utilization only when edge is present
-6. scale position size only after adequate evidence
+6. capture exceptional-return opportunities when evidence supports them
+7. scale position size only after adequate evidence
 
 Raw trade count, gross profit, and headline win rate are not primary objectives.
 
@@ -140,7 +165,7 @@ Track at minimum:
 - net P&L after fees, spread, financing, and estimated slippage
 - average daily P&L
 - percentage of profitable days
-- frequency and conditions of 20%+ exceptional-return days
+- frequency and conditions of 10%, 20%, and 30%+ return days
 - best / worst day
 - maximum daily and rolling drawdown
 - Sharpe / Sortino-like risk-adjusted measures
@@ -152,6 +177,8 @@ Track at minimum:
 - opportunity rejection reasons
 - P&L attribution by information source
 - incremental value of TradingAgents versus deterministic baselines
+- feature decay / drift statistics
+- provider latency, freshness, uptime, and cost-to-edge contribution
 
 ## Risk principle
 
