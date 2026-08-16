@@ -4,20 +4,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from autotrader.alternative_data import (
-    AlternativeSignalItem,
-    AlternativeSource,
-)
+from autotrader.alternative_data import AlternativeSignalItem, AlternativeSource
 
 
 @dataclass(frozen=True)
 class QuiverSignalNormalizer:
-    """Translate Quiver records into neutral research features.
-
-    These mappings are intentionally conservative. They encode direction where
-    the dataset has an obvious directional interpretation and otherwise retain
-    the source record as metadata for TradingAgents/contextual analysis.
-    """
+    """Translate Quiver records into neutral research features."""
 
     default_confidence: float = 0.55
 
@@ -74,7 +66,10 @@ class QuiverSignalNormalizer:
         items: list[AlternativeSignalItem] = []
         for row in records:
             change = self._as_float(row.get("Change_Pct") or row.get("Change"))
-            score = max(-0.5, min(0.5, change)) if abs(change) <= 1 else (0.3 if change > 0 else -0.3)
+            if abs(change) <= 1:
+                score = max(-0.5, min(0.5, change))
+            else:
+                score = 0.3 if change > 0 else -0.3
             items.append(
                 AlternativeSignalItem(
                     symbol=ticker.upper(),
@@ -94,7 +89,7 @@ class QuiverSignalNormalizer:
         items: list[AlternativeSignalItem] = []
         for row in records:
             dpi = self._as_float(row.get("DPI"))
-            score = max(-0.35, min(0.35, (0.5 - dpi))) if dpi else 0.0
+            score = max(-0.35, min(0.35, 0.5 - dpi)) if dpi else 0.0
             items.append(
                 AlternativeSignalItem(
                     symbol=ticker.upper(),
