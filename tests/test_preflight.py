@@ -1,6 +1,6 @@
+from autotrader import preflight
 from autotrader.brokers.connectivity import ConnectivityResult
 from autotrader.brokers.safety import BrokerSafetyResult
-from autotrader import preflight
 
 
 def test_preflight_ready_with_empty_reconciled_brokers(tmp_path, monkeypatch):
