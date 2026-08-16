@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import StrEnum
 
 
@@ -41,12 +41,7 @@ class RelayState:
 
 
 class RelayRegistry:
-    """Health/provenance registry for real-time information relays.
-
-    This layer does not grant execution authority. It exposes whether each input
-    is enabled, fresh, licensed/configured, and healthy enough for downstream
-    research or risk components to consume.
-    """
+    """Health/provenance registry for real-time information relays."""
 
     def __init__(self, specs: list[RelaySpec] | None = None):
         self._states: dict[str, RelayState] = {}
@@ -117,11 +112,7 @@ class RelayRegistry:
 
 
 def default_relay_specs() -> list[RelaySpec]:
-    """Default relay map ordered by operational importance.
-
-    Providers requiring paid/licensed access are intentionally represented as
-    disabled/configuration targets rather than assumed to be available.
-    """
+    """Default relay map ordered by operational importance."""
 
     return [
         RelaySpec(
@@ -154,7 +145,7 @@ def default_relay_specs() -> list[RelaySpec]:
             streaming=False,
             expected_max_age_seconds=120.0,
             priority=2,
-            notes="Federal Reserve statements, releases, and official feeds; event timestamp must be retained.",
+            notes="Federal Reserve statements, releases, and official feeds; retain event timestamps.",
         ),
         RelaySpec(
             "bls_macro_releases",
@@ -178,7 +169,7 @@ def default_relay_specs() -> list[RelaySpec]:
             streaming=False,
             expected_max_age_seconds=900.0,
             priority=3,
-            notes="Macro series and vintage-aware research; ALFRED vintages are important for anti-lookahead tests.",
+            notes="Macro series and vintage-aware research; ALFRED supports anti-lookahead tests.",
         ),
         RelaySpec(
             "licensed_breaking_news",
@@ -198,7 +189,10 @@ def default_relay_specs() -> list[RelaySpec]:
             priority=3,
             enabled=False,
             license_required=True,
-            notes="Options/futures positioning, unusual activity, volatility and flow; license and incremental-edge test required.",
+            notes=(
+                "Options/futures positioning, unusual activity, volatility and flow; "
+                "license and incremental-edge test required."
+            ),
         ),
         RelaySpec(
             "licensed_social_stream",
@@ -218,6 +212,9 @@ def default_relay_specs() -> list[RelaySpec]:
             priority=4,
             enabled=False,
             license_required=True,
-            notes="Political/institutional/public-record context. Use disclosure/publication time, not transaction date, for backtests.",
+            notes=(
+                "Political/institutional/public-record context. Use disclosure/publication time, "
+                "not transaction date, for backtests."
+            ),
         ),
     ]
