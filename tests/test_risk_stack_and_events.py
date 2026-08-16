@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 from autotrader.broker_events import normalize_alpaca_trade_update, normalize_oanda_transaction
 from autotrader.correlation_risk import CorrelationBucketEngine
 from autotrader.economic_events import EventRiskAssessment
