@@ -15,7 +15,7 @@ class QuiverConfig:
     timeout_seconds: float = 20.0
 
     @classmethod
-    def from_env(cls) -> "QuiverConfig":
+    def from_env(cls) -> QuiverConfig:
         key = os.getenv("QUIVER_API_KEY", "").strip()
         if not key:
             raise RuntimeError("QUIVER_API_KEY is not configured")
@@ -23,13 +23,7 @@ class QuiverConfig:
 
 
 class QuiverClient:
-    """Minimal REST adapter for Quiver Quantitative datasets.
-
-    The client returns raw records so dataset-specific normalization can remain
-    explicit and testable in higher layers. It intentionally does not cache or
-    redistribute responses; plan rights and rate limits remain the operator's
-    responsibility.
-    """
+    """Minimal REST adapter for Quiver Quantitative datasets."""
 
     def __init__(self, config: QuiverConfig | None = None):
         self.config = config or QuiverConfig.from_env()
@@ -96,13 +90,12 @@ class QuiverClient:
     def app_ratings(self) -> list[dict[str, Any]]:
         return self._get("beta/live/appratings")
 
-    def get_full_picture(self, ticker: str, cycle: int | None = None) -> dict[str, list[dict[str, Any]]]:
-        """Collect a broad, failure-tolerant dataset bundle for one ticker.
-
-        Dataset access depends on the account tier. Unauthorized datasets are
-        reported as an empty list rather than preventing access to datasets the
-        account can use.
-        """
+    def get_full_picture(
+        self,
+        ticker: str,
+        cycle: int | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Collect a broad, failure-tolerant dataset bundle for one ticker."""
 
         calls = {
             "congress_trades": lambda: self.congress_trades(ticker),
@@ -117,6 +110,6 @@ class QuiverClient:
         for name, call in calls.items():
             try:
                 output[name] = call()
-            except Exception:  # provider availability varies by plan and endpoint
+            except Exception:
                 output[name] = []
         return output
