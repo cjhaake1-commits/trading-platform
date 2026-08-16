@@ -1,0 +1,141 @@
+from autotrader.models import (
+    AssetClass,
+    PortfolioState,
+    Position,
+    Side,
+    TradeIntent,
+    TradeProposal,
+)
+from autotrader.risk import RiskContext, RiskEngine
+
+
+def proposal(**overrides):
+    data = {
+        "symbol": "NVDA",
+        "asset_class": AssetClass.STOCK,
+        "side": Side.BUY,
+        "entry_price": 100.0,
+        "stop_price": 98.0,
+        "confidence": 0.7,
+        "source": "test",
+    }
+    data.update(overrides)
+    return TradeProposal(**data)
+
+
+def portfolio(**overrides):
+    data = {"equity": 1000.0, "cash": 1000.0}
+    data.update(overrides)
+    return PortfolioState(**data)
+
+
+def test_sizes_trade_to_competitive_risk_with_position_cap():
+    decision = RiskEngine().evaluate(proposal(), portfolio())
+    assert decision.approved
+    assert decision.quantity == 6.0
+    assert decision.max_loss_dollars == 12.0
+    assert decision.binding_constraint == "position_notional"
+
+
+def test_rejects_short_selling_by_default():
+    decision = RiskEngine().evaluate(
+        proposal(side=Side.SELL, entry_price=100.0, stop_price=102.0),
+        portfolio(),
+    )
+    assert not decision.approved
+    assert "Short selling" in decision.reason
+
+
+def test_rejects_after_daily_loss_limit():
+    decision = RiskEngine().evaluate(proposal(), portfolio(daily_pnl=-50.0))
+    assert not decision.approved
+    assert "Daily loss" in decision.reason
+
+
+def test_rejects_bad_long_stop():
+    decision = RiskEngine().evaluate(proposal(stop_price=101.0), portfolio())
+    assert not decision.approved
+    assert "Long trade stop" in decision.reason
+
+
+def test_exit_long_is_allowed_even_when_short_selling_disabled():
+    state = portfolio(
+        cash=500.0,
+        positions={
+            "NVDA": Position("NVDA", AssetClass.STOCK, 2.0, 100.0, 98.0),
+        },
+    )
+    decision = RiskEngine().evaluate(
+        proposal(
+            side=Side.SELL,
+            intent=TradeIntent.EXIT,
+            entry_price=105.0,
+            stop_price=104.0,
+        ),
+        state,
+    )
+    assert decision.approved
+    assert decision.quantity == 2.0
+    assert decision.max_loss_dollars == 0.0
+
+
+def test_reduce_caps_quantity_to_existing_position():
+    state = portfolio(
+        positions={
+            "NVDA": Position("NVDA", AssetClass.STOCK, 2.0, 100.0, 98.0),
+        }
+    )
+    decision = RiskEngine().evaluate(
+        proposal(
+            side=Side.SELL,
+            intent=TradeIntent.REDUCE,
+            requested_quantity=10.0,
+            entry_price=101.0,
+            stop_price=100.0,
+        ),
+        state,
+    )
+    assert decision.approved
+    assert decision.quantity == 2.0
+
+
+def test_soft_drawdown_contracts_risk_without_stopping_trading():
+    decision = RiskEngine().evaluate(
+        proposal(),
+        portfolio(equity=920.0, cash=920.0),
+        RiskContext(peak_equity=1000.0),
+    )
+    assert decision.approved
+    assert decision.risk_scale == 0.75
+    assert decision.max_loss_dollars <= 920.0 * 0.0125 * 0.75 + 1e-9
+
+
+def test_hard_peak_drawdown_blocks_new_exposure():
+    decision = RiskEngine().evaluate(
+        proposal(),
+        portfolio(equity=849.0, cash=849.0),
+        RiskContext(peak_equity=1000.0),
+    )
+    assert not decision.approved
+    assert "drawdown" in decision.reason.lower()
+
+
+def test_health_and_liquidity_scales_reduce_position_size():
+    decision = RiskEngine().evaluate(
+        proposal(),
+        portfolio(),
+        RiskContext(health_scale=0.25, liquidity_scale=0.5),
+    )
+    assert decision.approved
+    assert decision.risk_scale == 0.25
+    assert decision.quantity == 1.5625
+
+
+def test_gross_exposure_limit_can_block_new_trade():
+    decision = RiskEngine().evaluate(
+        proposal(),
+        portfolio(),
+        RiskContext(gross_notional=1000.0),
+    )
+    assert not decision.approved
+    assert "risk capacity" in decision.reason.lower()

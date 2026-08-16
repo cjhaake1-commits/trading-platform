@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autonomous-trading-platform"
+version = "0.1.0"
+description = "Safety-first multi-market trading platform with TradingAgents research integration"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+marketdata = ["yfinance>=1.4.1"]
+streaming = ["websockets>=15.0"]
+qlib = ["pyqlib"]
+# Exact source snapshot supplied for the project. Pinning avoids silently changing
+# the research foundation while we validate our own risk/execution layer.
+tradingagents = ["tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f"]
+full = [
+    "yfinance>=1.4.1",
+    "websockets>=15.0",
+    "pyqlib",
+    "tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f",
+]
+
+[project.scripts]
+autotrader = "autotrader.app:main"
+autotrader-scan = "autotrader.scan_app:main"
+autotrader-runtime = "autotrader.runtime_app:main"
+autotrader-connectivity = "autotrader.connectivity_app:main"
+autotrader-stream = "autotrader.streaming_app:main"
+autotrader-practice-order = "autotrader.order_test_app:main"
+autotrader-preflight = "autotrader.preflight_app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
