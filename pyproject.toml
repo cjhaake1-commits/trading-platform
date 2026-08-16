@@ -11,12 +11,18 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
+marketdata = ["yfinance>=1.4.1"]
 # Exact source snapshot supplied for the project. Pinning avoids silently changing
 # the research foundation while we validate our own risk/execution layer.
 tradingagents = ["tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f"]
+full = [
+    "yfinance>=1.4.1",
+    "tradingagents @ git+https://github.com/TauricResearch/TradingAgents.git@a33fd4c0f134485a43553a2c23a63cb14adbd88f",
+]
 
 [project.scripts]
 autotrader = "autotrader.app:main"
+autotrader-scan = "autotrader.scan_app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
