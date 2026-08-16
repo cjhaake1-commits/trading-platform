@@ -10,6 +10,15 @@ class Side(StrEnum):
     SELL = "sell"
 
 
+class TradeIntent(StrEnum):
+    """Describe the intended position lifecycle separately from order direction."""
+
+    ENTER = "enter"
+    INCREASE = "increase"
+    REDUCE = "reduce"
+    EXIT = "exit"
+
+
 class AssetClass(StrEnum):
     STOCK = "stock"
     ETF = "etf"
@@ -69,6 +78,12 @@ class TradeProposal:
     confidence: float
     source: str
     rationale: str = ""
+    intent: TradeIntent = TradeIntent.ENTER
+    requested_quantity: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.requested_quantity is not None and self.requested_quantity <= 0:
+            raise ValueError("requested_quantity must be positive when supplied")
 
     @property
     def risk_per_unit(self) -> float:
@@ -82,6 +97,7 @@ class Position:
     quantity: float
     average_price: float
     stop_price: float
+    realized_pnl: float = 0.0
 
 
 @dataclass
