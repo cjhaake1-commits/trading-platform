@@ -98,6 +98,9 @@ class Position:
     average_price: float
     stop_price: float
     realized_pnl: float = 0.0
+    initial_stop_price: float | None = None
+    highest_price: float | None = None
+    opened_at: datetime | None = None
 
 
 @dataclass
@@ -115,6 +118,8 @@ class RiskDecision:
     reason: str
     quantity: float = 0.0
     max_loss_dollars: float = 0.0
+    risk_scale: float = 1.0
+    binding_constraint: str | None = None
 
 
 @dataclass(frozen=True)
