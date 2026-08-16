@@ -21,6 +21,30 @@ The engineering target is therefore:
 
 > maximize risk-adjusted expected daily P&L and opportunity capture while keeping drawdowns, execution costs, slippage, and failure risk inside explicit limits.
 
+## Risk posture: aggressive, not reckless
+
+The initial $1,000 pilot should pursue growth aggressively **when measurable edge is present**, while treating capital preservation as a hard constraint rather than a suggestion.
+
+Aggressive means:
+
+- scan broadly across approved markets and global sessions
+- recycle available capital into multiple independent high-quality opportunities
+- use controlled notional leverage where the instrument, broker, liquidity, and tested strategy support it
+- favor the strongest risk-adjusted expected-return opportunities rather than leaving capital idle by default
+- react quickly to validated market, news, social, political, institutional, and alternative-data events
+- compound retained profits and increase usable trading capital as the account grows
+
+Aggressive does **not** mean:
+
+- maximum broker leverage
+- increasing size after losses to recover money
+- trading simply to meet a daily activity target
+- ignoring spreads, slippage, financing, liquidity, correlation, or event risk
+- allowing one position or one market to threaten the account
+- relaxing daily/weekly circuit breakers because a signal appears attractive
+
+The preferred behavior is **dynamic aggression**: risk capacity rises when signal quality, liquidity, execution quality, and recent strategy performance are strong, and falls when drawdown, volatility, correlation, spreads, uncertainty, or system-health risk increase.
+
 ## Information advantage
 
 The platform should seek the broadest legitimate information base that can be tested and maintained reliably:
