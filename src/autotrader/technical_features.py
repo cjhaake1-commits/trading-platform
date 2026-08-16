@@ -49,7 +49,10 @@ def rsi(bars: list[MarketBar], period: int = 14) -> float | None:
     if len(bars) < period + 1:
         return None
     closes = [bar.close for bar in bars[-(period + 1) :]]
-    changes = [current - previous for previous, current in zip(closes, closes[1:], strict=True)]
+    changes = [
+        current - previous
+        for previous, current in zip(closes[:-1], closes[1:], strict=True)
+    ]
     gains = [max(change, 0.0) for change in changes]
     losses = [max(-change, 0.0) for change in changes]
     avg_gain = mean(gains)
@@ -64,7 +67,7 @@ def true_ranges(bars: list[MarketBar]) -> list[float]:
     if len(bars) < 2:
         return []
     ranges: list[float] = []
-    for previous, current in zip(bars, bars[1:], strict=True):
+    for previous, current in zip(bars[:-1], bars[1:], strict=True):
         ranges.append(
             max(
                 current.high - current.low,
@@ -93,7 +96,10 @@ def realized_volatility(bars: list[MarketBar], window: int = 20) -> float | None
     if len(bars) < window + 1:
         return None
     closes = [bar.close for bar in bars[-(window + 1) :]]
-    log_returns = [log(current / previous) for previous, current in zip(closes, closes[1:], strict=True)]
+    log_returns = [
+        log(current / previous)
+        for previous, current in zip(closes[:-1], closes[1:], strict=True)
+    ]
     if not log_returns:
         return None
     return pstdev(log_returns) * sqrt(window)
