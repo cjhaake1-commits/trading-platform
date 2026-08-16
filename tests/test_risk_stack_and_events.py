@@ -1,5 +1,5 @@
 from autotrader.broker_events import normalize_alpaca_trade_update, normalize_oanda_transaction
-from autotrader.correlation_risk import CorrelationBucketEngine
+from autotrader.correlation_risk import CorrelationBucketEngine, CorrelationBucketPolicy
 from autotrader.economic_events import EventRiskAssessment
 from autotrader.models import AssetClass, PortfolioState, Position, Side, TradeProposal
 from autotrader.news_streaming import normalize_alpaca_news
@@ -24,7 +24,7 @@ def test_event_window_can_block_new_entry():
     decision = stack.evaluate(
         proposal(),
         PortfolioState(equity=1000.0, cash=1000.0),
-        event_risk=EventRiskAssessment(True, 0.25, True, ("CPI",), "scheduled event"),
+        event_risk=EventRiskAssessment(True, 0.50, True, ("CPI",), "scheduled event"),
     )
     assert not decision.approved
     assert decision.reason == "scheduled event"
@@ -36,9 +36,17 @@ def test_open_risk_budget_caps_new_quantity():
         cash=800.0,
         positions={"SPY": Position("SPY", AssetClass.ETF, 2.0, 100.0, 98.0)},
     )
+    correlation = CorrelationBucketEngine(
+        {"SPY": "beta", "QQQ": "beta"},
+        policy=CorrelationBucketPolicy(
+            max_bucket_notional_pct=2.0,
+            soft_bucket_notional_pct=1.5,
+            soft_risk_scale=1.0,
+        ),
+    )
     stack = LayeredRiskStack(
         RiskEngine(),
-        correlation_engine=CorrelationBucketEngine({"SPY": "beta", "QQQ": "beta"}),
+        correlation_engine=correlation,
         policy=RiskStackPolicy(max_portfolio_open_risk_pct=0.01),
     )
     decision = stack.evaluate(proposal(), portfolio, mark_prices={"SPY": 100.0})
