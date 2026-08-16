@@ -37,9 +37,21 @@ class BaselineStrategies:
         price = closes[-1]
 
         if fast > slow:
-            return self._proposal(instrument, Side.BUY, price, "sma_cross", f"fast={fast:.4f} > slow={slow:.4f}")
+            return self._proposal(
+                instrument,
+                Side.BUY,
+                price,
+                "sma_cross",
+                f"fast={fast:.4f} > slow={slow:.4f}",
+            )
         if fast < slow:
-            return self._proposal(instrument, Side.SELL, price, "sma_cross", f"fast={fast:.4f} < slow={slow:.4f}")
+            return self._proposal(
+                instrument,
+                Side.SELL,
+                price,
+                "sma_cross",
+                f"fast={fast:.4f} < slow={slow:.4f}",
+            )
         return None
 
     def breakout(self, instrument: Instrument, bars: list[MarketBar]) -> TradeProposal | None:
@@ -51,9 +63,21 @@ class BaselineStrategies:
         prior_low = min(b.low for b in prior)
 
         if current.close > prior_high:
-            return self._proposal(instrument, Side.BUY, current.close, "breakout", f"close>{prior_high:.4f}")
+            return self._proposal(
+                instrument,
+                Side.BUY,
+                current.close,
+                "breakout",
+                f"close>{prior_high:.4f}",
+            )
         if current.close < prior_low:
-            return self._proposal(instrument, Side.SELL, current.close, "breakout", f"close<{prior_low:.4f}")
+            return self._proposal(
+                instrument,
+                Side.SELL,
+                current.close,
+                "breakout",
+                f"close<{prior_low:.4f}",
+            )
         return None
 
     def mean_reversion(self, instrument: Instrument, bars: list[MarketBar]) -> TradeProposal | None:
@@ -68,9 +92,21 @@ class BaselineStrategies:
         price = closes[-1]
 
         if z <= -self.config.zscore_entry:
-            return self._proposal(instrument, Side.BUY, price, "mean_reversion", f"z={z:.3f}")
+            return self._proposal(
+                instrument,
+                Side.BUY,
+                price,
+                "mean_reversion",
+                f"z={z:.3f}",
+            )
         if z >= self.config.zscore_entry:
-            return self._proposal(instrument, Side.SELL, price, "mean_reversion", f"z={z:.3f}")
+            return self._proposal(
+                instrument,
+                Side.SELL,
+                price,
+                "mean_reversion",
+                f"z={z:.3f}",
+            )
         return None
 
     def _proposal(
