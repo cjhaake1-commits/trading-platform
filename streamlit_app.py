@@ -8,6 +8,8 @@ import streamlit as st
 
 st.set_page_config(page_title="Autonomous Trading Command Center", page_icon="📈", layout="wide")
 DATA_PATH = Path("dashboard/data.json")
+TOTAL_BASE_CAPITAL = 3000.0
+PILLAR_BASE_CAPITAL = 1000.0
 
 
 def _money(value) -> str:
@@ -180,7 +182,7 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
 
 
 st.title("Autonomous Trading Command Center")
-st.caption("Three tracked pillars: Alpaca Equities · OANDA FX · Alpaca Crypto · live broker data refreshes about every 30 seconds")
+st.caption("$3,000 paper portfolio · $1,000 per pillar · Alpaca Equities · OANDA FX · Alpaca Crypto · live broker data refreshes about every 30 seconds")
 
 data = load_snapshot() or {}
 runtime = data.get("runtime") if isinstance(data.get("runtime"), dict) else {}
@@ -188,7 +190,7 @@ guardrails = data.get("guardrails") if isinstance(data.get("guardrails"), dict) 
 targets = data.get("targets") if isinstance(data.get("targets"), dict) else {}
 activity = data.get("activity") if isinstance(data.get("activity"), list) else []
 cycle = data.get("latest_cycle") if isinstance(data.get("latest_cycle"), dict) else {}
-base_equity = _float((data.get("portfolio") or {}).get("base_equity"), 2000.0) if isinstance(data.get("portfolio"), dict) else 2000.0
+base_equity = TOTAL_BASE_CAPITAL
 
 
 @st.fragment(run_every="30s")
@@ -196,30 +198,34 @@ def live_panel() -> None:
     positions, metrics, pillar_status, errors = fetch_live_broker_data()
     open_pnl = metrics["unrealized_pnl"]
     marked_equity = base_equity + open_pnl
-    mtm_return = (marked_equity - base_equity) / base_equity if base_equity else 0.0
+    mtm_return = open_pnl / base_equity if base_equity else 0.0
 
     st.subheader("Live portfolio")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Marked equity", _money(marked_equity))
-    c2.metric("Open P&L", _money(open_pnl))
-    c3.metric("MTM return", _pct(mtm_return))
-    c4.metric("Gross exposure", _money(metrics["gross_exposure"]))
-    c5.metric("Open positions", len(positions))
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Starting capital", _money(base_equity))
+    c2.metric("Marked equity", _money(marked_equity))
+    c3.metric("Open P&L", _money(open_pnl))
+    c4.metric("MTM return", _pct(mtm_return))
+    c5.metric("Gross exposure", _money(metrics["gross_exposure"]))
+    c6.metric("Open positions", len(positions))
 
     st.subheader("Trading pillars")
     p1, p2, p3 = st.columns(3)
     with p1:
         status = pillar_status["equities"]
+        pillar_equity = PILLAR_BASE_CAPITAL + _float(status["unrealized_pnl"])
         st.metric("Alpaca Equities", f"{'CONNECTED' if status['connected'] else 'CHECK'} · {status['state']}")
-        st.caption(f"Positions: {status['positions']} · Exposure: {_money(metrics['equity_exposure'])} · Open P&L: {_money(status['unrealized_pnl'])}")
+        st.caption(f"Base: {_money(PILLAR_BASE_CAPITAL)} · Marked: {_money(pillar_equity)} · Positions: {status['positions']} · Exposure: {_money(metrics['equity_exposure'])} · P&L: {_money(status['unrealized_pnl'])}")
     with p2:
         status = pillar_status["oanda"]
+        pillar_equity = PILLAR_BASE_CAPITAL + _float(status["unrealized_pnl"])
         st.metric("OANDA FX", f"{'CONNECTED' if status['connected'] else 'CHECK'} · {status['state']}")
-        st.caption(f"Positions: {status['positions']} · Exposure: {_money(metrics['oanda_exposure'])} · Open P&L: {_money(status['unrealized_pnl'])}")
+        st.caption(f"Base: {_money(PILLAR_BASE_CAPITAL)} · Marked: {_money(pillar_equity)} · Positions: {status['positions']} · Exposure: {_money(metrics['oanda_exposure'])} · P&L: {_money(status['unrealized_pnl'])}")
     with p3:
         status = pillar_status["crypto"]
+        pillar_equity = PILLAR_BASE_CAPITAL + _float(status["unrealized_pnl"])
         st.metric("Alpaca Crypto", f"{'CONNECTED' if status['connected'] else 'CHECK'} · {status['state']}")
-        st.caption(f"Positions: {status['positions']} · Exposure: {_money(metrics['crypto_exposure'])} · Open P&L: {_money(status['unrealized_pnl'])}")
+        st.caption(f"Base: {_money(PILLAR_BASE_CAPITAL)} · Marked: {_money(pillar_equity)} · Positions: {status['positions']} · Exposure: {_money(metrics['crypto_exposure'])} · P&L: {_money(status['unrealized_pnl'])}")
 
     if errors:
         with st.expander("Live feed status"):
@@ -266,6 +272,11 @@ if cycle:
     rejection_count = len(cycle.get("risk_rejections", []) or []) + len(cycle.get("submission_failures", []) or []) + len(cycle.get("sizing_skips", []) or [])
     d4.metric("Rejected / skipped", rejection_count)
 
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Equity qualified", cycle.get("equity_qualified", "—"))
+    c2.metric("FX qualified", cycle.get("forex_qualified", "—"))
+    c3.metric("Crypto qualified", cycle.get("crypto_qualified", "—"))
+
     candidates = cycle.get("top_candidates") if isinstance(cycle.get("top_candidates"), list) else []
     if candidates:
         st.markdown("**Top candidates**")
@@ -300,4 +311,4 @@ if activity:
 else:
     st.info("No activity snapshot published yet.")
 
-st.caption("Paper/practice trading only. Alpaca Equities, OANDA FX, and Alpaca Crypto are tracked independently. Live broker reads use Streamlit Secrets and are never stored in the repository.")
+st.caption("Paper/practice trading only. Three independent $1,000 pillars roll up to one $3,000 paper portfolio. Live broker reads use Streamlit Secrets and are never stored in the repository.")
