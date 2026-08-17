@@ -43,13 +43,14 @@ class AutonomousPaperConfig:
     ledger_path: str = "var/autotrader/portfolio.db"
     idempotency_path: str = "var/autotrader/idempotency.db"
     initial_equity: float = 2000.0
-    cadence_seconds: float = 120.0
+    cadence_seconds: float = 60.0
     lookback_days: int = 7
     interval: str = "15m"
     minimum_candidate_score: float = 5.0
     momentum_only_score: float = 12.0
     take_profit_r_multiple: float = 1.5
     max_entries_per_cycle: int = 3
+    min_forex_entries_when_qualified: int = 1
     alpaca_universe: tuple[str, ...] = DEFAULT_ALPACA_UNIVERSE
     oanda_universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
 
@@ -159,6 +160,7 @@ class AutonomousPaperTradingJob:
             if candidate is not None:
                 diagnostics.append({
                     "symbol": instrument.symbol,
+                    "asset_class": instrument.asset_class.value,
                     "score": round(candidate.score, 2),
                     "momentum_pct": round(candidate.momentum_pct, 3),
                     "last_price": candidate.last_price,
@@ -175,13 +177,28 @@ class AutonomousPaperTradingJob:
                 signals.append(signal)
 
         diagnostics.sort(key=lambda item: float(item["score"]), reverse=True)
-        signals.sort(key=lambda item: item.score, reverse=True)
+        forex_signals = sorted(
+            [s for s in signals if s.instrument.asset_class is AssetClass.FOREX],
+            key=lambda item: item.score,
+            reverse=True,
+        )
+        equity_signals = sorted(
+            [s for s in signals if s.instrument.asset_class is not AssetClass.FOREX],
+            key=lambda item: item.score,
+            reverse=True,
+        )
+        # FX gets first opportunity each cycle when it has a valid signal. Global
+        # risk limits still apply; this only prevents equities from always consuming
+        # the queue first.
+        signals = forex_signals + equity_signals
 
         if not signals:
             return JobResult(True, "Autonomous paper cycle found no qualifying entry", {
                 "scanned": len(histories),
                 "minimum_candidate_score": self.config.minimum_candidate_score,
                 "momentum_only_score": self.config.momentum_only_score,
+                "forex_scanned": sum(1 for i in histories if i.asset_class is AssetClass.FOREX),
+                "forex_qualified": 0,
                 "top_candidates": diagnostics[:10],
             })
 
@@ -219,18 +236,15 @@ class AutonomousPaperTradingJob:
                 ),
             )
             if not decision.approved:
-                rejections.append({"symbol": signal.instrument.symbol, "reason": decision.reason})
+                rejections.append({
+                    "symbol": signal.instrument.symbol,
+                    "broker": "oanda-practice" if signal.instrument.asset_class is AssetClass.FOREX else "alpaca-paper",
+                    "reason": decision.reason,
+                })
                 continue
 
             broker = "oanda-practice" if signal.instrument.asset_class is AssetClass.FOREX else "alpaca-paper"
-            if broker == "oanda-practice":
-                order_quantity = float(math.floor(decision.quantity))
-            else:
-                # Alpaca protected OTO orders use whole-share sizing. The successful
-                # integration test used whole shares; fractional advanced orders can
-                # be rejected even when simple fractional market orders are allowed.
-                order_quantity = float(math.floor(decision.quantity))
-
+            order_quantity = float(math.floor(decision.quantity))
             if order_quantity < 1:
                 sizing_skips.append({
                     "symbol": signal.instrument.symbol,
@@ -303,6 +317,7 @@ class AutonomousPaperTradingJob:
                     stop_price=signal.proposal.stop_price,
                     ledger_path=self.config.ledger_path,
                     initial_equity=self.config.initial_equity,
+                    expected_quantity=order_quantity,
                     attempts=20,
                     delay_seconds=0.25,
                 )
@@ -326,6 +341,9 @@ class AutonomousPaperTradingJob:
         return JobResult(True, "Autonomous paper cycle completed", {
             "entries": entries,
             "qualified_signals": len(signals),
+            "forex_scanned": sum(1 for i in histories if i.asset_class is AssetClass.FOREX),
+            "forex_qualified": len(forex_signals),
+            "equity_qualified": len(equity_signals),
             "risk_rejections": rejections,
             "submission_failures": submission_failures,
             "duplicate_skips": duplicate_skips,
