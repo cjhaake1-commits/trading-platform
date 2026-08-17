@@ -49,29 +49,16 @@ class PositionReconciler:
     ) -> ReconciliationResult:
         broker_by_symbol: dict[str, float] = {}
         for position in broker_positions:
-            broker_by_symbol[position.symbol] = (
-                broker_by_symbol.get(position.symbol, 0.0) + position.quantity
-            )
+            broker_by_symbol[position.symbol] = broker_by_symbol.get(position.symbol, 0.0) + position.quantity
 
         ledger_symbols = set(portfolio.positions)
-        broker_symbols = {
-            symbol
-            for symbol, quantity in broker_by_symbol.items()
-            if abs(quantity) > self.quantity_tolerance
-        }
+        broker_symbols = {symbol for symbol, quantity in broker_by_symbol.items() if abs(quantity) > self.quantity_tolerance}
         issues: list[ReconciliationIssue] = []
 
         for symbol in sorted(ledger_symbols | broker_symbols):
-            ledger_quantity = (
-                portfolio.positions.get(symbol).quantity if symbol in portfolio.positions else 0.0
-            )
+            ledger_quantity = portfolio.positions.get(symbol).quantity if symbol in portfolio.positions else 0.0
             broker_quantity = broker_by_symbol.get(symbol, 0.0)
-            if isclose(
-                ledger_quantity,
-                broker_quantity,
-                rel_tol=0.0,
-                abs_tol=self.quantity_tolerance,
-            ):
+            if isclose(ledger_quantity, broker_quantity, rel_tol=0.0, abs_tol=self.quantity_tolerance):
                 continue
             if ledger_quantity == 0:
                 kind = "broker_only_position"
@@ -82,23 +69,21 @@ class PositionReconciler:
             else:
                 kind = "quantity_mismatch"
                 reason = "broker and ledger quantities disagree"
-            issues.append(
-                ReconciliationIssue(
-                    symbol=symbol,
-                    kind=kind,
-                    ledger_quantity=ledger_quantity,
-                    broker_quantity=broker_quantity,
-                    reason=reason,
-                )
-            )
+            issues.append(ReconciliationIssue(symbol=symbol, kind=kind, ledger_quantity=ledger_quantity, broker_quantity=broker_quantity, reason=reason))
 
         if issues:
-            return ReconciliationResult(
-                False,
-                tuple(issues),
-                "position reconciliation failed; new exposure must remain blocked",
-            )
+            return ReconciliationResult(False, tuple(issues), "position reconciliation failed; new exposure must remain blocked")
         return ReconciliationResult(True, (), "broker and ledger positions reconcile")
+
+
+def _canonical_alpaca_symbol(row: dict[str, object]) -> str:
+    symbol = str(row.get("symbol") or "").upper()
+    asset_class = str(row.get("asset_class") or "").lower()
+    if asset_class == "crypto" and "/" not in symbol:
+        for quote in ("USD", "USDT", "USDC"):
+            if symbol.endswith(quote) and len(symbol) > len(quote):
+                return f"{symbol[:-len(quote)]}/{quote}"
+    return symbol
 
 
 def normalize_alpaca_positions(records: object) -> list[BrokerPosition]:
@@ -119,11 +104,9 @@ def normalize_alpaca_positions(records: object) -> list[BrokerPosition]:
         output.append(
             BrokerPosition(
                 broker="alpaca-paper",
-                symbol=str(symbol).upper(),
+                symbol=_canonical_alpaca_symbol(row),
                 quantity=quantity,
-                average_price=(
-                    None if row.get("avg_entry_price") is None else float(row["avg_entry_price"])
-                ),
+                average_price=None if row.get("avg_entry_price") is None else float(row["avg_entry_price"]),
             )
         )
     return output
@@ -145,12 +128,5 @@ def normalize_oanda_positions(records: object) -> list[BrokerPosition]:
         average = long.get("averagePrice") if quantity >= 0 else short.get("averagePrice")
         if abs(quantity) <= 1e-12:
             continue
-        output.append(
-            BrokerPosition(
-                broker="oanda-practice",
-                symbol=symbol,
-                quantity=quantity,
-                average_price=None if average is None else float(average),
-            )
-        )
+        output.append(BrokerPosition(broker="oanda-practice", symbol=symbol, quantity=quantity, average_price=None if average is None else float(average)))
     return output
