@@ -58,9 +58,16 @@ def _secret(name: str) -> str:
 
 def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float], dict[str, dict[str, object]], list[str]]:
     positions: list[dict[str, object]] = []
-    metrics = {"unrealized_pnl": 0.0, "gross_exposure": 0.0, "alpaca_exposure": 0.0, "oanda_exposure": 0.0}
-    broker_status = {
-        "alpaca": {"connected": False, "positions": 0, "state": "CHECK", "unrealized_pnl": 0.0},
+    metrics = {
+        "unrealized_pnl": 0.0,
+        "gross_exposure": 0.0,
+        "equity_exposure": 0.0,
+        "crypto_exposure": 0.0,
+        "oanda_exposure": 0.0,
+    }
+    pillar_status = {
+        "equities": {"connected": False, "positions": 0, "state": "CHECK", "unrealized_pnl": 0.0},
+        "crypto": {"connected": False, "positions": 0, "state": "CHECK", "unrealized_pnl": 0.0},
         "oanda": {"connected": False, "positions": 0, "state": "CHECK", "unrealized_pnl": 0.0},
     }
     errors: list[str] = []
@@ -81,10 +88,13 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
             with urlopen(req, timeout=10) as r:
                 rows = json.load(r)
             rows = rows if isinstance(rows, list) else []
-            broker_status["alpaca"]["connected"] = True
-            broker_status["alpaca"]["positions"] = len(rows)
-            broker_status["alpaca"]["state"] = "TRADING" if rows else "FLAT"
+            pillar_status["equities"]["connected"] = True
+            pillar_status["crypto"]["connected"] = True
+
             for row in rows:
+                asset_class = str(row.get("asset_class") or "").lower()
+                is_crypto = asset_class == "crypto"
+                pillar = "crypto" if is_crypto else "equities"
                 qty = _float(row.get("qty"))
                 avg = _float(row.get("avg_entry_price"))
                 current = _float(row.get("current_price"), avg)
@@ -92,7 +102,9 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
                 unrealized = _float(row.get("unrealized_pl"))
                 positions.append(
                     {
+                        "pillar": "Alpaca Crypto" if is_crypto else "Alpaca Equities",
                         "broker": "Alpaca Paper",
+                        "asset_class": asset_class or "us_equity",
                         "symbol": row.get("symbol"),
                         "quantity": qty,
                         "average_price": avg,
@@ -104,8 +116,12 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
                 )
                 metrics["unrealized_pnl"] += unrealized
                 metrics["gross_exposure"] += market_value
-                metrics["alpaca_exposure"] += market_value
-                broker_status["alpaca"]["unrealized_pnl"] += unrealized
+                metrics["crypto_exposure" if is_crypto else "equity_exposure"] += market_value
+                pillar_status[pillar]["positions"] += 1
+                pillar_status[pillar]["unrealized_pnl"] += unrealized
+
+            for pillar in ("equities", "crypto"):
+                pillar_status[pillar]["state"] = "TRADING" if pillar_status[pillar]["positions"] else "FLAT"
         except Exception as exc:
             errors.append(f"Alpaca live read failed: {exc}")
     else:
@@ -123,9 +139,9 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
             with urlopen(req, timeout=10) as r:
                 payload = json.load(r)
             rows = payload.get("positions", []) if isinstance(payload, dict) else []
-            broker_status["oanda"]["connected"] = True
-            broker_status["oanda"]["positions"] = len(rows)
-            broker_status["oanda"]["state"] = "TRADING" if rows else "FLAT"
+            pillar_status["oanda"]["connected"] = True
+            pillar_status["oanda"]["positions"] = len(rows)
+            pillar_status["oanda"]["state"] = "TRADING" if rows else "FLAT"
             for row in rows:
                 symbol = str(row.get("instrument") or "").replace("_", "/")
                 long = row.get("long") if isinstance(row.get("long"), dict) else {}
@@ -139,7 +155,9 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
                 exposure = abs(qty * avg)
                 positions.append(
                     {
+                        "pillar": "OANDA FX",
                         "broker": "OANDA Practice",
+                        "asset_class": "forex",
                         "symbol": symbol,
                         "quantity": qty,
                         "average_price": avg,
@@ -152,17 +170,17 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
                 metrics["unrealized_pnl"] += unrealized
                 metrics["gross_exposure"] += exposure
                 metrics["oanda_exposure"] += exposure
-                broker_status["oanda"]["unrealized_pnl"] += unrealized
+                pillar_status["oanda"]["unrealized_pnl"] += unrealized
         except Exception as exc:
             errors.append(f"OANDA live read failed: {exc}")
     else:
         errors.append("OANDA Streamlit secrets are not configured")
 
-    return positions, metrics, broker_status, errors
+    return positions, metrics, pillar_status, errors
 
 
 st.title("Autonomous Trading Command Center")
-st.caption("Alpaca Paper + OANDA Practice · autonomous testing · broker data refreshes about every 30 seconds")
+st.caption("Three tracked pillars: Alpaca Equities · OANDA FX · Alpaca Crypto · live broker data refreshes about every 30 seconds")
 
 data = load_snapshot() or {}
 runtime = data.get("runtime") if isinstance(data.get("runtime"), dict) else {}
@@ -175,40 +193,46 @@ base_equity = _float((data.get("portfolio") or {}).get("base_equity"), 2000.0) i
 
 @st.fragment(run_every="30s")
 def live_panel() -> None:
-    positions, metrics, broker_status, errors = fetch_live_broker_data()
+    positions, metrics, pillar_status, errors = fetch_live_broker_data()
     open_pnl = metrics["unrealized_pnl"]
     marked_equity = base_equity + open_pnl
     mtm_return = (marked_equity - base_equity) / base_equity if base_equity else 0.0
 
-    st.subheader("Live broker results")
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Live broker feed", "CONNECTED" if broker_status["alpaca"]["connected"] or broker_status["oanda"]["connected"] else "CHECK")
-    c2.metric("Marked equity", _money(marked_equity))
-    c3.metric("Open P&L", _money(open_pnl))
-    c4.metric("MTM return", _pct(mtm_return))
-    c5.metric("Gross exposure", _money(metrics["gross_exposure"]))
-    c6.metric("Open positions", len(positions))
+    st.subheader("Live portfolio")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Marked equity", _money(marked_equity))
+    c2.metric("Open P&L", _money(open_pnl))
+    c3.metric("MTM return", _pct(mtm_return))
+    c4.metric("Gross exposure", _money(metrics["gross_exposure"]))
+    c5.metric("Open positions", len(positions))
 
-    st.markdown("**Broker status**")
-    b1, b2 = st.columns(2)
-    with b1:
-        st.metric("Alpaca Paper", f"{'CONNECTED' if broker_status['alpaca']['connected'] else 'CHECK'} · {broker_status['alpaca']['state']}")
-        st.caption(f"Positions: {broker_status['alpaca']['positions']} · Exposure: {_money(metrics['alpaca_exposure'])} · Open P&L: {_money(broker_status['alpaca']['unrealized_pnl'])}")
-    with b2:
-        st.metric("OANDA Practice", f"{'CONNECTED' if broker_status['oanda']['connected'] else 'CHECK'} · {broker_status['oanda']['state']}")
-        st.caption(f"Positions: {broker_status['oanda']['positions']} · Exposure: {_money(metrics['oanda_exposure'])} · Open P&L: {_money(broker_status['oanda']['unrealized_pnl'])}")
+    st.subheader("Trading pillars")
+    p1, p2, p3 = st.columns(3)
+    with p1:
+        status = pillar_status["equities"]
+        st.metric("Alpaca Equities", f"{'CONNECTED' if status['connected'] else 'CHECK'} · {status['state']}")
+        st.caption(f"Positions: {status['positions']} · Exposure: {_money(metrics['equity_exposure'])} · Open P&L: {_money(status['unrealized_pnl'])}")
+    with p2:
+        status = pillar_status["oanda"]
+        st.metric("OANDA FX", f"{'CONNECTED' if status['connected'] else 'CHECK'} · {status['state']}")
+        st.caption(f"Positions: {status['positions']} · Exposure: {_money(metrics['oanda_exposure'])} · Open P&L: {_money(status['unrealized_pnl'])}")
+    with p3:
+        status = pillar_status["crypto"]
+        st.metric("Alpaca Crypto", f"{'CONNECTED' if status['connected'] else 'CHECK'} · {status['state']}")
+        st.caption(f"Positions: {status['positions']} · Exposure: {_money(metrics['crypto_exposure'])} · Open P&L: {_money(status['unrealized_pnl'])}")
 
     if errors:
         with st.expander("Live feed status"):
             for error in errors:
                 st.write(error)
 
+    st.subheader("Open positions by pillar")
     if positions:
         st.table([
             {
-                "Broker": row.get("broker"),
+                "Pillar": row.get("pillar"),
                 "Symbol": row.get("symbol"),
-                "Qty": _number(row.get("quantity"), 4),
+                "Qty": _number(row.get("quantity"), 6 if row.get("asset_class") == "crypto" else 4),
                 "Entry": _money(row.get("average_price")),
                 "Current": _money(row.get("current_price")),
                 "Market value": _money(row.get("market_value")),
@@ -218,7 +242,7 @@ def live_panel() -> None:
             for row in positions
         ])
     else:
-        st.info("No open positions returned by the brokers.")
+        st.info("All three pillars are currently flat.")
 
     st.caption("Live broker values refresh automatically about every 30 seconds while this page is open.")
 
@@ -248,27 +272,13 @@ if cycle:
         st.table([
             {
                 "Symbol": row.get("symbol"),
+                "Asset": row.get("asset_class", "—"),
                 "Score": row.get("score"),
                 "Momentum": f"{row.get('momentum_pct')}%" if row.get("momentum_pct") is not None else "—",
                 "Last": _money(row.get("last_price")),
             }
             for row in candidates[:10]
         ])
-
-    failures = cycle.get("submission_failures") if isinstance(cycle.get("submission_failures"), list) else []
-    risk_rejections = cycle.get("risk_rejections") if isinstance(cycle.get("risk_rejections"), list) else []
-    sizing_skips = cycle.get("sizing_skips") if isinstance(cycle.get("sizing_skips"), list) else []
-    duplicate_skips = cycle.get("duplicate_skips") if isinstance(cycle.get("duplicate_skips"), list) else []
-    if failures or risk_rejections or sizing_skips or duplicate_skips:
-        with st.expander("Decision rejects / skips"):
-            if failures:
-                st.write("Submission failures", failures)
-            if risk_rejections:
-                st.write("Risk rejections", risk_rejections)
-            if sizing_skips:
-                st.write("Sizing skips", sizing_skips)
-            if duplicate_skips:
-                st.write("Duplicate skips", duplicate_skips)
 else:
     st.info("Decision-cycle details come from the last VM snapshot; live broker positions above do not depend on that snapshot.")
 
@@ -290,4 +300,4 @@ if activity:
 else:
     st.info("No activity snapshot published yet.")
 
-st.caption("Paper/practice trading only. Live broker reads use Streamlit Secrets and are not stored in the repository or rendered in the page source.")
+st.caption("Paper/practice trading only. Alpaca Equities, OANDA FX, and Alpaca Crypto are tracked independently. Live broker reads use Streamlit Secrets and are never stored in the repository.")
