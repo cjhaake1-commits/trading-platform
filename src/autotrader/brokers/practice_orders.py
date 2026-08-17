@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -54,6 +55,18 @@ def _alpaca_headers(key: str, secret: str) -> dict[str, str]:
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+
+
+def _alpaca_price(value: float) -> str:
+    """Format equity/ETF order prices to Alpaca-valid minimum increments.
+
+    Alpaca accepts two decimals for prices at or above $1.00 and four decimals
+    for prices below $1.00. Use Decimal to avoid binary-float artifacts.
+    """
+    price = Decimal(str(value))
+    quantum = Decimal("0.01") if price >= Decimal("1") else Decimal("0.0001")
+    rounded = price.quantize(quantum, rounding=ROUND_HALF_UP)
+    return format(rounded, "f")
 
 
 def submit_alpaca_paper_market_order(
@@ -136,7 +149,7 @@ def submit_alpaca_paper_protected_order(
         "type": "market",
         "time_in_force": "day",
         "order_class": "oto",
-        "stop_loss": {"stop_price": f"{stop_price:.8f}".rstrip("0").rstrip(".")},
+        "stop_loss": {"stop_price": _alpaca_price(stop_price)},
     }
     if client_order_id:
         payload["client_order_id"] = client_order_id
