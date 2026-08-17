@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .audit import SQLiteAuditStore
 from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
+from .daily_learning import DailyLearningJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
 
 
@@ -28,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trade-cadence", type=float, default=300.0)
     parser.add_argument("--ledger", default="var/autotrader/portfolio.db")
     parser.add_argument("--idempotency", default="var/autotrader/idempotency.db")
-    parser.add_argument("--initial-equity", type=float, default=2000.0)
+    parser.add_argument("--initial-equity", type=float, default=3000.0)
     parser.add_argument(
         "--autonomous-paper",
         action="store_true",
@@ -60,6 +61,7 @@ def main() -> None:
                 )
             )
         )
+        jobs.append(DailyLearningJob(audit_db=args.audit_db))
 
     runtime = AutonomousRuntime(
         jobs=jobs,
