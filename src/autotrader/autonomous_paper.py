@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 from .brokers.practice_orders import (
     submit_alpaca_paper_protected_order,
@@ -27,7 +26,6 @@ from .runtime import JobResult
 from .scanner import CandidateScanner
 from .strategies import BaselineStrategies
 
-
 DEFAULT_ALPACA_UNIVERSE = (
     "SPY", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV",
     "AAPL", "MSFT", "NVDA", "AMZN", "META", "TSLA", "GOOGL",
@@ -48,7 +46,8 @@ class AutonomousPaperConfig:
     cadence_seconds: float = 120.0
     lookback_days: int = 7
     interval: str = "15m"
-    minimum_candidate_score: float = 10.0
+    minimum_candidate_score: float = 5.0
+    momentum_only_score: float = 12.0
     take_profit_r_multiple: float = 1.5
     max_entries_per_cycle: int = 3
     alpaca_universe: tuple[str, ...] = DEFAULT_ALPACA_UNIVERSE
@@ -69,14 +68,9 @@ def choose_long_signal(
     *,
     scanner: CandidateScanner | None = None,
     strategies: BaselineStrategies | None = None,
-    minimum_score: float = 10.0,
+    minimum_score: float = 5.0,
+    momentum_only_score: float = 12.0,
 ) -> RankedSignal | None:
-    """Return an auditable long-only signal for aggressive paper testing.
-
-    The risk engine remains the final authority. This layer is intentionally more
-    permissive than the first paper prototype so the system can generate enough
-    trades to evaluate edge quickly, without changing hard capital guardrails.
-    """
     scanner = scanner or CandidateScanner()
     strategies = strategies or BaselineStrategies()
     candidate = scanner.score_instrument(instrument, bars)
@@ -89,15 +83,17 @@ def choose_long_signal(
         strategies.mean_reversion(instrument, bars),
     )
     buys = [proposal for proposal in proposals if proposal is not None and proposal.side is Side.BUY]
-    if not buys:
+    if not buys and candidate.score < momentum_only_score:
         return None
 
     entry = candidate.last_price
     stop = min(candidate.suggested_stop, entry * 0.995)
     if stop <= 0 or stop >= entry:
         return None
-    confidence = min(0.95, 0.52 + 0.11 * len(buys) + candidate.score / 450.0)
-    source = "+".join(proposal.source for proposal in buys)
+
+    votes = tuple(proposal.source for proposal in buys) or ("scanner_momentum",)
+    source = "+".join(votes)
+    confidence = min(0.95, 0.50 + 0.10 * len(votes) + candidate.score / 450.0)
     proposal = TradeProposal(
         symbol=instrument.symbol,
         asset_class=instrument.asset_class,
@@ -108,16 +104,11 @@ def choose_long_signal(
         source=f"autonomous:{source}",
         rationale=(
             f"scanner_score={candidate.score:.2f}; momentum={candidate.momentum_pct:.2f}%; "
-            f"votes={','.join(proposal.source for proposal in buys)}"
+            f"votes={','.join(votes)}"
         ),
         intent=TradeIntent.ENTER,
     )
-    return RankedSignal(
-        instrument=instrument,
-        score=candidate.score,
-        proposal=proposal,
-        votes=tuple(proposal.source for proposal in buys),
-    )
+    return RankedSignal(instrument, candidate.score, proposal, votes)
 
 
 class AutonomousPaperTradingJob:
@@ -144,11 +135,9 @@ class AutonomousPaperTradingJob:
             initial_equity=self.config.initial_equity,
         )
         if not preflight.ready:
-            return JobResult(
-                True,
-                "Autonomous paper cycle skipped by safety preflight",
-                {"failed_checks": list(preflight.failed_checks), "messages": list(preflight.messages)},
-            )
+            return JobResult(True, "Autonomous paper cycle skipped by safety preflight", {
+                "failed_checks": list(preflight.failed_checks), "messages": list(preflight.messages)
+            })
 
         histories = self._load_histories(now)
         if not histories:
@@ -161,37 +150,46 @@ class AutonomousPaperTradingJob:
         loaded = ledger.load_portfolio()
         if loaded is None:
             portfolio = PortfolioState(self.config.initial_equity, self.config.initial_equity)
-            peak = self.config.initial_equity
         else:
-            portfolio, peak = loaded
+            portfolio, _ = loaded
 
+        diagnostics: list[dict[str, object]] = []
         signals: list[RankedSignal] = []
         for instrument, bars in histories.items():
             if instrument.symbol in portfolio.positions:
                 continue
+            candidate = self.scanner.score_instrument(instrument, bars)
+            if candidate is not None:
+                diagnostics.append({
+                    "symbol": instrument.symbol,
+                    "score": round(candidate.score, 2),
+                    "momentum_pct": round(candidate.momentum_pct, 3),
+                    "last_price": candidate.last_price,
+                })
             signal = choose_long_signal(
                 instrument,
                 bars,
                 scanner=self.scanner,
                 strategies=self.strategies,
                 minimum_score=self.config.minimum_candidate_score,
+                momentum_only_score=self.config.momentum_only_score,
             )
             if signal is not None:
                 signals.append(signal)
+
+        diagnostics.sort(key=lambda item: float(item["score"]), reverse=True)
         signals.sort(key=lambda item: item.score, reverse=True)
 
         if not signals:
-            return JobResult(
-                True,
-                "Autonomous paper cycle found no qualifying entry",
-                {
-                    "scanned": len(histories),
-                    "minimum_candidate_score": self.config.minimum_candidate_score,
-                    "universe_size": len(self.config.alpaca_universe) + len(self.config.oanda_universe),
-                },
-            )
+            return JobResult(True, "Autonomous paper cycle found no qualifying entry", {
+                "scanned": len(histories),
+                "minimum_candidate_score": self.config.minimum_candidate_score,
+                "momentum_only_score": self.config.momentum_only_score,
+                "top_candidates": diagnostics[:10],
+            })
 
         entries: list[dict[str, object]] = []
+        rejections: list[dict[str, object]] = []
         for signal in signals:
             if len(entries) >= self.config.max_entries_per_cycle:
                 break
@@ -204,11 +202,11 @@ class AutonomousPaperTradingJob:
                 break
 
             portfolio = fresh.portfolio
-            gross = sum(abs(position.quantity * position.average_price) for position in portfolio.positions.values())
+            gross = sum(abs(p.quantity * p.average_price) for p in portfolio.positions.values())
             asset_notional = sum(
-                abs(position.quantity * position.average_price)
-                for position in portfolio.positions.values()
-                if position.asset_class is signal.instrument.asset_class
+                abs(p.quantity * p.average_price)
+                for p in portfolio.positions.values()
+                if p.asset_class is signal.instrument.asset_class
             )
             decision = self.risk.evaluate(
                 signal.proposal,
@@ -220,17 +218,17 @@ class AutonomousPaperTradingJob:
                 ),
             )
             if not decision.approved:
+                rejections.append({"symbol": signal.instrument.symbol, "reason": decision.reason})
                 continue
 
             broker = "oanda-practice" if signal.instrument.asset_class is AssetClass.FOREX else "alpaca-paper"
-            quantity = decision.quantity
             if broker == "oanda-practice":
-                units = math.floor(quantity)
+                units = math.floor(decision.quantity)
                 if units < 1:
                     continue
                 order_quantity = float(units)
             else:
-                order_quantity = round(quantity, 6)
+                order_quantity = round(decision.quantity, 6)
                 if order_quantity <= 0:
                     continue
 
@@ -275,16 +273,12 @@ class AutonomousPaperTradingJob:
                         client_order_id=client_id,
                     )
                     fill = result.details.get("order_fill_transaction")
-                    broker_order_id = (
-                        str(fill.get("orderID"))
-                        if isinstance(fill, dict) and fill.get("orderID") is not None
-                        else None
-                    )
+                    broker_order_id = str(fill.get("orderID")) if isinstance(fill, dict) and fill.get("orderID") else None
                     sync_broker = "oanda"
+
                 if not result.ok:
                     self.idempotency.release(key)
                     continue
-
                 self.idempotency.mark_submitted(key, broker_order_id)
                 sync = _sync_submitted_position(
                     broker=sync_broker,
@@ -295,30 +289,30 @@ class AutonomousPaperTradingJob:
                     attempts=20,
                     delay_seconds=0.25,
                 )
-                entries.append(
-                    {
-                        "broker": broker,
-                        "symbol": signal.instrument.symbol,
-                        "quantity": order_quantity,
-                        "entry_reference": signal.proposal.entry_price,
-                        "stop_price": signal.proposal.stop_price,
-                        "score": signal.score,
-                        "votes": list(signal.votes),
-                        "risk_dollars": decision.max_loss_dollars,
-                        "binding_constraint": decision.binding_constraint,
-                        "broker_order_id": broker_order_id,
-                        "ledger_sync": sync,
-                    }
-                )
+                entries.append({
+                    "broker": broker,
+                    "symbol": signal.instrument.symbol,
+                    "quantity": order_quantity,
+                    "entry_reference": signal.proposal.entry_price,
+                    "stop_price": signal.proposal.stop_price,
+                    "score": signal.score,
+                    "votes": list(signal.votes),
+                    "risk_dollars": decision.max_loss_dollars,
+                    "binding_constraint": decision.binding_constraint,
+                    "broker_order_id": broker_order_id,
+                    "ledger_sync": sync,
+                })
             except Exception:
                 self.idempotency.release(key)
                 raise
 
-        return JobResult(
-            True,
-            "Autonomous paper cycle completed",
-            {"entries": entries, "qualified_signals": len(signals), "scanned": len(histories)},
-        )
+        return JobResult(True, "Autonomous paper cycle completed", {
+            "entries": entries,
+            "qualified_signals": len(signals),
+            "risk_rejections": rejections,
+            "top_candidates": diagnostics[:10],
+            "scanned": len(histories),
+        })
 
     def _load_histories(self, now: datetime):
         start = now - timedelta(days=max(self.config.lookback_days, 2))
@@ -368,9 +362,7 @@ class AutonomousPaperTradingJob:
             oanda = normalize_oanda_positions(oanda_open_positions().details.get("positions", []))
         except Exception:
             return
-        broker_symbols = {
-            position.symbol for position in [*alpaca, *oanda] if abs(position.quantity) > 1e-12
-        }
+        broker_symbols = {p.symbol for p in [*alpaca, *oanda] if abs(p.quantity) > 1e-12}
         changed = False
         for symbol in list(portfolio.positions):
             if symbol not in broker_symbols:
