@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -58,6 +59,26 @@ def _alpaca_headers(key: str, secret: str) -> dict[str, str]:
     }
 
 
+def _clear_flat_ledger_symbol(symbol: str, ledger_path: str | Path) -> bool:
+    """Remove a symbol from the local ledger only when a controlled close made it flat."""
+    from ..portfolio_ledger import PortfolioLedger
+
+    path = Path(ledger_path)
+    if not path.exists():
+        return False
+    ledger = PortfolioLedger(path)
+    loaded = ledger.load_portfolio()
+    if loaded is None:
+        return False
+    portfolio, peak = loaded
+    normalized = symbol.strip().upper().replace("_", "/")
+    if normalized not in portfolio.positions:
+        return False
+    del portfolio.positions[normalized]
+    ledger.save_portfolio(portfolio, peak_equity=peak)
+    return True
+
+
 def alpaca_open_positions() -> BrokerSafetyResult:
     key, secret, base = _alpaca_auth()
     payload, headers = _request(
@@ -77,11 +98,57 @@ def alpaca_open_positions() -> BrokerSafetyResult:
     )
 
 
+def cancel_alpaca_open_orders_for_symbol(symbol: str) -> BrokerSafetyResult:
+    """Cancel open Alpaca paper orders for one symbol before a controlled full close.
+
+    Protective stop legs reserve position quantity at Alpaca. Cancelling them first
+    prevents the close request from failing with `held_for_orders` / available=0.
+    """
+    key, secret, base = _alpaca_auth()
+    normalized = symbol.strip().upper()
+    query = urlencode({"status": "open", "symbols": normalized, "nested": "true", "limit": 500})
+    payload, _ = _request(
+        f"{base}/v2/orders?{query}",
+        method="GET",
+        headers=_alpaca_headers(key, secret),
+    )
+    orders = payload if isinstance(payload, list) else []
+    cancelled: list[str] = []
+    for order in orders:
+        if not isinstance(order, dict):
+            continue
+        order_id = order.get("id")
+        if not order_id or str(order.get("symbol") or "").upper() != normalized:
+            continue
+        try:
+            _request(
+                f"{base}/v2/orders/{quote(str(order_id), safe='')}",
+                method="DELETE",
+                headers=_alpaca_headers(key, secret),
+            )
+        except RuntimeError as exc:
+            # A 404/422 can mean the order changed state between list and cancel.
+            # Re-read broker state during the subsequent close rather than masking
+            # the close itself; other failures still surface.
+            if "HTTP 404:" not in str(exc) and "HTTP 422:" not in str(exc):
+                raise
+        else:
+            cancelled.append(str(order_id))
+    return BrokerSafetyResult(
+        "alpaca-paper",
+        True,
+        "Cancelled Alpaca paper open orders for symbol",
+        {"symbol": normalized, "cancelled_order_ids": cancelled},
+    )
+
+
 def close_alpaca_position(
     symbol: str,
     *,
     qty: float | None = None,
     percentage: float | None = None,
+    cancel_open_orders: bool = True,
+    ledger_path: str | Path = "var/autotrader/portfolio.db",
 ) -> BrokerSafetyResult:
     if qty is not None and percentage is not None:
         raise ValueError("specify qty or percentage, not both")
@@ -90,6 +157,12 @@ def close_alpaca_position(
     if percentage is not None and not 0 < percentage <= 100:
         raise ValueError("percentage must be in (0, 100]")
     key, secret, base = _alpaca_auth()
+    normalized = symbol.strip().upper()
+    cancelled: list[str] = []
+    full_close = qty is None and percentage is None
+    if cancel_open_orders and full_close:
+        cancel_result = cancel_alpaca_open_orders_for_symbol(normalized)
+        cancelled = list(cancel_result.details.get("cancelled_order_ids", []))
     params: dict[str, object] = {}
     if qty is not None:
         params["qty"] = qty
@@ -97,16 +170,19 @@ def close_alpaca_position(
         params["percentage"] = percentage
     suffix = f"?{urlencode(params)}" if params else ""
     payload, headers = _request(
-        f"{base}/v2/positions/{quote(symbol.strip().upper(), safe='')}{suffix}",
+        f"{base}/v2/positions/{quote(normalized, safe='')}{suffix}",
         method="DELETE",
         headers=_alpaca_headers(key, secret),
     )
+    ledger_cleared = _clear_flat_ledger_symbol(normalized, ledger_path) if full_close else False
     return BrokerSafetyResult(
         "alpaca-paper",
         True,
         "Submitted Alpaca paper position close",
         {
             "order": payload,
+            "cancelled_open_order_ids": cancelled,
+            "ledger_position_cleared": ledger_cleared,
             "request_id": headers.get("X-Request-ID") or headers.get("x-request-id"),
         },
     )
@@ -175,6 +251,7 @@ def close_oanda_position(
     *,
     long_units: str = "ALL",
     short_units: str = "ALL",
+    ledger_path: str | Path = "var/autotrader/portfolio.db",
 ) -> BrokerSafetyResult:
     token, base, account_id = _oanda_auth()
     instrument = symbol.strip().upper().replace("/", "_")
@@ -184,12 +261,29 @@ def close_oanda_position(
         headers=_oanda_headers(token),
         body={"longUnits": str(long_units), "shortUnits": str(short_units)},
     )
+    # Only clear the ledger when the broker confirms the instrument is now flat.
+    positions = oanda_open_positions().details.get("positions", [])
+    normalized = instrument.replace("_", "/")
+    still_open = False
+    if isinstance(positions, list):
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+            if str(position.get("instrument") or "").replace("_", "/").upper() != normalized:
+                continue
+            long = position.get("long") if isinstance(position.get("long"), dict) else {}
+            short = position.get("short") if isinstance(position.get("short"), dict) else {}
+            if abs(float(long.get("units", 0) or 0) + float(short.get("units", 0) or 0)) > 1e-12:
+                still_open = True
+                break
+    ledger_cleared = False if still_open else _clear_flat_ledger_symbol(normalized, ledger_path)
     return BrokerSafetyResult(
         "oanda-practice",
         True,
         "Submitted OANDA practice position close",
         {
             "result": payload,
+            "ledger_position_cleared": ledger_cleared,
             "request_id": headers.get("RequestID") or headers.get("requestid"),
         },
     )
