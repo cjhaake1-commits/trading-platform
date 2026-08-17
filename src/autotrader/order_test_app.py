@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
+from datetime import UTC, datetime
 
 from .brokers.practice_orders import (
     submit_alpaca_paper_protected_order,
     submit_oanda_practice_market_order,
 )
+from .brokers.safety import alpaca_open_positions, oanda_open_positions
+from .models import AssetClass, Position
+from .portfolio_ledger import PortfolioLedger
 from .preflight import run_preflight
+from .reconciliation import normalize_alpaca_positions, normalize_oanda_positions
 
 
 def _print_result(result) -> None:
@@ -23,6 +29,75 @@ def _print_result(result) -> None:
             sort_keys=True,
         )
     )
+
+
+def _sync_submitted_position(
+    *,
+    broker: str,
+    symbol: str,
+    stop_price: float,
+    ledger_path: str,
+    initial_equity: float,
+    attempts: int = 10,
+    delay_seconds: float = 0.25,
+) -> dict[str, object]:
+    """Sync broker truth after this command has successfully submitted an entry.
+
+    This is deliberately not a general reconciliation override. It runs only after
+    an explicitly confirmed paper/practice order from this process, and it refuses
+    to invent a position if the broker does not expose it within the bounded poll.
+    """
+    normalized_symbol = symbol.strip().upper().replace("_", "/") if broker == "oanda" else symbol.strip().upper()
+    broker_position = None
+    for _ in range(attempts):
+        if broker == "alpaca":
+            records = alpaca_open_positions().details.get("positions", [])
+            positions = normalize_alpaca_positions(records)
+        else:
+            records = oanda_open_positions().details.get("positions", [])
+            positions = normalize_oanda_positions(records)
+        broker_position = next((item for item in positions if item.symbol == normalized_symbol), None)
+        if broker_position is not None and abs(broker_position.quantity) > 1e-12:
+            break
+        time.sleep(delay_seconds)
+    if broker_position is None or abs(broker_position.quantity) <= 1e-12:
+        raise RuntimeError(
+            f"Order was submitted but {normalized_symbol} was not visible at the broker; "
+            "ledger was not changed and new exposure must remain blocked until reconciled."
+        )
+
+    ledger = PortfolioLedger(ledger_path)
+    loaded = ledger.load_portfolio()
+    if loaded is None:
+        from .models import PortfolioState
+
+        portfolio = PortfolioState(equity=initial_equity, cash=initial_equity)
+        peak = initial_equity
+    else:
+        portfolio, peak = loaded
+
+    asset_class = AssetClass.FOREX if broker == "oanda" else AssetClass.ETF
+    average_price = broker_position.average_price
+    if average_price is None or average_price <= 0:
+        average_price = stop_price
+    portfolio.positions[normalized_symbol] = Position(
+        symbol=normalized_symbol,
+        asset_class=asset_class,
+        quantity=broker_position.quantity,
+        average_price=average_price,
+        stop_price=stop_price,
+        initial_stop_price=stop_price,
+        highest_price=average_price,
+        opened_at=datetime.now(UTC),
+    )
+    ledger.save_portfolio(portfolio, peak_equity=peak)
+    return {
+        "symbol": normalized_symbol,
+        "quantity": broker_position.quantity,
+        "average_price": average_price,
+        "stop_price": stop_price,
+        "ledger_path": ledger_path,
+    }
 
 
 def main() -> None:
@@ -88,6 +163,19 @@ def main() -> None:
             stop_price=args.stop_price,
             client_order_id=args.client_order_id,
         )
+
+    if result.ok:
+        try:
+            sync = _sync_submitted_position(
+                broker=args.broker,
+                symbol=args.symbol,
+                stop_price=args.stop_price,
+                ledger_path=args.ledger,
+                initial_equity=args.initial_equity,
+            )
+            result.details["ledger_sync"] = sync
+        except RuntimeError as exc:
+            result.details["ledger_sync_error"] = str(exc)
     _print_result(result)
 
 
