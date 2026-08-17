@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 import streamlit as st
 
@@ -30,6 +31,13 @@ def _number(value, digits: int = 2) -> str:
         return "—"
 
 
+def _float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @st.cache_data(ttl=20)
 def load_snapshot() -> dict[str, object]:
     if not DATA_PATH.exists():
@@ -40,67 +48,176 @@ def load_snapshot() -> dict[str, object]:
         return {}
 
 
+def _secret(name: str) -> str:
+    try:
+        value = st.secrets.get(name, "")
+    except Exception:
+        value = ""
+    return str(value).strip()
+
+
+def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float], list[str]]:
+    positions: list[dict[str, object]] = []
+    metrics = {"unrealized_pnl": 0.0, "gross_exposure": 0.0, "alpaca_exposure": 0.0, "oanda_exposure": 0.0}
+    errors: list[str] = []
+
+    alpaca_key = _secret("ALPACA_PAPER_API_KEY")
+    alpaca_secret = _secret("ALPACA_PAPER_SECRET_KEY")
+    alpaca_base = _secret("ALPACA_PAPER_BASE_URL") or "https://paper-api.alpaca.markets"
+    if alpaca_key and alpaca_secret:
+        try:
+            req = Request(
+                f"{alpaca_base.rstrip('/')}/v2/positions",
+                headers={
+                    "APCA-API-KEY-ID": alpaca_key,
+                    "APCA-API-SECRET-KEY": alpaca_secret,
+                    "Accept": "application/json",
+                },
+            )
+            with urlopen(req, timeout=10) as r:
+                rows = json.load(r)
+            for row in rows if isinstance(rows, list) else []:
+                qty = _float(row.get("qty"))
+                avg = _float(row.get("avg_entry_price"))
+                current = _float(row.get("current_price"), avg)
+                market_value = abs(_float(row.get("market_value"), qty * current))
+                unrealized = _float(row.get("unrealized_pl"))
+                positions.append(
+                    {
+                        "broker": "Alpaca Paper",
+                        "symbol": row.get("symbol"),
+                        "quantity": qty,
+                        "average_price": avg,
+                        "current_price": current,
+                        "market_value": market_value,
+                        "unrealized_pnl": unrealized,
+                        "unrealized_pct": _float(row.get("unrealized_plpc")),
+                    }
+                )
+                metrics["unrealized_pnl"] += unrealized
+                metrics["gross_exposure"] += market_value
+                metrics["alpaca_exposure"] += market_value
+        except Exception as exc:
+            errors.append(f"Alpaca live read failed: {exc}")
+    else:
+        errors.append("Alpaca Streamlit secrets are not configured")
+
+    oanda_token = _secret("OANDA_PRACTICE_TOKEN")
+    oanda_account = _secret("OANDA_PRACTICE_ACCOUNT_ID")
+    oanda_base = _secret("OANDA_PRACTICE_BASE_URL") or "https://api-fxpractice.oanda.com"
+    if oanda_token and oanda_account:
+        try:
+            req = Request(
+                f"{oanda_base.rstrip('/')}/v3/accounts/{oanda_account}/openPositions",
+                headers={"Authorization": f"Bearer {oanda_token}", "Accept": "application/json"},
+            )
+            with urlopen(req, timeout=10) as r:
+                payload = json.load(r)
+            for row in payload.get("positions", []) if isinstance(payload, dict) else []:
+                symbol = str(row.get("instrument") or "").replace("_", "/")
+                long = row.get("long") if isinstance(row.get("long"), dict) else {}
+                short = row.get("short") if isinstance(row.get("short"), dict) else {}
+                long_units = _float(long.get("units"))
+                short_units = _float(short.get("units"))
+                qty = long_units + short_units
+                side = long if abs(long_units) >= abs(short_units) else short
+                avg = _float(side.get("averagePrice"))
+                unrealized = _float(row.get("unrealizedPL"))
+                exposure = abs(qty * avg)
+                positions.append(
+                    {
+                        "broker": "OANDA Practice",
+                        "symbol": symbol,
+                        "quantity": qty,
+                        "average_price": avg,
+                        "current_price": None,
+                        "market_value": exposure,
+                        "unrealized_pnl": unrealized,
+                        "unrealized_pct": None,
+                    }
+                )
+                metrics["unrealized_pnl"] += unrealized
+                metrics["gross_exposure"] += exposure
+                metrics["oanda_exposure"] += exposure
+        except Exception as exc:
+            errors.append(f"OANDA live read failed: {exc}")
+    else:
+        errors.append("OANDA Streamlit secrets are not configured")
+
+    return positions, metrics, errors
+
+
 st.title("Autonomous Trading Command Center")
-st.caption("Alpaca Paper + OANDA Practice · autonomous testing · sanitized broker data")
+st.caption("Alpaca Paper + OANDA Practice · autonomous testing · broker data refreshes about every 30 seconds")
 
 data = load_snapshot()
 if not data:
-    st.warning("No dashboard snapshot has been published yet from the trading VM.")
-    st.stop()
+    data = {}
 
 runtime = data.get("runtime") if isinstance(data.get("runtime"), dict) else {}
-portfolio = data.get("portfolio") if isinstance(data.get("portfolio"), dict) else {}
 guardrails = data.get("guardrails") if isinstance(data.get("guardrails"), dict) else {}
 targets = data.get("targets") if isinstance(data.get("targets"), dict) else {}
-positions = data.get("positions") if isinstance(data.get("positions"), list) else []
 activity = data.get("activity") if isinstance(data.get("activity"), list) else []
 cycle = data.get("latest_cycle") if isinstance(data.get("latest_cycle"), dict) else {}
+base_equity = _float((data.get("portfolio") or {}).get("base_equity"), 2000.0) if isinstance(data.get("portfolio"), dict) else 2000.0
 
-healthy = bool(runtime.get("healthy"))
 
-st.subheader("Live testing scorecard")
-c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("Runtime", "RUNNING" if healthy else "CHECK")
-c2.metric("Marked equity", _money(portfolio.get("marked_equity")))
-c3.metric("Open P&L", _money(portfolio.get("open_unrealized_pnl")))
-c4.metric("MTM return", _pct(portfolio.get("mtm_return_pct")))
-c5.metric("Gross exposure", _money(portfolio.get("gross_exposure")))
-c6.metric("Open positions", len(positions))
+@st.fragment(run_every="30s")
+def live_panel() -> None:
+    positions, metrics, errors = fetch_live_broker_data()
+    open_pnl = metrics["unrealized_pnl"]
+    marked_equity = base_equity + open_pnl
+    mtm_return = (marked_equity - base_equity) / base_equity if base_equity else 0.0
+
+    st.subheader("Live broker results")
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Live broker feed", "CONNECTED" if len(errors) < 2 else "CHECK")
+    c2.metric("Marked equity", _money(marked_equity))
+    c3.metric("Open P&L", _money(open_pnl))
+    c4.metric("MTM return", _pct(mtm_return))
+    c5.metric("Gross exposure", _money(metrics["gross_exposure"]))
+    c6.metric("Open positions", len(positions))
+
+    e1, e2 = st.columns(2)
+    e1.metric("Alpaca exposure", _money(metrics["alpaca_exposure"]))
+    e2.metric("OANDA exposure", _money(metrics["oanda_exposure"]))
+
+    if errors:
+        with st.expander("Live feed status"):
+            for error in errors:
+                st.write(error)
+
+    if positions:
+        st.table(
+            [
+                {
+                    "Broker": row.get("broker"),
+                    "Symbol": row.get("symbol"),
+                    "Qty": _number(row.get("quantity"), 4),
+                    "Entry": _money(row.get("average_price")),
+                    "Current": _money(row.get("current_price")),
+                    "Market value": _money(row.get("market_value")),
+                    "Open P&L": _money(row.get("unrealized_pnl")),
+                    "Return": _pct(row.get("unrealized_pct")),
+                }
+                for row in positions
+            ]
+        )
+    else:
+        st.info("No open positions returned by the brokers.")
+
+    st.caption("Live broker values refresh automatically about every 30 seconds while this page is open.")
+
+
+live_panel()
 
 st.subheader("Stretch target vs guardrails")
-t1, t2, t3, t4, t5 = st.columns(5)
+t1, t2, t3, t4 = st.columns(4)
 t1.metric("Stretch benchmark", "20–30% / day")
-t2.metric("Progress to 20%", _pct(targets.get("progress_to_low")))
-t3.metric("Risk / trade", _pct(guardrails.get("risk_per_trade_pct")))
-t4.metric("Daily loss stop", _pct(guardrails.get("max_daily_loss_pct")))
-t5.metric("Max drawdown", _pct(guardrails.get("max_peak_drawdown_pct")))
+t2.metric("Risk / trade", _pct(guardrails.get("risk_per_trade_pct")))
+t3.metric("Daily loss stop", _pct(guardrails.get("max_daily_loss_pct")))
+t4.metric("Max drawdown", _pct(guardrails.get("max_peak_drawdown_pct")))
 st.caption(str(targets.get("note") or "Stretch benchmark only; risk controls remain authoritative."))
-
-r1, r2, r3, r4 = st.columns(4)
-r1.metric("Open risk", _money(portfolio.get("open_risk_dollars")))
-r2.metric("Current drawdown", _pct(portfolio.get("drawdown_pct")))
-r3.metric("Alpaca exposure", _money(portfolio.get("alpaca_exposure")))
-r4.metric("OANDA exposure", _money(portfolio.get("oanda_exposure")))
-
-st.subheader("Open broker positions")
-if positions:
-    st.table([
-        {
-            "Broker": row.get("broker"),
-            "Symbol": row.get("symbol"),
-            "Qty": _number(row.get("quantity"), 4),
-            "Entry": _money(row.get("average_price")),
-            "Current": _money(row.get("current_price")),
-            "Stop": _money(row.get("stop_price")),
-            "Market value": _money(row.get("market_value")),
-            "Open P&L": _money(row.get("unrealized_pnl")),
-            "Return": _pct(row.get("unrealized_pct")),
-            "Risk to stop": _money(row.get("risk_dollars")),
-        }
-        for row in positions
-    ])
-else:
-    st.info("No open broker positions.")
 
 st.subheader("Latest autonomous decision cycle")
 if cycle:
@@ -114,20 +231,17 @@ if cycle:
     candidates = cycle.get("top_candidates") if isinstance(cycle.get("top_candidates"), list) else []
     if candidates:
         st.markdown("**Top candidates**")
-        st.table([
-            {
-                "Symbol": row.get("symbol"),
-                "Score": row.get("score"),
-                "Momentum": f"{row.get('momentum_pct')}%" if row.get("momentum_pct") is not None else "—",
-                "Last": _money(row.get("last_price")),
-            }
-            for row in candidates[:10]
-        ])
-
-    entries = cycle.get("entries") if isinstance(cycle.get("entries"), list) else []
-    if entries:
-        st.markdown("**Accepted entries**")
-        st.json(entries, expanded=False)
+        st.table(
+            [
+                {
+                    "Symbol": row.get("symbol"),
+                    "Score": row.get("score"),
+                    "Momentum": f"{row.get('momentum_pct')}%" if row.get("momentum_pct") is not None else "—",
+                    "Last": _money(row.get("last_price")),
+                }
+                for row in candidates[:10]
+            ]
+        )
 
     failures = cycle.get("submission_failures") if isinstance(cycle.get("submission_failures"), list) else []
     risk_rejections = cycle.get("risk_rejections") if isinstance(cycle.get("risk_rejections"), list) else []
@@ -144,25 +258,26 @@ if cycle:
             if duplicate_skips:
                 st.write("Duplicate skips", duplicate_skips)
 else:
-    st.info("No autonomous cycle details have been published yet.")
+    st.info("Decision-cycle details come from the last VM snapshot; live broker positions above do not depend on that snapshot.")
 
-with st.expander("Runtime health", expanded=False):
-    st.write({
-        "mode": runtime.get("mode"),
-        "last_heartbeat_at": runtime.get("last_heartbeat_at"),
-        "published_at": data.get("published_at"),
-        "last_cycle_started_at": runtime.get("last_cycle_started_at"),
-        "last_cycle_finished_at": runtime.get("last_cycle_finished_at"),
-        "last_cycle_duration_ms": runtime.get("last_cycle_duration_ms"),
-        "autonomous_job_disabled": runtime.get("autonomous_job_disabled"),
-        "consecutive_failures": runtime.get("consecutive_failures"),
-        "last_error": runtime.get("last_error"),
-    })
+with st.expander("Runtime snapshot", expanded=False):
+    st.write(
+        {
+            "mode": runtime.get("mode"),
+            "last_heartbeat_at": runtime.get("last_heartbeat_at"),
+            "published_at": data.get("published_at"),
+            "last_cycle_started_at": runtime.get("last_cycle_started_at"),
+            "last_cycle_finished_at": runtime.get("last_cycle_finished_at"),
+            "autonomous_job_disabled": runtime.get("autonomous_job_disabled"),
+            "consecutive_failures": runtime.get("consecutive_failures"),
+            "last_error": runtime.get("last_error"),
+        }
+    )
 
-st.subheader("Recent autonomous activity")
+st.subheader("Recent autonomous activity snapshot")
 if activity:
     st.table([{"Time": row.get("time"), "Event": row.get("event"), "Message": row.get("message")} for row in activity[:40]])
 else:
-    st.info("No activity published yet.")
+    st.info("No activity snapshot published yet.")
 
-st.caption("Paper/practice trading only. Stretch returns are evaluation benchmarks, not guaranteed outcomes or instructions to override risk limits. Broker keys, secrets, and account IDs are never published to this dashboard.")
+st.caption("Paper/practice trading only. Live broker reads use Streamlit Secrets and are not stored in the repository or rendered in the page source.")
