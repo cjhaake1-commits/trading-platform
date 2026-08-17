@@ -148,10 +148,7 @@ class AutonomousPaperTradingJob:
             return JobResult(True, "Autonomous paper cycle managed exits", {"exits": exits})
 
         loaded = ledger.load_portfolio()
-        if loaded is None:
-            portfolio = PortfolioState(self.config.initial_equity, self.config.initial_equity)
-        else:
-            portfolio, _ = loaded
+        portfolio = PortfolioState(self.config.initial_equity, self.config.initial_equity) if loaded is None else loaded[0]
 
         diagnostics: list[dict[str, object]] = []
         signals: list[RankedSignal] = []
@@ -190,6 +187,10 @@ class AutonomousPaperTradingJob:
 
         entries: list[dict[str, object]] = []
         rejections: list[dict[str, object]] = []
+        submission_failures: list[dict[str, object]] = []
+        duplicate_skips: list[dict[str, object]] = []
+        sizing_skips: list[dict[str, object]] = []
+
         for signal in signals:
             if len(entries) >= self.config.max_entries_per_cycle:
                 break
@@ -223,14 +224,21 @@ class AutonomousPaperTradingJob:
 
             broker = "oanda-practice" if signal.instrument.asset_class is AssetClass.FOREX else "alpaca-paper"
             if broker == "oanda-practice":
-                units = math.floor(decision.quantity)
-                if units < 1:
-                    continue
-                order_quantity = float(units)
+                order_quantity = float(math.floor(decision.quantity))
             else:
-                order_quantity = round(decision.quantity, 6)
-                if order_quantity <= 0:
-                    continue
+                # Alpaca protected OTO orders use whole-share sizing. The successful
+                # integration test used whole shares; fractional advanced orders can
+                # be rejected even when simple fractional market orders are allowed.
+                order_quantity = float(math.floor(decision.quantity))
+
+            if order_quantity < 1:
+                sizing_skips.append({
+                    "symbol": signal.instrument.symbol,
+                    "broker": broker,
+                    "risk_quantity": decision.quantity,
+                    "reason": "protected order quantity rounds below one whole unit/share",
+                })
+                continue
 
             bucket = now.astimezone(UTC).strftime("%Y%m%dT%H%M")
             key = self.idempotency.make_key(
@@ -251,6 +259,7 @@ class AutonomousPaperTradingJob:
                 ttl_seconds=max(int(self.cadence_seconds * 2), 600),
                 now=now,
             ):
+                duplicate_skips.append({"symbol": signal.instrument.symbol, "broker": broker})
                 continue
 
             client_id = f"auto-{bucket}-{signal.instrument.symbol.replace('/', '')}"[:48]
@@ -278,7 +287,15 @@ class AutonomousPaperTradingJob:
 
                 if not result.ok:
                     self.idempotency.release(key)
+                    submission_failures.append({
+                        "symbol": signal.instrument.symbol,
+                        "broker": broker,
+                        "quantity": order_quantity,
+                        "message": result.message,
+                        "details": result.details,
+                    })
                     continue
+
                 self.idempotency.mark_submitted(key, broker_order_id)
                 sync = _sync_submitted_position(
                     broker=sync_broker,
@@ -310,6 +327,9 @@ class AutonomousPaperTradingJob:
             "entries": entries,
             "qualified_signals": len(signals),
             "risk_rejections": rejections,
+            "submission_failures": submission_failures,
+            "duplicate_skips": duplicate_skips,
+            "sizing_skips": sizing_skips,
             "top_candidates": diagnostics[:10],
             "scanned": len(histories),
         })
