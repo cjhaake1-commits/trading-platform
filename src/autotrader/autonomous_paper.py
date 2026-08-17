@@ -29,21 +29,14 @@ from .strategies import BaselineStrategies
 
 
 DEFAULT_ALPACA_UNIVERSE = (
-    "SPY",
-    "QQQ",
-    "IWM",
-    "AAPL",
-    "MSFT",
-    "NVDA",
-    "AMZN",
-    "META",
-    "TSLA",
+    "SPY", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV",
+    "AAPL", "MSFT", "NVDA", "AMZN", "META", "TSLA", "GOOGL",
+    "AMD", "AVGO", "NFLX", "PLTR", "COIN", "MSTR", "SMCI",
+    "JPM", "BAC", "GS", "XOM", "CVX", "LLY", "UNH", "COST",
 )
 DEFAULT_OANDA_UNIVERSE = (
-    "EUR/USD",
-    "GBP/USD",
-    "USD/JPY",
-    "AUD/USD",
+    "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "NZD/USD",
+    "EUR/JPY", "GBP/JPY",
 )
 
 
@@ -52,12 +45,12 @@ class AutonomousPaperConfig:
     ledger_path: str = "var/autotrader/portfolio.db"
     idempotency_path: str = "var/autotrader/idempotency.db"
     initial_equity: float = 2000.0
-    cadence_seconds: float = 300.0
+    cadence_seconds: float = 120.0
     lookback_days: int = 7
     interval: str = "15m"
-    minimum_candidate_score: float = 18.0
-    take_profit_r_multiple: float = 2.0
-    max_entries_per_cycle: int = 2
+    minimum_candidate_score: float = 10.0
+    take_profit_r_multiple: float = 1.5
+    max_entries_per_cycle: int = 3
     alpaca_universe: tuple[str, ...] = DEFAULT_ALPACA_UNIVERSE
     oanda_universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
 
@@ -76,14 +69,13 @@ def choose_long_signal(
     *,
     scanner: CandidateScanner | None = None,
     strategies: BaselineStrategies | None = None,
-    minimum_score: float = 18.0,
+    minimum_score: float = 10.0,
 ) -> RankedSignal | None:
-    """Return an auditable long-only signal when independent rules agree.
+    """Return an auditable long-only signal for aggressive paper testing.
 
-    Shorts stay disabled by the risk profile. A candidate must have positive
-    momentum and at least two independent long votes, or one long vote plus a
-    strong scanner score. This avoids turning the scanner alone into an execution
-    strategy while still allowing decisive paper testing.
+    The risk engine remains the final authority. This layer is intentionally more
+    permissive than the first paper prototype so the system can generate enough
+    trades to evaluate edge quickly, without changing hard capital guardrails.
     """
     scanner = scanner or CandidateScanner()
     strategies = strategies or BaselineStrategies()
@@ -97,14 +89,14 @@ def choose_long_signal(
         strategies.mean_reversion(instrument, bars),
     )
     buys = [proposal for proposal in proposals if proposal is not None and proposal.side is Side.BUY]
-    if len(buys) < 2 and not (len(buys) == 1 and candidate.score >= minimum_score * 1.75):
+    if not buys:
         return None
 
     entry = candidate.last_price
     stop = min(candidate.suggested_stop, entry * 0.995)
     if stop <= 0 or stop >= entry:
         return None
-    confidence = min(0.95, 0.50 + 0.10 * len(buys) + candidate.score / 500.0)
+    confidence = min(0.95, 0.52 + 0.11 * len(buys) + candidate.score / 450.0)
     source = "+".join(proposal.source for proposal in buys)
     proposal = TradeProposal(
         symbol=instrument.symbol,
@@ -192,7 +184,11 @@ class AutonomousPaperTradingJob:
             return JobResult(
                 True,
                 "Autonomous paper cycle found no qualifying entry",
-                {"scanned": len(histories)},
+                {
+                    "scanned": len(histories),
+                    "minimum_candidate_score": self.config.minimum_candidate_score,
+                    "universe_size": len(self.config.alpaca_universe) + len(self.config.oanda_universe),
+                },
             )
 
         entries: list[dict[str, object]] = []
@@ -208,10 +204,7 @@ class AutonomousPaperTradingJob:
                 break
 
             portfolio = fresh.portfolio
-            gross = sum(
-                abs(position.quantity * position.average_price)
-                for position in portfolio.positions.values()
-            )
+            gross = sum(abs(position.quantity * position.average_price) for position in portfolio.positions.values())
             asset_notional = sum(
                 abs(position.quantity * position.average_price)
                 for position in portfolio.positions.values()
@@ -330,11 +323,9 @@ class AutonomousPaperTradingJob:
     def _load_histories(self, now: datetime):
         start = now - timedelta(days=max(self.config.lookback_days, 2))
         histories = {}
+        etfs = {"SPY", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV"}
         instruments = [
-            *(
-                Instrument(symbol, AssetClass.ETF if symbol in {"SPY", "QQQ", "IWM"} else AssetClass.STOCK)
-                for symbol in self.config.alpaca_universe
-            ),
+            *(Instrument(symbol, AssetClass.ETF if symbol in etfs else AssetClass.STOCK) for symbol in self.config.alpaca_universe),
             *(Instrument(symbol, AssetClass.FOREX) for symbol in self.config.oanda_universe),
         ]
         for instrument in instruments:
@@ -364,24 +355,10 @@ class AutonomousPaperTradingJob:
                 result = close_oanda_position(symbol, ledger_path=self.config.ledger_path)
             else:
                 result = close_alpaca_position(symbol, ledger_path=self.config.ledger_path)
-            exits.append(
-                {
-                    "symbol": symbol,
-                    "mark": mark,
-                    "target": target,
-                    "ok": result.ok,
-                    "message": result.message,
-                }
-            )
+            exits.append({"symbol": symbol, "mark": mark, "target": target, "ok": result.ok, "message": result.message})
         return exits
 
     def _sync_broker_flat_positions(self, ledger: PortfolioLedger) -> None:
-        """Clear ledger-only positions after broker-side stops/exits make them flat.
-
-        Broker-only exposure is never auto-adopted here; that remains fail-closed.
-        This only removes stale local positions when both paper brokers are readable
-        and broker truth confirms the symbol has no exposure.
-        """
         loaded = ledger.load_portfolio()
         if loaded is None:
             return
@@ -392,9 +369,7 @@ class AutonomousPaperTradingJob:
         except Exception:
             return
         broker_symbols = {
-            position.symbol
-            for position in [*alpaca, *oanda]
-            if abs(position.quantity) > 1e-12
+            position.symbol for position in [*alpaca, *oanda] if abs(position.quantity) > 1e-12
         }
         changed = False
         for symbol in list(portfolio.positions):
