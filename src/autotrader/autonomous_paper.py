@@ -4,7 +4,12 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from .brokers.practice_orders import submit_alpaca_paper_protected_order, submit_oanda_practice_market_order
+from .brokers.practice_orders import (
+    submit_alpaca_paper_crypto_market_order,
+    submit_alpaca_paper_crypto_stop_limit,
+    submit_alpaca_paper_protected_order,
+    submit_oanda_practice_market_order,
+)
 from .brokers.safety import alpaca_open_positions, close_alpaca_position, close_oanda_position, oanda_open_positions
 from .capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL, pillar_for_asset
 from .execution_safety import IdempotencyStore
@@ -24,6 +29,7 @@ DEFAULT_ALPACA_UNIVERSE = (
     "AMD", "AVGO", "NFLX", "PLTR", "COIN", "MSTR", "SMCI", "JPM", "BAC", "GS", "XOM", "CVX", "LLY", "UNH", "COST",
 )
 DEFAULT_OANDA_UNIVERSE = ("EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "NZD/USD", "EUR/JPY", "GBP/JPY")
+DEFAULT_CRYPTO_UNIVERSE = ("BTC/USD", "ETH/USD")
 
 
 @dataclass(frozen=True)
@@ -40,6 +46,7 @@ class AutonomousPaperConfig:
     max_entries_per_cycle: int = 3
     alpaca_universe: tuple[str, ...] = DEFAULT_ALPACA_UNIVERSE
     oanda_universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
+    crypto_universe: tuple[str, ...] = DEFAULT_CRYPTO_UNIVERSE
 
 
 @dataclass(frozen=True)
@@ -90,12 +97,15 @@ class AutonomousPaperTradingJob:
         preflight = run_preflight(ledger_path=self.config.ledger_path, idempotency_path=self.config.idempotency_path, initial_equity=self.config.initial_equity)
         if not preflight.ready:
             return JobResult(True, "Autonomous paper cycle skipped by safety preflight", {"failed_checks": list(preflight.failed_checks), "messages": list(preflight.messages)})
+
         histories = self._load_histories(now)
         if not histories:
             return JobResult(True, "Autonomous paper cycle found no usable market data", {})
+
         exits = self._manage_take_profits(preflight.portfolio, histories)
         if exits:
             return JobResult(True, "Autonomous paper cycle managed exits", {"exits": exits})
+
         loaded = ledger.load_portfolio()
         portfolio = PortfolioState(self.config.initial_equity, self.config.initial_equity) if loaded is None else loaded[0]
         diagnostics, signals = [], []
@@ -108,12 +118,23 @@ class AutonomousPaperTradingJob:
             signal = choose_long_signal(instrument, bars, scanner=self.scanner, strategies=self.strategies, minimum_score=self.config.minimum_candidate_score, momentum_only_score=self.config.momentum_only_score)
             if signal is not None:
                 signals.append(signal)
+
         diagnostics.sort(key=lambda x: float(x["score"]), reverse=True)
         forex = sorted([s for s in signals if s.instrument.asset_class is AssetClass.FOREX], key=lambda x: x.score, reverse=True)
-        equities = sorted([s for s in signals if s.instrument.asset_class is not AssetClass.FOREX], key=lambda x: x.score, reverse=True)
-        signals = forex + equities
+        crypto = sorted([s for s in signals if s.instrument.asset_class is AssetClass.CRYPTO], key=lambda x: x.score, reverse=True)
+        equities = sorted([s for s in signals if s.instrument.asset_class not in {AssetClass.FOREX, AssetClass.CRYPTO}], key=lambda x: x.score, reverse=True)
+        signals = forex + crypto + equities
+
+        counts = {
+            "scanned": len(histories),
+            "forex_scanned": sum(1 for i in histories if i.asset_class is AssetClass.FOREX),
+            "crypto_scanned": sum(1 for i in histories if i.asset_class is AssetClass.CRYPTO),
+            "forex_qualified": len(forex),
+            "crypto_qualified": len(crypto),
+            "equity_qualified": len(equities),
+        }
         if not signals:
-            return JobResult(True, "Autonomous paper cycle found no qualifying entry", {"scanned": len(histories), "forex_scanned": sum(1 for i in histories if i.asset_class is AssetClass.FOREX), "forex_qualified": 0, "top_candidates": diagnostics[:10]})
+            return JobResult(True, "Autonomous paper cycle found no qualifying entry", {**counts, "qualified_signals": 0, "top_candidates": diagnostics[:10], "pillar_allocations": PILLAR_ALLOCATIONS})
 
         entries, rejections, failures, duplicates, sizing = [], [], [], [], []
         for signal in signals:
@@ -122,6 +143,7 @@ class AutonomousPaperTradingJob:
             fresh = run_preflight(ledger_path=self.config.ledger_path, idempotency_path=self.config.idempotency_path, initial_equity=self.config.initial_equity)
             if not fresh.ready:
                 break
+
             portfolio = fresh.portfolio
             pillar = pillar_for_asset(signal.instrument.asset_class)
             pillar_limit = PILLAR_ALLOCATIONS[pillar]
@@ -129,26 +151,44 @@ class AutonomousPaperTradingJob:
             if pillar_notional >= pillar_limit:
                 rejections.append({"symbol": signal.instrument.symbol, "pillar": pillar, "reason": f"pillar capital fully allocated ({pillar_notional:.2f} >= {pillar_limit:.2f})"})
                 continue
+
             gross = sum(abs(p.quantity * p.average_price) for p in portfolio.positions.values())
             decision = self.risk.evaluate(signal.proposal, portfolio, RiskContext(peak_equity=fresh.peak_equity, gross_notional=gross, asset_class_notional=pillar_notional))
             if not decision.approved:
                 rejections.append({"symbol": signal.instrument.symbol, "pillar": pillar, "reason": decision.reason})
                 continue
+
             remaining_notional = max(pillar_limit - pillar_notional, 0.0)
             capacity_quantity = remaining_notional / signal.proposal.entry_price
-            order_quantity = float(math.floor(min(decision.quantity, capacity_quantity)))
-            if order_quantity < 1:
-                sizing.append({"symbol": signal.instrument.symbol, "pillar": pillar, "risk_quantity": decision.quantity, "capacity_quantity": capacity_quantity, "reason": "pillar capacity rounds below one whole unit/share"})
-                continue
-            broker = "oanda-practice" if signal.instrument.asset_class is AssetClass.FOREX else "alpaca-paper"
+            if signal.instrument.asset_class is AssetClass.CRYPTO:
+                pillar_risk_dollars = pillar_limit * 0.0125
+                pillar_risk_quantity = pillar_risk_dollars / signal.proposal.risk_per_unit
+                order_quantity = round(min(decision.quantity, capacity_quantity, pillar_risk_quantity), 8)
+                if order_quantity <= 0:
+                    sizing.append({"symbol": signal.instrument.symbol, "pillar": pillar, "reason": "crypto fractional sizing produced zero quantity"})
+                    continue
+                broker = "alpaca-crypto-paper"
+            else:
+                order_quantity = float(math.floor(min(decision.quantity, capacity_quantity)))
+                if order_quantity < 1:
+                    sizing.append({"symbol": signal.instrument.symbol, "pillar": pillar, "risk_quantity": decision.quantity, "capacity_quantity": capacity_quantity, "reason": "pillar capacity rounds below one whole unit/share"})
+                    continue
+                broker = "oanda-practice" if signal.instrument.asset_class is AssetClass.FOREX else "alpaca-paper"
+
             bucket = now.astimezone(UTC).strftime("%Y%m%dT%H%M")
             key = self.idempotency.make_key(broker=broker, symbol=signal.instrument.symbol, side="buy", intent="enter", quantity=order_quantity, strategy_id=signal.proposal.source, decision_bucket=bucket)
             if not self.idempotency.reserve(key, broker=broker, symbol=signal.instrument.symbol, side="buy", intent="enter", ttl_seconds=max(int(self.cadence_seconds * 2), 600), now=now):
                 duplicates.append({"symbol": signal.instrument.symbol, "broker": broker})
                 continue
+
             client_id = f"auto-{bucket}-{signal.instrument.symbol.replace('/', '')}"[:48]
             try:
-                if broker == "alpaca-paper":
+                protective_order_id = None
+                if signal.instrument.asset_class is AssetClass.CRYPTO:
+                    result = submit_alpaca_paper_crypto_market_order(signal.instrument.symbol, side="buy", qty=order_quantity, client_order_id=client_id)
+                    broker_order_id = str(result.details.get("id") or "") or None
+                    sync_broker = "alpaca"
+                elif broker == "alpaca-paper":
                     result = submit_alpaca_paper_protected_order(signal.instrument.symbol, side="buy", qty=order_quantity, stop_price=signal.proposal.stop_price, client_order_id=client_id)
                     broker_order_id = str(result.details.get("id") or "") or None
                     sync_broker = "alpaca"
@@ -157,23 +197,84 @@ class AutonomousPaperTradingJob:
                     fill = result.details.get("order_fill_transaction")
                     broker_order_id = str(fill.get("orderID")) if isinstance(fill, dict) and fill.get("orderID") else None
                     sync_broker = "oanda"
+
                 if not result.ok:
                     self.idempotency.release(key)
                     failures.append({"symbol": signal.instrument.symbol, "broker": broker, "quantity": order_quantity, "message": result.message, "details": result.details})
                     continue
+
                 self.idempotency.mark_submitted(key, broker_order_id)
-                sync = _sync_submitted_position(broker=sync_broker, symbol=signal.instrument.symbol, stop_price=signal.proposal.stop_price, ledger_path=self.config.ledger_path, initial_equity=self.config.initial_equity, expected_quantity=order_quantity, attempts=20, delay_seconds=0.25)
-                entries.append({"broker": broker, "pillar": pillar, "symbol": signal.instrument.symbol, "quantity": order_quantity, "entry_reference": signal.proposal.entry_price, "stop_price": signal.proposal.stop_price, "score": signal.score, "votes": list(signal.votes), "risk_dollars": decision.max_loss_dollars, "binding_constraint": decision.binding_constraint, "broker_order_id": broker_order_id, "ledger_sync": sync})
+                sync = _sync_submitted_position(
+                    broker=sync_broker,
+                    symbol=signal.instrument.symbol,
+                    stop_price=signal.proposal.stop_price,
+                    ledger_path=self.config.ledger_path,
+                    initial_equity=self.config.initial_equity,
+                    expected_quantity=order_quantity,
+                    asset_class=signal.instrument.asset_class,
+                    attempts=24,
+                    delay_seconds=0.25,
+                )
+
+                if signal.instrument.asset_class is AssetClass.CRYPTO:
+                    protection = submit_alpaca_paper_crypto_stop_limit(
+                        signal.instrument.symbol,
+                        qty=abs(float(sync["quantity"])),
+                        stop_price=signal.proposal.stop_price,
+                        client_order_id=f"{client_id}-stop"[:48],
+                    )
+                    if not protection.ok:
+                        emergency = close_alpaca_position(signal.instrument.symbol, ledger_path=self.config.ledger_path)
+                        failures.append({
+                            "symbol": signal.instrument.symbol,
+                            "broker": broker,
+                            "quantity": order_quantity,
+                            "message": "crypto entry filled but protective stop failed; emergency close requested",
+                            "details": {"protection": protection.details, "protection_message": protection.message, "emergency_close_ok": emergency.ok, "emergency_close_message": emergency.message},
+                        })
+                        continue
+                    protective_order_id = str(protection.details.get("id") or "") or None
+
+                entries.append({
+                    "broker": broker,
+                    "pillar": pillar,
+                    "symbol": signal.instrument.symbol,
+                    "quantity": order_quantity,
+                    "entry_reference": signal.proposal.entry_price,
+                    "stop_price": signal.proposal.stop_price,
+                    "score": signal.score,
+                    "votes": list(signal.votes),
+                    "risk_dollars": decision.max_loss_dollars,
+                    "binding_constraint": decision.binding_constraint,
+                    "broker_order_id": broker_order_id,
+                    "protective_order_id": protective_order_id,
+                    "ledger_sync": sync,
+                })
             except Exception:
                 self.idempotency.release(key)
                 raise
-        return JobResult(True, "Autonomous paper cycle completed", {"entries": entries, "qualified_signals": len(signals), "forex_scanned": sum(1 for i in histories if i.asset_class is AssetClass.FOREX), "forex_qualified": len(forex), "equity_qualified": len(equities), "risk_rejections": rejections, "submission_failures": failures, "duplicate_skips": duplicates, "sizing_skips": sizing, "top_candidates": diagnostics[:10], "scanned": len(histories), "pillar_allocations": PILLAR_ALLOCATIONS})
+
+        return JobResult(True, "Autonomous paper cycle completed", {
+            "entries": entries,
+            "qualified_signals": len(signals),
+            **counts,
+            "risk_rejections": rejections,
+            "submission_failures": failures,
+            "duplicate_skips": duplicates,
+            "sizing_skips": sizing,
+            "top_candidates": diagnostics[:10],
+            "pillar_allocations": PILLAR_ALLOCATIONS,
+        })
 
     def _load_histories(self, now: datetime):
         start = now - timedelta(days=max(self.config.lookback_days, 2))
         histories = {}
         etfs = {"SPY", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV"}
-        instruments = [*(Instrument(s, AssetClass.ETF if s in etfs else AssetClass.STOCK) for s in self.config.alpaca_universe), *(Instrument(s, AssetClass.FOREX) for s in self.config.oanda_universe)]
+        instruments = [
+            *(Instrument(s, AssetClass.ETF if s in etfs else AssetClass.STOCK) for s in self.config.alpaca_universe),
+            *(Instrument(s, AssetClass.FOREX) for s in self.config.oanda_universe),
+            *(Instrument(s, AssetClass.CRYPTO) for s in self.config.crypto_universe),
+        ]
         for instrument in instruments:
             try:
                 bars = self.feed.history(instrument, start, now, interval=self.config.interval)
@@ -197,7 +298,7 @@ class AutonomousPaperTradingJob:
             target = position.average_price + self.config.take_profit_r_multiple * risk_per_unit
             if mark < target:
                 continue
-            result = close_oanda_position(symbol, ledger_path=self.config.ledger_path) if position.asset_class is AssetClass.FOREX or "/" in symbol else close_alpaca_position(symbol, ledger_path=self.config.ledger_path)
+            result = close_oanda_position(symbol, ledger_path=self.config.ledger_path) if position.asset_class is AssetClass.FOREX else close_alpaca_position(symbol, ledger_path=self.config.ledger_path)
             exits.append({"symbol": symbol, "mark": mark, "target": target, "ok": result.ok, "message": result.message})
         return exits
 
