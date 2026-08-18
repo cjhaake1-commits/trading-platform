@@ -29,6 +29,14 @@ def fx_session(hour_utc: int) -> str:
     return "late_new_york"
 
 
+def _oanda_price_precision(symbol: str) -> int:
+    return 3 if symbol.strip().upper().endswith("/JPY") else 5
+
+
+def _oanda_price(symbol: str, value: float) -> float:
+    return round(float(value), _oanda_price_precision(symbol))
+
+
 def qualify_fx_signal(
     instrument: Instrument,
     bars,
@@ -120,7 +128,8 @@ def qualify_fx_signal(
         return FxSignalDecision(False, candidate.score, None, votes, diagnostic)
 
     entry = float(candidate.last_price)
-    stop = entry * (0.995 if side is Side.BUY else 1.005)
+    raw_stop = entry * (0.995 if side is Side.BUY else 1.005)
+    stop = _oanda_price(instrument.symbol, raw_stop)
     if entry <= 0 or stop <= 0:
         diagnostic["reason"] = "invalid FX entry/stop geometry"
         return FxSignalDecision(False, candidate.score, None, votes, diagnostic)
@@ -150,6 +159,7 @@ def qualify_fx_signal(
     diagnostic["side"] = side.value
     diagnostic["reason"] = "FX setup passed FX-specific qualification"
     diagnostic["stop_price"] = stop
+    diagnostic["price_precision"] = _oanda_price_precision(instrument.symbol)
     return FxSignalDecision(True, candidate.score, proposal, votes, diagnostic)
 
 
