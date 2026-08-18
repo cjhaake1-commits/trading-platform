@@ -37,7 +37,7 @@ class FxPaperConfig:
     cadence_seconds: float = 60.0
     lookback_days: int = 7
     interval: str = "15m"
-    minimum_score: float = 2.5
+    minimum_score: float = 1.5
     max_entries_per_cycle: int = 1
     universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
 
