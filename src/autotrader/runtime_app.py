@@ -9,6 +9,7 @@ from .audit import SQLiteAuditStore
 from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
 from .capital_allocations import TOTAL_PAPER_CAPITAL
 from .daily_learning import DailyLearningJob
+from .fx_paper import FxPaperConfig, FxPaperTradingJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
 
 
@@ -45,16 +46,23 @@ def main() -> None:
     if args.autonomous_paper and mode is not RunMode.PAPER:
         raise SystemExit("--autonomous-paper is only valid with --mode paper")
 
-    config = RuntimeConfig(
-        mode=mode,
-        heartbeat_seconds=args.heartbeat,
-        snapshot_path=Path(args.status),
-    )
+    config = RuntimeConfig(mode=mode, heartbeat_seconds=args.heartbeat, snapshot_path=Path(args.status))
     jobs = [HeartbeatJob()]
     if args.autonomous_paper:
         jobs.append(
             AutonomousPaperTradingJob(
                 AutonomousPaperConfig(
+                    ledger_path=args.ledger,
+                    idempotency_path=args.idempotency,
+                    initial_equity=args.initial_equity,
+                    cadence_seconds=args.trade_cadence,
+                    forex_universe=(),
+                )
+            )
+        )
+        jobs.append(
+            FxPaperTradingJob(
+                FxPaperConfig(
                     ledger_path=args.ledger,
                     idempotency_path=args.idempotency,
                     initial_equity=args.initial_equity,
