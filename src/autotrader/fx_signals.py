@@ -29,7 +29,7 @@ def fx_session(hour_utc: int) -> str:
     return "late_new_york"
 
 
-def qualify_fx_long(
+def qualify_fx_signal(
     instrument: Instrument,
     bars,
     *,
@@ -38,13 +38,7 @@ def qualify_fx_long(
     strategies: BaselineStrategies | None = None,
     minimum_score: float = 2.5,
 ) -> FxSignalDecision:
-    """Qualify transparent long-side FX setups without equity-style momentum gating.
-
-    FX is intentionally evaluated separately from equities. A mean-reversion BUY
-    may be valid with negative recent momentum, so positive momentum is not a hard
-    requirement here. Short FX remains disabled until the portfolio/risk/exit
-    stack supports negative positions end-to-end.
-    """
+    """Qualify transparent FX long or short setups independently of equity gating."""
 
     scanner = scanner or CandidateScanner()
     strategies = strategies or BaselineStrategies()
@@ -65,64 +59,101 @@ def qualify_fx_long(
             },
         )
 
-    proposals = (
-        strategies.sma_cross(instrument, bars),
-        strategies.breakout(instrument, bars),
-        strategies.mean_reversion(instrument, bars),
+    proposals = tuple(
+        proposal
+        for proposal in (
+            strategies.sma_cross(instrument, bars),
+            strategies.breakout(instrument, bars),
+            strategies.mean_reversion(instrument, bars),
+        )
+        if proposal is not None
     )
-    buys = [proposal for proposal in proposals if proposal is not None and proposal.side is Side.BUY]
-    votes = tuple(proposal.source for proposal in buys)
+    buys = [proposal for proposal in proposals if proposal.side is Side.BUY]
+    sells = [proposal for proposal in proposals if proposal.side is Side.SELL]
 
     diagnostic = {
         "symbol": instrument.symbol,
         "session": session,
         "score": round(candidate.score, 3),
         "momentum_pct": round(candidate.momentum_pct, 4),
-        "buy_votes": list(votes),
+        "buy_votes": [proposal.source for proposal in buys],
+        "sell_votes": [proposal.source for proposal in sells],
         "qualified": False,
     }
 
-    if not buys:
-        diagnostic["reason"] = "no FX long strategy vote"
+    if not buys and not sells:
+        diagnostic["reason"] = "no FX strategy vote"
         return FxSignalDecision(False, candidate.score, None, (), diagnostic)
 
-    # Two independent BUY votes can qualify even if the generic scanner score is
-    # modest. One vote still requires a minimum FX-specific score.
-    if candidate.score < minimum_score and len(buys) < 2:
+    # Prefer the side with more independent strategy votes. On ties, use recent
+    # momentum only as a tie-breaker rather than an absolute qualification gate.
+    if len(buys) > len(sells):
+        side = Side.BUY
+        selected = buys
+    elif len(sells) > len(buys):
+        side = Side.SELL
+        selected = sells
+    elif candidate.momentum_pct >= 0:
+        side = Side.BUY
+        selected = buys
+    else:
+        side = Side.SELL
+        selected = sells
+
+    if not selected:
+        diagnostic["reason"] = "strategy-vote tie produced no supported side"
+        return FxSignalDecision(False, candidate.score, None, (), diagnostic)
+
+    votes = tuple(proposal.source for proposal in selected)
+    if candidate.score < minimum_score and len(selected) < 2:
         diagnostic["reason"] = f"FX score below threshold ({candidate.score:.2f} < {minimum_score:.2f})"
         return FxSignalDecision(False, candidate.score, None, votes, diagnostic)
 
-    # Avoid fighting strong downside momentum unless the long is explicitly a
-    # mean-reversion setup. This preserves the useful distinction between a
-    # pullback entry and blindly buying a falling pair.
-    if candidate.momentum_pct < -0.75 and "mean_reversion" not in votes:
+    # Avoid taking a one-vote directional trade directly against unusually strong
+    # recent momentum. Mean-reversion gets an explicit exception because that is
+    # the strategy's purpose.
+    if side is Side.BUY and candidate.momentum_pct < -0.75 and "mean_reversion" not in votes:
         diagnostic["reason"] = "strong negative momentum without mean-reversion support"
+        return FxSignalDecision(False, candidate.score, None, votes, diagnostic)
+    if side is Side.SELL and candidate.momentum_pct > 0.75 and "mean_reversion" not in votes:
+        diagnostic["reason"] = "strong positive momentum without mean-reversion support"
         return FxSignalDecision(False, candidate.score, None, votes, diagnostic)
 
     entry = float(candidate.last_price)
-    # A 0.5% reference stop is intentionally tighter than the generic 2% equity
-    # baseline and remains bounded by the unchanged portfolio risk engine.
-    stop = entry * 0.995
-    if entry <= 0 or stop <= 0 or stop >= entry:
+    stop = entry * (0.995 if side is Side.BUY else 1.005)
+    if entry <= 0 or stop <= 0:
         diagnostic["reason"] = "invalid FX entry/stop geometry"
+        return FxSignalDecision(False, candidate.score, None, votes, diagnostic)
+    if side is Side.BUY and stop >= entry:
+        diagnostic["reason"] = "long FX stop must be below entry"
+        return FxSignalDecision(False, candidate.score, None, votes, diagnostic)
+    if side is Side.SELL and stop <= entry:
+        diagnostic["reason"] = "short FX stop must be above entry"
         return FxSignalDecision(False, candidate.score, None, votes, diagnostic)
 
     confidence = min(0.90, 0.50 + 0.10 * len(votes) + candidate.score / 500.0)
     proposal = TradeProposal(
         instrument.symbol,
         instrument.asset_class,
-        Side.BUY,
+        side,
         entry,
         stop,
         confidence,
-        f"fx:{'+'.join(votes)}",
+        f"fx:{side.value}:{'+'.join(votes)}",
         (
-            f"fx_session={session}; scanner_score={candidate.score:.2f}; "
+            f"fx_session={session}; side={side.value}; scanner_score={candidate.score:.2f}; "
             f"momentum={candidate.momentum_pct:.3f}%; votes={','.join(votes)}"
         ),
         TradeIntent.ENTER,
     )
     diagnostic["qualified"] = True
-    diagnostic["reason"] = "FX long setup passed FX-specific qualification"
+    diagnostic["side"] = side.value
+    diagnostic["reason"] = "FX setup passed FX-specific qualification"
     diagnostic["stop_price"] = stop
     return FxSignalDecision(True, candidate.score, proposal, votes, diagnostic)
+
+
+# Backwards-compatible alias for any callers/tests that still import the first
+# long-only helper name. It now uses the complete directional qualifier.
+def qualify_fx_long(*args, **kwargs) -> FxSignalDecision:
+    return qualify_fx_signal(*args, **kwargs)
