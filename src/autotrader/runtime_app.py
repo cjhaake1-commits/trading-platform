@@ -56,7 +56,7 @@ def main() -> None:
                     idempotency_path=args.idempotency,
                     initial_equity=args.initial_equity,
                     cadence_seconds=args.trade_cadence,
-                    forex_universe=(),
+                    oanda_universe=(),
                 )
             )
         )
