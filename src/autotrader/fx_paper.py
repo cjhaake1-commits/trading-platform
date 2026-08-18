@@ -39,6 +39,7 @@ class FxPaperConfig:
     interval: str = "15m"
     minimum_score: float = 1.5
     max_entries_per_cycle: int = 1
+    min_entry_notional: float = 50.0
     universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
 
 
@@ -135,10 +136,31 @@ class FxPaperTradingJob:
                 continue
 
             remaining_notional = max(pillar_limit - pillar_notional, 0.0)
+            if remaining_notional < self.config.min_entry_notional:
+                sizing_skips.append({
+                    "symbol": signal.proposal.symbol,
+                    "pillar": PILLAR_FOREX,
+                    "side": signal.proposal.side.value,
+                    "remaining_notional": round(remaining_notional, 4),
+                    "minimum_entry_notional": self.config.min_entry_notional,
+                    "reason": "remaining FX pillar capacity below minimum meaningful entry notional",
+                })
+                continue
+
             capacity_quantity = remaining_notional / signal.proposal.entry_price
             order_quantity = int(math.floor(min(risk_decision.quantity, capacity_quantity)))
-            if order_quantity < 1:
-                sizing_skips.append({"symbol": signal.proposal.symbol, "pillar": PILLAR_FOREX, "side": signal.proposal.side.value, "risk_quantity": risk_decision.quantity, "capacity_quantity": capacity_quantity, "reason": "FX sizing rounds below one unit"})
+            proposed_notional = order_quantity * signal.proposal.entry_price
+            if order_quantity < 1 or proposed_notional < self.config.min_entry_notional:
+                sizing_skips.append({
+                    "symbol": signal.proposal.symbol,
+                    "pillar": PILLAR_FOREX,
+                    "side": signal.proposal.side.value,
+                    "risk_quantity": risk_decision.quantity,
+                    "capacity_quantity": capacity_quantity,
+                    "proposed_notional": round(proposed_notional, 4),
+                    "minimum_entry_notional": self.config.min_entry_notional,
+                    "reason": "FX order below minimum meaningful entry notional",
+                })
                 continue
 
             signed_units = order_quantity if signal.proposal.side is Side.BUY else -order_quantity
