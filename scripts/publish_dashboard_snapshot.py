@@ -6,7 +6,11 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+from autotrader.brokers.alpaca_metals_paper import METALS_UNIVERSE
 from autotrader.brokers.safety import alpaca_open_positions, oanda_open_positions
+from autotrader.capital_allocations import TOTAL_PAPER_CAPITAL
+from autotrader.cash_dashboard import aggregate_cash_dashboard
+from autotrader.coordinated_test import FivePillarTestConfig, five_pillar_performance
 
 
 def _float(value, default: float = 0.0) -> float:
@@ -25,18 +29,29 @@ def read_json(path: Path) -> dict[str, object]:
         return {}
 
 
-def read_portfolio(path: Path) -> tuple[dict[str, object], list[dict[str, object]], int]:
+def read_portfolio(
+    path: Path,
+) -> tuple[dict[str, object], list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
     if not path.exists():
-        return {}, [], 0
+        return {}, [], [], []
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         state = conn.execute("SELECT * FROM portfolio_state WHERE id = 1").fetchone()
         positions = [dict(row) for row in conn.execute("SELECT * FROM positions ORDER BY symbol")]
         try:
-            fill_count = int(conn.execute("SELECT COUNT(*) AS n FROM fills").fetchone()["n"])
+            fills = [dict(row) for row in conn.execute("SELECT * FROM fills ORDER BY occurred_at")]
         except sqlite3.Error:
-            fill_count = 0
-    return ({} if state is None else dict(state), positions, fill_count)
+            fills = []
+        pillar_trades = []
+        for table in ("international_trades", "metals_trades"):
+            try:
+                pillar_trades.extend(
+                    dict(row)
+                    for row in conn.execute(f"SELECT * FROM {table} WHERE status = 'closed' ORDER BY closed_at")
+                )
+            except sqlite3.Error:
+                continue
+    return ({} if state is None else dict(state), positions, fills, pillar_trades)
 
 
 def read_activity(path: Path, limit: int = 50) -> tuple[list[dict[str, object]], dict[str, object]]:
@@ -47,7 +62,10 @@ def read_activity(path: Path, limit: int = 50) -> tuple[list[dict[str, object]],
         rows = []
         for table in ("audit_events", "events"):
             try:
-                rows = conn.execute(f"SELECT * FROM {table} ORDER BY id DESC LIMIT ?", (limit,),).fetchall()
+                rows = conn.execute(
+                    f"SELECT * FROM {table} ORDER BY id DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
                 break
             except sqlite3.Error:
                 continue
@@ -87,7 +105,13 @@ def ledger_stop_map(rows: list[dict[str, object]]) -> dict[str, float]:
 def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[dict[str, object]], dict[str, float]]:
     stops = ledger_stop_map(ledger_rows)
     positions: list[dict[str, object]] = []
-    metrics = {"unrealized_pnl": 0.0, "gross_exposure": 0.0, "alpaca_exposure": 0.0, "oanda_exposure": 0.0}
+    metrics = {
+        "unrealized_pnl": 0.0,
+        "gross_exposure": 0.0,
+        "alpaca_exposure": 0.0,
+        "metals_exposure": 0.0,
+        "oanda_exposure": 0.0,
+    }
 
     try:
         raw_alpaca = alpaca_open_positions().details.get("positions", [])
@@ -105,8 +129,10 @@ def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[di
             unrealized = _float(row.get("unrealized_pl"))
             stop = stops.get(symbol, 0.0)
             risk_dollars = max((avg - stop) * max(qty, 0.0), 0.0) if stop else 0.0
+            is_metal = symbol.upper() in METALS_UNIVERSE
             positions.append(
                 {
+                    "pillar": "Metals/Commodities" if is_metal else "Stocks/Crypto",
                     "broker": "Alpaca Paper",
                     "symbol": symbol,
                     "asset_class": "us_equity",
@@ -123,6 +149,8 @@ def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[di
             metrics["unrealized_pnl"] += unrealized
             metrics["gross_exposure"] += market_value
             metrics["alpaca_exposure"] += market_value
+            if is_metal:
+                metrics["metals_exposure"] += market_value
 
     try:
         raw_oanda = oanda_open_positions().details.get("positions", [])
@@ -168,7 +196,7 @@ def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[di
 
 def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> dict[str, object]:
     status = read_json(status_path)
-    state, ledger_positions, fill_count = read_portfolio(ledger_path)
+    state, ledger_positions, fills, pillar_trades = read_portfolio(ledger_path)
     activity, latest_cycle = read_activity(audit_path)
     live_positions, broker_metrics = live_broker_positions(ledger_positions)
 
@@ -177,7 +205,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     if not isinstance(auto, dict):
         auto = {}
 
-    base_equity = _float(state.get("equity"), 2000.0) or 2000.0
+    base_equity = _float(state.get("equity"), TOTAL_PAPER_CAPITAL) or TOTAL_PAPER_CAPITAL
     peak = _float(state.get("peak_equity"), base_equity) or base_equity
     open_pnl = broker_metrics["unrealized_pnl"]
     marked_equity = base_equity + open_pnl
@@ -190,6 +218,17 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     stretch_low = 0.20
     stretch_high = 0.30
     mtm_return = (marked_equity - base_equity) / base_equity if base_equity > 0 else 0.0
+    realized_records = [*fills, *pillar_trades]
+    cash_dashboard = aggregate_cash_dashboard(
+        realized_records=realized_records,
+        positions=live_positions,
+        available_cash=_float(state.get("cash"), TOTAL_PAPER_CAPITAL),
+        original_capital=TOTAL_PAPER_CAPITAL,
+    )
+    pillar_performance = five_pillar_performance(
+        completed_trades=realized_records,
+        positions=live_positions,
+    )
 
     return {
         "published_at": datetime.now(UTC).isoformat(),
@@ -213,6 +252,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "gross_exposure": gross_exposure,
             "open_risk_dollars": risk_open,
             "alpaca_exposure": broker_metrics["alpaca_exposure"],
+            "metals_exposure": broker_metrics["metals_exposure"],
             "oanda_exposure": broker_metrics["oanda_exposure"],
         },
         "targets": {
@@ -227,7 +267,10 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "max_daily_loss_pct": 0.05,
             "max_peak_drawdown_pct": 0.15,
         },
-        "fill_count": fill_count,
+        "cash_dashboard": cash_dashboard.as_dict(),
+        "coordinated_test": FivePillarTestConfig().as_dict(),
+        "pillar_performance": pillar_performance,
+        "fill_count": len(fills),
         "positions": live_positions,
         "latest_cycle": latest_cycle,
         "activity": activity,
@@ -246,7 +289,11 @@ def main() -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({"output": str(output), "published_at": snapshot["published_at"], "runtime": snapshot["runtime"]}, indent=2))
+    print(
+        json.dumps(
+            {"output": str(output), "published_at": snapshot["published_at"], "runtime": snapshot["runtime"]}, indent=2
+        )
+    )
 
 
 if __name__ == "__main__":

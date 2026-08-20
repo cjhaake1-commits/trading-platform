@@ -7,6 +7,22 @@ from typing import Protocol
 from .models import AssetClass, Instrument, MarketBar
 
 
+def normalize_ohlc(
+    open_price: float,
+    high_price: float,
+    low_price: float,
+    close_price: float,
+) -> tuple[float, float, float, float]:
+    """Repair provider rounding anomalies while preserving internal OHLC invariants."""
+
+    return (
+        open_price,
+        max(open_price, high_price, low_price, close_price),
+        min(open_price, high_price, low_price, close_price),
+        close_price,
+    )
+
+
 class HistoricalMarketData(Protocol):
     def history(
         self,
@@ -89,10 +105,12 @@ class YahooHistoricalData:
             else:
                 timestamp = timestamp.astimezone(UTC)
 
-            open_price = float(row["Open"])
-            high_price = float(row["High"])
-            low_price = float(row["Low"])
-            close_price = float(row["Close"])
+            open_price, high_price, low_price, close_price = normalize_ohlc(
+                float(row["Open"]),
+                float(row["High"]),
+                float(row["Low"]),
+                float(row["Close"]),
+            )
             volume_value = row["Volume"] if "Volume" in row else 0.0
             volume = float(volume_value) if volume_value == volume_value else 0.0
 

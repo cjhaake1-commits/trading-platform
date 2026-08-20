@@ -10,8 +10,19 @@ from pathlib import Path
 DEFAULT_PARAMETERS = {"minimum_candidate_score": 5.0, "momentum_only_score": 12.0}
 PARAMETER_BOUNDS = {"minimum_candidate_score": (4.0, 8.0), "momentum_only_score": (9.0, 16.0)}
 FORBIDDEN_PARAMETERS = {
-    "risk_per_trade_pct", "max_daily_loss_pct", "max_peak_drawdown_pct", "pillar_allocations",
-    "reconciliation", "emergency_close", "live_mode", "paper_mode",
+    "risk_per_trade_pct",
+    "max_portfolio_risk_pct",
+    "max_daily_loss_pct",
+    "max_peak_drawdown_pct",
+    "cash_reserve_pct",
+    "max_open_positions",
+    "pillar_allocations",
+    "reconciliation",
+    "emergency_close",
+    "emergency_kill_switch",
+    "broker_environment",
+    "live_mode",
+    "paper_mode",
 }
 
 
@@ -72,7 +83,9 @@ class RealizedOutcomeLearner:
             "expectancy": expectancy,
             "profit_factor": None if math.isinf(profit_factor) else profit_factor,
             "cumulative_realized_pnl": sum(pnls),
-            "sample_status": "collecting_evidence" if count < self.minimum_samples else ("limited_adaptation" if count < self.preferred_samples else "adaptive"),
+            "sample_status": "collecting_evidence"
+            if count < self.minimum_samples
+            else ("limited_adaptation" if count < self.preferred_samples else "adaptive"),
             "hard_guardrails_mutable": False,
         }
         self._write_json(self.stats_path, stats)
@@ -92,12 +105,19 @@ class RealizedOutcomeLearner:
                 new = max(low, min(high, proposed))
                 if abs(new - old) > 1e-12:
                     params[name] = round(new, 6)
-                    changes.append({
-                        "timestamp": now.astimezone(UTC).isoformat(), "parameter": name,
-                        "old_value": old, "new_value": params[name], "sample_size": count,
-                        "expectancy": expectancy, "profit_factor": stats["profit_factor"],
-                        "win_rate": stats["win_rate"], "reason": "bounded realized-outcome adaptation",
-                    })
+                    changes.append(
+                        {
+                            "timestamp": now.astimezone(UTC).isoformat(),
+                            "parameter": name,
+                            "old_value": old,
+                            "new_value": params[name],
+                            "sample_size": count,
+                            "expectancy": expectancy,
+                            "profit_factor": stats["profit_factor"],
+                            "win_rate": stats["win_rate"],
+                            "reason": "bounded realized-outcome adaptation",
+                        }
+                    )
         self._write_json(self.parameters_path, params)
         if changes:
             history = Path(self.history_path)
@@ -115,11 +135,35 @@ class RealizedOutcomeLearner:
             con.row_factory = sqlite3.Row
             try:
                 rows = con.execute(
-                    "SELECT broker, symbol, side, quantity, price, realized_pnl, occurred_at, metadata_json FROM fills WHERE ABS(realized_pnl) > 0 ORDER BY occurred_at"
+                    """
+                    SELECT broker, symbol, side, quantity, price, realized_pnl,
+                           occurred_at, metadata_json
+                    FROM fills
+                    WHERE ABS(realized_pnl) > 0
+                    ORDER BY occurred_at
+                    """
                 ).fetchall()
             except sqlite3.Error:
-                return []
-        return [dict(row) for row in rows]
+                rows = []
+            pillar_rows = []
+            for table in ("international_trades", "metals_trades"):
+                try:
+                    pillar_rows.extend(
+                        con.execute(
+                            f"""
+                            SELECT broker, instrument AS symbol, side, quantity,
+                                   COALESCE(exit_price, fill_price, proposed_entry) AS price,
+                                   COALESCE(realized_pnl, 0) - COALESCE(fees_costs, 0) AS realized_pnl,
+                                   closed_at AS occurred_at, metadata_json
+                            FROM {table}
+                            WHERE status = 'closed'
+                            ORDER BY closed_at
+                            """
+                        ).fetchall()
+                    )
+                except sqlite3.Error:
+                    continue
+        return [dict(row) for row in [*rows, *pillar_rows]]
 
     @staticmethod
     def _write_json(path: str | Path, payload: dict[str, object]) -> None:

@@ -8,6 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+from ..broker_environment import require_alpaca_paper_url, require_oanda_practice_url
 from .practice_orders import _oanda_account_id
 
 
@@ -19,7 +20,9 @@ class BrokerSafetyResult:
     details: dict[str, object]
 
 
-def _request(url: str, *, method: str, headers: dict[str, str], body: dict[str, object] | None = None, timeout: float = 15.0) -> tuple[object, dict[str, str]]:
+def _request(
+    url: str, *, method: str, headers: dict[str, str], body: dict[str, object] | None = None, timeout: float = 15.0
+) -> tuple[object, dict[str, str]]:
     data = None if body is None else json.dumps(body).encode("utf-8")
     request = Request(url, headers=headers, data=data, method=method)
     try:
@@ -37,14 +40,19 @@ def _request(url: str, *, method: str, headers: dict[str, str], body: dict[str, 
 def _alpaca_auth() -> tuple[str, str, str]:
     key = os.getenv("ALPACA_PAPER_API_KEY", "").strip()
     secret = os.getenv("ALPACA_PAPER_SECRET_KEY", "").strip()
-    base = os.getenv("ALPACA_PAPER_BASE_URL", "https://paper-api.alpaca.markets").rstrip("/")
+    base = require_alpaca_paper_url(os.getenv("ALPACA_PAPER_BASE_URL", "https://paper-api.alpaca.markets"))
     if not key or not secret:
         raise RuntimeError("Missing Alpaca paper credentials")
     return key, secret, base
 
 
 def _alpaca_headers(key: str, secret: str) -> dict[str, str]:
-    return {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret, "Accept": "application/json", "Content-Type": "application/json"}
+    return {
+        "APCA-API-KEY-ID": key,
+        "APCA-API-SECRET-KEY": secret,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
 
 
 def _alpaca_api_symbol(symbol: str) -> str:
@@ -57,7 +65,7 @@ def _canonical_ledger_symbol(symbol: str) -> str:
         return normalized
     for quote_currency in ("USDT", "USDC", "USD"):
         if normalized.endswith(quote_currency) and len(normalized) > len(quote_currency):
-            base = normalized[:-len(quote_currency)]
+            base = normalized[: -len(quote_currency)]
             if base in {"BTC", "ETH", "LTC", "BCH", "AAVE", "LINK", "UNI", "AVAX", "DOT", "SOL"}:
                 return f"{base}/{quote_currency}"
     return normalized
@@ -65,6 +73,7 @@ def _canonical_ledger_symbol(symbol: str) -> str:
 
 def _clear_flat_ledger_symbol(symbol: str, ledger_path: str | Path) -> bool:
     from ..portfolio_ledger import PortfolioLedger
+
     path = Path(ledger_path)
     if not path.exists():
         return False
@@ -85,7 +94,12 @@ def alpaca_open_positions() -> BrokerSafetyResult:
     key, secret, base = _alpaca_auth()
     payload, headers = _request(f"{base}/v2/positions", method="GET", headers=_alpaca_headers(key, secret))
     positions = payload if isinstance(payload, list) else []
-    return BrokerSafetyResult("alpaca-paper", True, "Fetched Alpaca paper open positions", {"positions": positions, "request_id": headers.get("X-Request-ID") or headers.get("x-request-id")})
+    return BrokerSafetyResult(
+        "alpaca-paper",
+        True,
+        "Fetched Alpaca paper open positions",
+        {"positions": positions, "request_id": headers.get("X-Request-ID") or headers.get("x-request-id")},
+    )
 
 
 def cancel_alpaca_open_orders_for_symbol(symbol: str) -> BrokerSafetyResult:
@@ -102,16 +116,32 @@ def cancel_alpaca_open_orders_for_symbol(symbol: str) -> BrokerSafetyResult:
         if not order_id or _alpaca_api_symbol(str(order.get("symbol") or "")) != api_symbol:
             continue
         try:
-            _request(f"{base}/v2/orders/{quote(str(order_id), safe='')}", method="DELETE", headers=_alpaca_headers(key, secret))
+            _request(
+                f"{base}/v2/orders/{quote(str(order_id), safe='')}",
+                method="DELETE",
+                headers=_alpaca_headers(key, secret),
+            )
         except RuntimeError as exc:
             if "HTTP 404:" not in str(exc) and "HTTP 422:" not in str(exc):
                 raise
         else:
             cancelled.append(str(order_id))
-    return BrokerSafetyResult("alpaca-paper", True, "Cancelled Alpaca paper open orders for symbol", {"symbol": _canonical_ledger_symbol(symbol), "cancelled_order_ids": cancelled})
+    return BrokerSafetyResult(
+        "alpaca-paper",
+        True,
+        "Cancelled Alpaca paper open orders for symbol",
+        {"symbol": _canonical_ledger_symbol(symbol), "cancelled_order_ids": cancelled},
+    )
 
 
-def close_alpaca_position(symbol: str, *, qty: float | None = None, percentage: float | None = None, cancel_open_orders: bool = True, ledger_path: str | Path = "var/autotrader/portfolio.db") -> BrokerSafetyResult:
+def close_alpaca_position(
+    symbol: str,
+    *,
+    qty: float | None = None,
+    percentage: float | None = None,
+    cancel_open_orders: bool = True,
+    ledger_path: str | Path = "var/autotrader/portfolio.db",
+) -> BrokerSafetyResult:
     if qty is not None and percentage is not None:
         raise ValueError("specify qty or percentage, not both")
     if qty is not None and qty <= 0:
@@ -132,19 +162,36 @@ def close_alpaca_position(symbol: str, *, qty: float | None = None, percentage: 
     if percentage is not None:
         params["percentage"] = percentage
     suffix = f"?{urlencode(params)}" if params else ""
-    payload, headers = _request(f"{base}/v2/positions/{quote(api_symbol, safe='')}{suffix}", method="DELETE", headers=_alpaca_headers(key, secret))
+    payload, headers = _request(
+        f"{base}/v2/positions/{quote(api_symbol, safe='')}{suffix}",
+        method="DELETE",
+        headers=_alpaca_headers(key, secret),
+    )
 
     still_open = False
     if full_close:
         positions = alpaca_open_positions().details.get("positions", [])
         if isinstance(positions, list):
-            still_open = any(isinstance(row, dict) and _alpaca_api_symbol(str(row.get("symbol") or "")) == api_symbol and abs(float(row.get("qty", 0) or 0)) > 1e-12 for row in positions)
+            still_open = any(
+                isinstance(row, dict)
+                and _alpaca_api_symbol(str(row.get("symbol") or "")) == api_symbol
+                and abs(float(row.get("qty", 0) or 0)) > 1e-12
+                for row in positions
+            )
     ledger_cleared = False if still_open or not full_close else _clear_flat_ledger_symbol(canonical, ledger_path)
     return BrokerSafetyResult(
         "alpaca-paper",
         not still_open,
-        "Submitted Alpaca paper position close" if not still_open else "Alpaca position close submitted but position remains open",
-        {"order": payload, "cancelled_open_order_ids": cancelled, "position_still_open": still_open, "ledger_position_cleared": ledger_cleared, "request_id": headers.get("X-Request-ID") or headers.get("x-request-id")},
+        "Submitted Alpaca paper position close"
+        if not still_open
+        else "Alpaca position close submitted but position remains open",
+        {
+            "order": payload,
+            "cancelled_open_order_ids": cancelled,
+            "position_still_open": still_open,
+            "ledger_position_cleared": ledger_cleared,
+            "request_id": headers.get("X-Request-ID") or headers.get("x-request-id"),
+        },
     )
 
 
@@ -152,33 +199,69 @@ def flatten_alpaca_account(*, cancel_orders: bool = True) -> BrokerSafetyResult:
     key, secret, base = _alpaca_auth()
     query = urlencode({"cancel_orders": str(cancel_orders).lower()})
     payload, headers = _request(f"{base}/v2/positions?{query}", method="DELETE", headers=_alpaca_headers(key, secret))
-    return BrokerSafetyResult("alpaca-paper", True, "Submitted Alpaca paper emergency flatten", {"results": payload, "cancel_orders": cancel_orders, "request_id": headers.get("X-Request-ID") or headers.get("x-request-id")})
+    return BrokerSafetyResult(
+        "alpaca-paper",
+        True,
+        "Submitted Alpaca paper emergency flatten",
+        {
+            "results": payload,
+            "cancel_orders": cancel_orders,
+            "request_id": headers.get("X-Request-ID") or headers.get("x-request-id"),
+        },
+    )
 
 
 def _oanda_auth() -> tuple[str, str, str]:
     token = os.getenv("OANDA_PRACTICE_TOKEN", "").strip()
-    base = os.getenv("OANDA_PRACTICE_BASE_URL", "https://api-fxpractice.oanda.com").rstrip("/")
+    base = require_oanda_practice_url(os.getenv("OANDA_PRACTICE_BASE_URL", "https://api-fxpractice.oanda.com"))
     if not token:
         raise RuntimeError("Missing OANDA practice token")
     return token, base, _oanda_account_id()
 
 
 def _oanda_headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json", "Accept-Datetime-Format": "RFC3339"}
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Accept-Datetime-Format": "RFC3339",
+    }
 
 
 def oanda_open_positions() -> BrokerSafetyResult:
     token, base, account_id = _oanda_auth()
-    payload, headers = _request(f"{base}/v3/accounts/{account_id}/openPositions", method="GET", headers=_oanda_headers(token))
+    payload, headers = _request(
+        f"{base}/v3/accounts/{account_id}/openPositions", method="GET", headers=_oanda_headers(token)
+    )
     if not isinstance(payload, dict):
         raise RuntimeError("Unexpected OANDA open-position response")
-    return BrokerSafetyResult("oanda-practice", True, "Fetched OANDA practice open positions", {"positions": payload.get("positions", []), "last_transaction_id": payload.get("lastTransactionID"), "request_id": headers.get("RequestID") or headers.get("requestid")})
+    return BrokerSafetyResult(
+        "oanda-practice",
+        True,
+        "Fetched OANDA practice open positions",
+        {
+            "positions": payload.get("positions", []),
+            "last_transaction_id": payload.get("lastTransactionID"),
+            "request_id": headers.get("RequestID") or headers.get("requestid"),
+        },
+    )
 
 
-def close_oanda_position(symbol: str, *, long_units: str = "ALL", short_units: str = "ALL", ledger_path: str | Path = "var/autotrader/portfolio.db") -> BrokerSafetyResult:
+def close_oanda_position(
+    symbol: str,
+    *,
+    long_units: str = "ALL",
+    short_units: str = "ALL",
+    ledger_path: str | Path = "var/autotrader/portfolio.db",
+) -> BrokerSafetyResult:
     token, base, account_id = _oanda_auth()
     instrument = symbol.strip().upper().replace("/", "_")
-    payload, headers = _request(f"{base}/v3/accounts/{account_id}/positions/{instrument}/close", method="PUT", headers=_oanda_headers(token), body={"longUnits": str(long_units), "shortUnits": str(short_units)})
+    payload, headers = _request(
+        f"{base}/v3/accounts/{account_id}/positions/{instrument}/close",
+        method="PUT",
+        headers=_oanda_headers(token),
+        body={"longUnits": str(long_units), "shortUnits": str(short_units)},
+    )
     positions = oanda_open_positions().details.get("positions", [])
     normalized = instrument.replace("_", "/")
     still_open = False
@@ -194,7 +277,17 @@ def close_oanda_position(symbol: str, *, long_units: str = "ALL", short_units: s
                 still_open = True
                 break
     ledger_cleared = False if still_open else _clear_flat_ledger_symbol(normalized, ledger_path)
-    return BrokerSafetyResult("oanda-practice", not still_open, "Submitted OANDA practice position close" if not still_open else "OANDA position remains open", {"result": payload, "position_still_open": still_open, "ledger_position_cleared": ledger_cleared, "request_id": headers.get("RequestID") or headers.get("requestid")})
+    return BrokerSafetyResult(
+        "oanda-practice",
+        not still_open,
+        "Submitted OANDA practice position close" if not still_open else "OANDA position remains open",
+        {
+            "result": payload,
+            "position_still_open": still_open,
+            "ledger_position_cleared": ledger_cleared,
+            "request_id": headers.get("RequestID") or headers.get("requestid"),
+        },
+    )
 
 
 def flatten_oanda_account() -> BrokerSafetyResult:
@@ -215,4 +308,9 @@ def flatten_oanda_account() -> BrokerSafetyResult:
                 failures.append(f"{instrument}: position remains open")
         except RuntimeError as exc:
             failures.append(f"{instrument}: {exc}")
-    return BrokerSafetyResult("oanda-practice", not failures, "Submitted OANDA practice emergency flatten" if not failures else "OANDA flatten had failures", {"results": results, "failures": failures})
+    return BrokerSafetyResult(
+        "oanda-practice",
+        not failures,
+        "Submitted OANDA practice emergency flatten" if not failures else "OANDA flatten had failures",
+        {"results": results, "failures": failures},
+    )

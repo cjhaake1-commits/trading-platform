@@ -31,13 +31,18 @@ class DailyLearningJob:
         if path.exists():
             with sqlite3.connect(path) as con:
                 rows = con.execute(
-                    "SELECT message, data_json, created_at FROM audit_events WHERE created_at >= ? AND created_at < ? ORDER BY id ASC",
+                    """
+                    SELECT message, data_json, created_at
+                    FROM audit_events
+                    WHERE created_at >= ? AND created_at < ?
+                    ORDER BY id ASC
+                    """,
                     (start.isoformat(), end.isoformat()),
                 ).fetchall()
 
         cycles = 0
-        scans = {"equities": 0, "forex": 0, "crypto": 0, "ibkr_global": 0}
-        qualified = {"equities": 0, "forex": 0, "crypto": 0, "ibkr_global": 0}
+        scans = {"equities": 0, "forex": 0, "crypto": 0, "metals": 0, "international": 0}
+        qualified = {"equities": 0, "forex": 0, "crypto": 0, "metals": 0, "international": 0}
         entries: list[dict[str, object]] = []
         exits: list[dict[str, object]] = []
         risk_rejections: list[dict[str, object]] = []
@@ -71,11 +76,19 @@ class DailyLearningJob:
 
         learning = RealizedOutcomeLearner(ledger_path=self.ledger_path).update(now)
         record = {
-            "date": day.isoformat(), "generated_at": now.astimezone(UTC).isoformat(), "cycles": cycles,
-            "scans": scans, "qualified": qualified, "entries": entries, "exits": exits,
-            "risk_rejections": risk_rejections, "submission_failures": submission_failures,
-            "duplicate_skips": duplicate_skips, "sizing_skips": sizing_skips,
-            "hard_guardrails_mutable": False, "learning_status": learning["sample_status"],
+            "date": day.isoformat(),
+            "generated_at": now.astimezone(UTC).isoformat(),
+            "cycles": cycles,
+            "scans": scans,
+            "qualified": qualified,
+            "entries": entries,
+            "exits": exits,
+            "risk_rejections": risk_rejections,
+            "submission_failures": submission_failures,
+            "duplicate_skips": duplicate_skips,
+            "sizing_skips": sizing_skips,
+            "hard_guardrails_mutable": False,
+            "learning_status": learning["sample_status"],
             "performance": learning,
         }
         output = Path(self.output_path)
@@ -90,9 +103,19 @@ class DailyLearningJob:
                 if isinstance(item, dict) and item.get("date") != day.isoformat():
                     existing.append(item)
         existing.append(record)
-        output.write_text("\n".join(json.dumps(item, sort_keys=True, default=str) for item in existing) + "\n", encoding="utf-8")
-        return JobResult(True, "Daily paper-trading learning updated", {
-            "date": day.isoformat(), "cycles": cycles, "entry_count": len(entries), "exit_count": len(exits),
-            "completed_trades": learning["completed_trades"], "learning_status": learning["sample_status"],
-            "parameter_changes": learning["changes"], "hard_guardrails_mutable": False,
-        })
+        serialized = "\n".join(json.dumps(item, sort_keys=True, default=str) for item in existing)
+        output.write_text(serialized + "\n", encoding="utf-8")
+        return JobResult(
+            True,
+            "Daily paper-trading learning updated",
+            {
+                "date": day.isoformat(),
+                "cycles": cycles,
+                "entry_count": len(entries),
+                "exit_count": len(exits),
+                "completed_trades": learning["completed_trades"],
+                "learning_status": learning["sample_status"],
+                "parameter_changes": learning["changes"],
+                "hard_guardrails_mutable": False,
+            },
+        )

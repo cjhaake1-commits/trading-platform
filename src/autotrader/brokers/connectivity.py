@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from ..broker_environment import require_alpaca_paper_url, require_oanda_practice_url
+
 
 @dataclass(frozen=True)
 class ConnectivityResult:
@@ -33,7 +35,7 @@ def _get_json(url: str, headers: dict[str, str], timeout: float = 10.0) -> tuple
 def test_alpaca_paper() -> ConnectivityResult:
     key = os.getenv("ALPACA_PAPER_API_KEY", "").strip()
     secret = os.getenv("ALPACA_PAPER_SECRET_KEY", "").strip()
-    base_url = os.getenv("ALPACA_PAPER_BASE_URL", "https://paper-api.alpaca.markets").rstrip("/")
+    base_url = require_alpaca_paper_url(os.getenv("ALPACA_PAPER_BASE_URL", "https://paper-api.alpaca.markets"))
 
     if not key or not secret:
         return ConnectivityResult(
@@ -74,7 +76,7 @@ def test_alpaca_paper() -> ConnectivityResult:
 
 def test_oanda_practice() -> ConnectivityResult:
     token = os.getenv("OANDA_PRACTICE_TOKEN", "").strip()
-    base_url = os.getenv("OANDA_PRACTICE_BASE_URL", "https://api-fxpractice.oanda.com").rstrip("/")
+    base_url = require_oanda_practice_url(os.getenv("OANDA_PRACTICE_BASE_URL", "https://api-fxpractice.oanda.com"))
 
     if not token:
         return ConnectivityResult(
@@ -118,8 +120,7 @@ def test_oanda_practice() -> ConnectivityResult:
                     "NAV": account.get("NAV"),
                     "margin_available": account.get("marginAvailable"),
                     "open_trade_count": account.get("openTradeCount"),
-                    "account_request_id": account_headers.get("RequestID")
-                    or account_headers.get("requestid"),
+                    "account_request_id": account_headers.get("RequestID") or account_headers.get("requestid"),
                 }
             )
         except RuntimeError as exc:
