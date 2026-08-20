@@ -593,6 +593,37 @@ class PortfolioLedger:
                 result["close_order_ids"] = []
         return result
 
+    def latest_entry_manifest_for_symbol(
+        self,
+        canonical_symbol: str,
+        *,
+        broker: str | None = None,
+    ) -> dict[str, object] | None:
+        query = "SELECT * FROM entry_manifests WHERE canonical_symbol = ?"
+        params: list[object] = [canonical_symbol]
+        if broker is not None:
+            query += " AND broker = ?"
+            params.append(broker)
+        query += " ORDER BY created_at DESC, manifest_id DESC LIMIT 1"
+        with self._connect() as connection:
+            row = connection.execute(query, tuple(params)).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        metadata = result.get("metadata_json")
+        if isinstance(metadata, str):
+            try:
+                result["metadata"] = json.loads(metadata)
+            except Exception:
+                result["metadata"] = {}
+        close_ids = result.get("close_order_ids_json")
+        if isinstance(close_ids, str):
+            try:
+                result["close_order_ids"] = json.loads(close_ids)
+            except Exception:
+                result["close_order_ids"] = []
+        return result
+
     def snapshot(self) -> dict[str, object]:
         loaded = self.load_portfolio()
         with self._connect() as connection:

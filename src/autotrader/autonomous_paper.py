@@ -339,11 +339,32 @@ class AutonomousPaperTradingJob:
                 continue
             client_id = f"auto-{bucket}-{signal.instrument.symbol.replace('/', '')}"[:48]
             try:
+                canonical_symbol = signal.instrument.symbol.replace("_", "/").upper()
+                existing_manifest = ledger.latest_entry_manifest_for_symbol(canonical_symbol, broker=broker)
+                if existing_manifest and str(existing_manifest.get("lifecycle_state") or "").lower() in {
+                    "approved_manifest",
+                    "order_submitted",
+                    "fill_confirmed",
+                    "reconciliation_pending",
+                    "filled_position_pending",
+                    "active",
+                }:
+                    duplicates.append(
+                        {
+                            "symbol": signal.instrument.symbol,
+                            "broker": broker,
+                            "manifest_id": existing_manifest.get("manifest_id"),
+                            "lifecycle_state": existing_manifest.get("lifecycle_state"),
+                            "reason": "existing unresolved manifest blocks duplicate entry",
+                        }
+                    )
+                    self.idempotency.release(key)
+                    continue
                 manifest_payload = {
                     "broker": broker,
                     "environment": _broker_environment(broker),
                     "pillar": pillar,
-                    "canonical_symbol": signal.instrument.symbol.replace("_", "/").upper(),
+                    "canonical_symbol": canonical_symbol,
                     "broker_symbol": signal.instrument.symbol,
                     "side": signal.proposal.side.value,
                     "model_version": "five_pillar_baseline_v1",
@@ -472,39 +493,77 @@ class AutonomousPaperTradingJob:
                     asset_class=signal.instrument.asset_class,
                     attempts=24,
                     delay_seconds=0.25,
+                    broker_order_id=broker_order_id,
                 )
-                ledger.save_crypto_entry_state(
-                    signal.instrument.symbol,
-                    broker=broker,
-                    lifecycle_state="reconciled",
-                    requested_quantity=order_quantity,
-                    submitted_quantity=order_quantity,
-                    broker_filled_quantity=sync["quantity"],
-                    broker_position_quantity=sync["quantity"],
-                    reconciliation_difference=sync.get("reconciliation_difference"),
-                    reconciliation_tolerance=0.005,
-                    reconciliation_status=str(sync.get("reconciliation_status") or "broker_confirmed"),
-                    protection_state="pending",
-                    protection_quantity=None,
-                    stop_price=signal.proposal.stop_price,
-                    fill_price=sync["average_price"],
-                    client_order_id=client_id,
-                    protective_order_id=None,
-                    entry_order_id=broker_order_id,
-                    metadata={
-                        "requested_quantity": order_quantity,
-                        "submitted_quantity": order_quantity,
-                        "broker_filled_quantity": sync["quantity"],
-                        "broker_position_quantity": sync["quantity"],
-                        "reconciliation_difference": sync.get("reconciliation_difference"),
-                        "reconciliation_tolerance": 0.005,
-                        "reconciliation_status": sync.get("reconciliation_status"),
-                        "strategy_version": signal.proposal.source,
-                        "model_version": "five_pillar_baseline_v1",
-                        "proposal_stop": signal.proposal.stop_price,
-                        "proposal_entry": signal.proposal.entry_price,
-                    },
-                )
+                reconciliation_status = str(sync.get("reconciliation_status") or "broker_confirmed")
+                if sync.get("quantity") is not None:
+                    ledger.save_crypto_entry_state(
+                        signal.instrument.symbol,
+                        broker=broker,
+                        lifecycle_state=(
+                            "reconciled"
+                            if reconciliation_status in {"exact_match", "fractional_reconciliation", "broker_confirmed"}
+                            else reconciliation_status
+                        ),
+                        requested_quantity=order_quantity,
+                        submitted_quantity=order_quantity,
+                        broker_filled_quantity=sync["quantity"],
+                        broker_position_quantity=sync["quantity"],
+                        reconciliation_difference=sync.get("reconciliation_difference"),
+                        reconciliation_tolerance=0.005,
+                        reconciliation_status=reconciliation_status,
+                        protection_state="pending",
+                        protection_quantity=None,
+                        stop_price=signal.proposal.stop_price,
+                        fill_price=sync["average_price"],
+                        client_order_id=client_id,
+                        protective_order_id=None,
+                        entry_order_id=broker_order_id,
+                        metadata={
+                            "requested_quantity": order_quantity,
+                            "submitted_quantity": order_quantity,
+                            "broker_filled_quantity": sync["quantity"],
+                            "broker_position_quantity": sync["quantity"],
+                            "reconciliation_difference": sync.get("reconciliation_difference"),
+                            "reconciliation_tolerance": 0.005,
+                            "reconciliation_status": sync.get("reconciliation_status"),
+                            "strategy_version": signal.proposal.source,
+                            "model_version": "five_pillar_baseline_v1",
+                            "proposal_stop": signal.proposal.stop_price,
+                            "proposal_entry": signal.proposal.entry_price,
+                            "order_status": sync.get("order_status"),
+                        },
+                    )
+                else:
+                    ledger.save_crypto_entry_state(
+                        signal.instrument.symbol,
+                        broker=broker,
+                        lifecycle_state=reconciliation_status,
+                        requested_quantity=order_quantity,
+                        submitted_quantity=order_quantity,
+                        broker_filled_quantity=None,
+                        broker_position_quantity=None,
+                        reconciliation_difference=sync.get("reconciliation_difference"),
+                        reconciliation_tolerance=0.005,
+                        reconciliation_status=reconciliation_status,
+                        protection_state="pending",
+                        protection_quantity=None,
+                        stop_price=signal.proposal.stop_price,
+                        fill_price=None,
+                        client_order_id=client_id,
+                        protective_order_id=None,
+                        entry_order_id=broker_order_id,
+                        metadata={
+                            "requested_quantity": order_quantity,
+                            "submitted_quantity": order_quantity,
+                            "reconciliation_status": reconciliation_status,
+                            "order_status": sync.get("order_status"),
+                            "strategy_version": signal.proposal.source,
+                            "model_version": "five_pillar_baseline_v1",
+                            "proposal_stop": signal.proposal.stop_price,
+                            "proposal_entry": signal.proposal.entry_price,
+                        },
+                    )
                 ledger.save_entry_manifest(
                     manifest_id=manifest_id,
                     created_at=now,
@@ -527,18 +586,36 @@ class AutonomousPaperTradingJob:
                     allocation_at_approval=pillar_notional,
                     portfolio_risk_at_approval=gross,
                     risk_engine_decision=decision.reason,
-                    lifecycle_state="fill_confirmed",
+                    lifecycle_state=(
+                        "reconciled"
+                        if reconciliation_status in {"exact_match", "fractional_reconciliation", "broker_confirmed"}
+                        else reconciliation_status
+                    ),
                     client_order_id_namespace=client_id,
                     fingerprint=manifest_payload["fingerprint"],
                     broker_order_id=broker_order_id,
                     submitted_quantity=order_quantity,
-                    filled_quantity=sync["quantity"],
-                    broker_confirmed_position_quantity=sync["quantity"],
-                    average_fill_price=sync["average_price"],
-                    reconciliation_status=str(sync.get("reconciliation_status") or "broker_confirmed"),
+                    filled_quantity=sync.get("quantity"),
+                    broker_confirmed_position_quantity=sync.get("quantity"),
+                    average_fill_price=sync.get("average_price"),
+                    reconciliation_status=reconciliation_status,
                     reconciliation_difference=sync.get("reconciliation_difference"),
                     metadata={"fill_sync": sync},
                 )
+                if sync.get("quantity") is None:
+                    failures.append(
+                        {
+                            "symbol": signal.instrument.symbol,
+                            "broker": broker,
+                            "quantity": order_quantity,
+                            "message": (
+                                "broker order has not yet reconciled to a visible position; "
+                                "retry later without resubmitting"
+                            ),
+                            "details": sync,
+                        }
+                    )
+                    continue
                 if signal.instrument.asset_class is AssetClass.CRYPTO:
                     protection = submit_alpaca_paper_crypto_stop_limit(
                         signal.instrument.symbol,
