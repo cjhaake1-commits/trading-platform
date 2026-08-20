@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from .audit import SQLiteAuditStore
 from .capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL
 from .coordinated_test import FIVE_PILLAR_BASELINE_VERSION
-from .models import AuditEvent, PortfolioState, TradeProposal
+from .models import AuditEvent, PortfolioState, Position, TradeProposal
 from .risk import RiskContext, RiskEngine, RiskLimits
 from .risk_stack import LayeredRiskStack
 
@@ -20,6 +20,8 @@ class DryRunCandidate:
     target_price: float | None
     strategy_version: str
     reason: str
+    market_data_timestamp: str | None = None
+    broker_metadata: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,8 @@ class DryRunDecision:
     strategy_version: str
     risk_engine_status: str
     reason: str
+    market_data_timestamp: str | None = None
+    broker_metadata: dict[str, object] | None = None
 
 
 class FivePillarDryRunner:
@@ -56,23 +60,35 @@ class FivePillarDryRunner:
         *,
         portfolio: PortfolioState | None = None,
         deployed_by_pillar: dict[str, float] | None = None,
+        mark_prices: dict[str, float] | None = None,
         now: datetime | None = None,
     ) -> list[DryRunDecision]:
-        state = portfolio or PortfolioState(TOTAL_PAPER_CAPITAL, TOTAL_PAPER_CAPITAL)
+        source = portfolio or PortfolioState(TOTAL_PAPER_CAPITAL, TOTAL_PAPER_CAPITAL)
+        state = PortfolioState(
+            equity=source.equity,
+            cash=source.cash,
+            daily_pnl=source.daily_pnl,
+            weekly_pnl=source.weekly_pnl,
+            positions=dict(source.positions),
+        )
         deployed = dict(deployed_by_pillar or {})
         gross = sum(abs(position.quantity * position.average_price) for position in state.positions.values())
         decisions = []
-        approved_entries = 0
         for candidate in candidates:
             pillar_cap = PILLAR_ALLOCATIONS[candidate.pillar]
             pillar_deployed = deployed.get(candidate.pillar, 0.0)
             context = RiskContext(gross_notional=gross, asset_class_notional=pillar_deployed, peak_equity=state.equity)
-            risk = self.risk.evaluate(candidate.proposal, state, risk_context=context)
+            risk = self.risk.evaluate(
+                candidate.proposal,
+                state,
+                risk_context=context,
+                mark_prices=mark_prices,
+            )
             reason = risk.reason
             quantity = 0.0
             if candidate.proposal.stop_price <= 0:
                 status, reason = "rejected", "Explicit stop/invalidation level is required"
-            elif len(state.positions) + approved_entries >= RiskLimits().max_open_positions:
+            elif len(state.positions) >= RiskLimits().max_open_positions:
                 status, reason = "rejected", "Maximum open positions reached"
             elif pillar_deployed >= pillar_cap:
                 status, reason = "rejected", "Pillar allocation cap reached"
@@ -100,7 +116,14 @@ class FivePillarDryRunner:
             if status == "approved":
                 deployed[candidate.pillar] = pillar_deployed + notional
                 gross += notional
-                approved_entries += 1
+                state.cash = max(state.cash - notional, 0.0)
+                state.positions[candidate.proposal.symbol] = Position(
+                    symbol=candidate.proposal.symbol,
+                    asset_class=candidate.proposal.asset_class,
+                    quantity=quantity,
+                    average_price=candidate.proposal.entry_price,
+                    stop_price=candidate.proposal.stop_price,
+                )
             decisions.append(
                 DryRunDecision(
                     pillar=candidate.pillar,
@@ -120,6 +143,8 @@ class FivePillarDryRunner:
                     strategy_version=candidate.strategy_version,
                     risk_engine_status=status,
                     reason=candidate.reason if status == "approved" else reason,
+                    market_data_timestamp=candidate.market_data_timestamp,
+                    broker_metadata=candidate.broker_metadata,
                 )
             )
         if self.audit is not None:

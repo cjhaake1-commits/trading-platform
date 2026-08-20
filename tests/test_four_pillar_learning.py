@@ -39,6 +39,8 @@ def test_corrupt_or_forbidden_learning_cannot_mutate_guardrails(tmp_path):
                 "cash_reserve_pct": 0.0,
                 "emergency_kill_switch": False,
                 "broker_environment": "live",
+                "pillar_allocations": {"alpaca_crypto": 999999},
+                "autonomous_trading_enabled": True,
                 "minimum_candidate_score": 999,
             }
         ),

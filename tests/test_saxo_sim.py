@@ -3,7 +3,9 @@ import pytest
 from autotrader.brokers.saxo_sim import (
     SAXO_SIM_BASE_URL,
     SaxoApprovedOrder,
+    SaxoChartSample,
     SaxoConfigurationError,
+    SaxoInstrumentSummary,
     SaxoReadOnlyError,
     SaxoSimAdapter,
 )
@@ -139,3 +141,50 @@ def test_risk_approved_order_posts_only_to_sim_with_protective_stop():
     assert captured["body"]["Orders"][0]["OrderType"] == "Stop"
     assert captured["body"]["Orders"][0]["OrderPrice"] == 95.0
     assert "test-token" not in str(result)
+
+
+def test_instrument_discovery_and_chart_reads_use_sim_get_only():
+    calls = []
+
+    def fake_get(url, headers, timeout):
+        calls.append(url)
+        if "/ref/v1/instruments?" in url:
+            return {
+                "Data": [
+                    {
+                        "Identifier": 123,
+                        "AssetType": "Stock",
+                        "Symbol": "SAP:xetr",
+                        "Description": "SAP SE",
+                        "ExchangeId": "XETR",
+                    }
+                ]
+            }, {}
+        return {
+            "Data": [
+                {
+                    "Time": "2026-08-20T00:00:00Z",
+                    "Open": 100.01,
+                    "High": 100.0,
+                    "Low": 99.0,
+                    "Close": 99.5,
+                    "Volume": 1000,
+                    "MarketTradingState": "Closed",
+                }
+            ]
+        }, {}
+
+    adapter = SaxoSimAdapter(environment="sim", access_token="test-token", get_json=fake_get)
+    instruments = adapter.search_instruments("SAP")
+    samples = adapter.chart_samples(instruments[0])
+
+    assert instruments == (SaxoInstrumentSummary(123, "Stock", "SAP:xetr", "SAP SE", "XETR", None),)
+    assert samples == (SaxoChartSample("2026-08-20T00:00:00Z", 100.01, 100.01, 99.0, 99.5, 1000.0, "Closed"),)
+    assert all(url.startswith(SAXO_SIM_BASE_URL) for url in calls)
+    assert all("test-token" not in url for url in calls)
+
+
+def test_saxo_read_boundary_rejects_unapproved_resources():
+    adapter = SaxoSimAdapter(environment="sim", access_token="test-token")
+    with pytest.raises(SaxoReadOnlyError, match="read-only"):
+        adapter._read("/trade/v2/orders")

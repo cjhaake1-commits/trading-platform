@@ -23,6 +23,8 @@ FORBIDDEN_PARAMETERS = {
     "broker_environment",
     "live_mode",
     "paper_mode",
+    "autonomous_trading_enabled",
+    "autonomous_enable_disable",
 }
 
 

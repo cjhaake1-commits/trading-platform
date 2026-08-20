@@ -13,6 +13,7 @@ def test_realized_cash_excludes_unrealized_gains():
     assert metrics.unrealized_pnl == 250.0
     assert metrics.total_portfolio_equity == 4350.0
     assert metrics.generated_cash_ratio == 0.025
+    assert metrics.realized_return == 0.025
 
 
 def test_realized_cash_subtracts_losses_and_costs_by_pillar():
@@ -46,6 +47,7 @@ def test_dashboard_separates_generated_cash_equity_and_internal_allocations():
     assert metrics["net_trading_cash_generated"] == 25.0
     assert metrics["total_portfolio_equity"] == 4125.0
     assert metrics["net_trading_cash_generated"] != metrics["total_portfolio_equity"]
+    assert metrics["realized_return"] == metrics["generated_cash_ratio"]
     assert metrics["pillar_allocations"]["International"] == 1000.0
     assert metrics["broker_reported_virtual_equity"] == 1_000_000.0
 

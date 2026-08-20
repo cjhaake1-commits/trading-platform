@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+import autotrader.runtime_app as runtime_app_module
 from autotrader.audit import SQLiteAuditStore
 from autotrader.runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
 
@@ -103,3 +104,48 @@ def test_runtime_writes_atomic_status_snapshot(tmp_path):
     assert snapshot.exists()
     assert state["mode"] == "paper"
     assert "scanner" in state["jobs"]
+
+
+def test_autonomous_arming_defaults_false_and_requires_exact_true(monkeypatch):
+    monkeypatch.delenv("AUTONOMOUS_TRADING_ENABLED", raising=False)
+    assert not runtime_app_module.autonomous_trading_armed()
+    monkeypatch.setenv("AUTONOMOUS_TRADING_ENABLED", "yes")
+    assert not runtime_app_module.autonomous_trading_armed()
+    monkeypatch.setenv("AUTONOMOUS_TRADING_ENABLED", "true")
+    assert runtime_app_module.autonomous_trading_armed()
+
+
+def test_runtime_restart_with_autonomous_flag_remains_disarmed_by_default(
+    tmp_path, monkeypatch
+):
+    captured = {}
+    monkeypatch.delenv("AUTONOMOUS_TRADING_ENABLED", raising=False)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "autotrader-runtime",
+            "--autonomous-paper",
+            "--audit-db",
+            str(tmp_path / "audit.db"),
+            "--status",
+            str(tmp_path / "status.json"),
+            "--ledger",
+            str(tmp_path / "portfolio.db"),
+            "--idempotency",
+            str(tmp_path / "idempotency.db"),
+        ],
+    )
+
+    def capture_without_starting(self, stop_event=None):
+        captured.update(self.snapshot())
+
+    monkeypatch.setattr(AutonomousRuntime, "run_forever", capture_without_starting)
+    runtime_app_module.main()
+
+    assert captured["mode"] == "paper"
+    assert captured["jobs"]["autonomous-paper-trading"]["disabled"]
+    assert captured["jobs"]["oanda-fx-paper-trading"]["disabled"]
+    assert (
+        "AUTONOMOUS_TRADING_ENABLED"
+        in captured["jobs"]["autonomous-paper-trading"]["last_error"]
+    )

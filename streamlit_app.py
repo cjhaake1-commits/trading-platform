@@ -6,6 +6,8 @@ from urllib.request import Request, urlopen
 
 import streamlit as st
 
+from autotrader.broker_environment import require_alpaca_paper_url, require_oanda_practice_url
+
 st.set_page_config(page_title="Autonomous Trading Command Center", page_icon="📈", layout="wide")
 DATA_PATH = Path("dashboard/data.json")
 TOTAL_BASE_CAPITAL = 5000.0
@@ -82,7 +84,9 @@ def fetch_live_broker_data() -> tuple[
 
     alpaca_key = _secret("ALPACA_PAPER_API_KEY")
     alpaca_secret = _secret("ALPACA_PAPER_SECRET_KEY")
-    alpaca_base = _secret("ALPACA_PAPER_BASE_URL") or "https://paper-api.alpaca.markets"
+    alpaca_base = require_alpaca_paper_url(
+        _secret("ALPACA_PAPER_BASE_URL") or "https://paper-api.alpaca.markets"
+    )
     if alpaca_key and alpaca_secret:
         try:
             req = Request(
@@ -145,7 +149,9 @@ def fetch_live_broker_data() -> tuple[
 
     oanda_token = _secret("OANDA_PRACTICE_TOKEN")
     oanda_account = _secret("OANDA_PRACTICE_ACCOUNT_ID")
-    oanda_base = _secret("OANDA_PRACTICE_BASE_URL") or "https://api-fxpractice.oanda.com"
+    oanda_base = require_oanda_practice_url(
+        _secret("OANDA_PRACTICE_BASE_URL") or "https://api-fxpractice.oanda.com"
+    )
     if oanda_token and oanda_account:
         try:
             req = Request(
@@ -220,6 +226,7 @@ c5.metric("Capital currently deployed", _money(cash.get("capital_deployed", 0.0)
 c6.metric("Unrealized P&L", _money(cash.get("unrealized_pnl", 0.0)))
 c7.metric("Total portfolio equity", _money(cash.get("total_portfolio_equity", TOTAL_BASE_CAPITAL)))
 c8.metric("Generated cash ratio", _pct(cash.get("generated_cash_ratio", 0.0)))
+st.metric("Realized return", _pct(cash.get("realized_return", cash.get("generated_cash_ratio", 0.0))))
 st.caption(
     "Net trading cash includes realized profits and losses less commissions, "
     "fees, and trading costs. Unrealized gains are excluded."

@@ -205,8 +205,8 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     if not isinstance(auto, dict):
         auto = {}
 
-    base_equity = _float(state.get("equity"), TOTAL_PAPER_CAPITAL) or TOTAL_PAPER_CAPITAL
-    peak = _float(state.get("peak_equity"), base_equity) or base_equity
+    base_equity = TOTAL_PAPER_CAPITAL
+    peak = max(_float(state.get("peak_equity"), base_equity), base_equity)
     open_pnl = broker_metrics["unrealized_pnl"]
     marked_equity = base_equity + open_pnl
     drawdown = max((peak - marked_equity) / peak, 0.0) if peak > 0 else 0.0
@@ -219,10 +219,23 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     stretch_high = 0.30
     mtm_return = (marked_equity - base_equity) / base_equity if base_equity > 0 else 0.0
     realized_records = [*fills, *pillar_trades]
+    cash_preview = aggregate_cash_dashboard(
+        realized_records=realized_records,
+        positions=live_positions,
+        available_cash=0.0,
+        original_capital=TOTAL_PAPER_CAPITAL,
+    )
+    internal_available_cash = max(
+        TOTAL_PAPER_CAPITAL
+        + cash_preview.net_trading_cash_generated
+        - cash_preview.capital_deployed
+        - cash_preview.protected_cash_reserve,
+        0.0,
+    )
     cash_dashboard = aggregate_cash_dashboard(
         realized_records=realized_records,
         positions=live_positions,
-        available_cash=_float(state.get("cash"), TOTAL_PAPER_CAPITAL),
+        available_cash=internal_available_cash,
         original_capital=TOTAL_PAPER_CAPITAL,
     )
     pillar_performance = five_pillar_performance(
@@ -236,7 +249,8 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "mode": status.get("mode", "paper"),
             "healthy": healthy,
             "last_heartbeat_at": last_heartbeat,
-            "autonomous_job_disabled": bool(auto.get("disabled", False)),
+            # Missing/unreadable runtime state must display as disarmed, never enabled.
+            "autonomous_job_disabled": bool(auto.get("disabled", True)),
             "consecutive_failures": int(auto.get("consecutive_failures", 0) or 0),
             "last_error": auto.get("last_error"),
             "last_cycle_started_at": auto.get("last_started_at"),

@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass
 from typing import Callable
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from autotrader.capital_allocations import INTERNATIONAL_SIM_CAPITAL
@@ -122,6 +123,27 @@ class SaxoOrderResult:
     estimated_costs: float | None = None
 
 
+@dataclass(frozen=True)
+class SaxoInstrumentSummary:
+    uic: int
+    asset_type: str
+    symbol: str
+    description: str
+    exchange_id: str | None
+    primary_listing: int | None
+
+
+@dataclass(frozen=True)
+class SaxoChartSample:
+    timestamp: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    market_state: str | None
+
+
 class SaxoSimAdapter:
     """Fail-closed adapter for Saxo OpenAPI's simulation host.
 
@@ -175,8 +197,9 @@ class SaxoSimAdapter:
         return RuntimeError(message)
 
     def _read(self, path: str) -> dict[str, object]:
-        if not path.startswith("/port/"):
-            raise SaxoReadOnlyError("Saxo SIM adapter permits portfolio reads only")
+        allowed_prefixes = ("/port/", "/ref/", "/chart/", "/trade/v1/infoprices")
+        if not path.startswith(allowed_prefixes):
+            raise SaxoReadOnlyError("Saxo SIM adapter permits approved read-only resources only")
         headers = {
             "Authorization": f"Bearer {self._access_token}",
             "Accept": "application/json",
@@ -186,6 +209,101 @@ class SaxoSimAdapter:
         except RuntimeError as exc:
             raise self._safe_error(exc) from exc
         return payload
+
+    def search_instruments(
+        self,
+        keywords: str,
+        *,
+        asset_types: tuple[str, ...] = ("Stock",),
+        top: int = 10,
+    ) -> tuple[SaxoInstrumentSummary, ...]:
+        """Discover SIM instruments with Saxo's restricted read-only reference API."""
+
+        if not keywords.strip():
+            raise ValueError("Saxo instrument discovery requires keywords")
+        if not asset_types or not all(value.strip() for value in asset_types):
+            raise ValueError("At least one Saxo asset type is required")
+        if not 1 <= top <= 50:
+            raise ValueError("Saxo discovery top must be between 1 and 50")
+        query = urlencode(
+            {
+                "Keywords": keywords.strip(),
+                "AssetTypes": ",".join(asset_types),
+                "IncludeNonTradable": "False",
+                "$top": top,
+            }
+        )
+        payload = self._read(f"/ref/v1/instruments?{query}")
+        rows = payload.get("Data")
+        if not isinstance(rows, list):
+            return ()
+        instruments = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            uic = _optional_int(row.get("Identifier") or row.get("Uic"))
+            asset_type = _optional_string(row.get("AssetType"))
+            symbol = _optional_string(row.get("Symbol"))
+            description = _optional_string(row.get("Description"))
+            if uic is None or not asset_type or not symbol or not description:
+                continue
+            instruments.append(
+                SaxoInstrumentSummary(
+                    uic=uic,
+                    asset_type=asset_type,
+                    symbol=symbol,
+                    description=description,
+                    exchange_id=_optional_string(row.get("ExchangeId")),
+                    primary_listing=_optional_int(row.get("PrimaryListing")),
+                )
+            )
+        return tuple(instruments)
+
+    def chart_samples(
+        self,
+        instrument: SaxoInstrumentSummary,
+        *,
+        horizon_minutes: int = 1440,
+        count: int = 45,
+    ) -> tuple[SaxoChartSample, ...]:
+        """Read daily SIM OHLC samples; never requests a tradable quote or order ticket."""
+
+        if horizon_minutes <= 0 or not 1 <= count <= 1200:
+            raise ValueError("Saxo chart horizon and count must be positive and bounded")
+        query = urlencode(
+            {
+                "AssetType": instrument.asset_type,
+                "Uic": instrument.uic,
+                "Horizon": horizon_minutes,
+                "Count": count,
+                "FieldGroups": "Data,DisplayAndFormat",
+            }
+        )
+        payload = self._read(f"/chart/v3/charts?{query}")
+        rows = payload.get("Data")
+        if not isinstance(rows, list):
+            return ()
+        samples = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            timestamp = _optional_string(row.get("Time"))
+            prices = tuple(_optional_float(row.get(key)) for key in ("Open", "High", "Low", "Close"))
+            if timestamp is None or any(value is None or value <= 0 for value in prices):
+                continue
+            open_price, high_price, low_price, close_price = prices
+            samples.append(
+                SaxoChartSample(
+                    timestamp=timestamp,
+                    open=open_price,
+                    high=max(open_price, high_price, low_price, close_price),
+                    low=min(open_price, high_price, low_price, close_price),
+                    close=close_price,
+                    volume=max(_optional_float(row.get("Volume")) or 0.0, 0.0),
+                    market_state=_optional_string(row.get("MarketTradingState")),
+                )
+            )
+        return tuple(samples)
 
     def account_summary(self) -> SaxoSafeAccountSummary:
         client = self._read("/port/v1/clients/me")
@@ -294,6 +412,15 @@ def _optional_float(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value)
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _safe_error_message(value: object) -> str:

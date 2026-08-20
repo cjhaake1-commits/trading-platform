@@ -31,6 +31,7 @@ class CashDashboardMetrics:
     unrealized_pnl: float
     total_portfolio_equity: float
     generated_cash_ratio: float
+    realized_return: float
     realized_pnl_by_pillar: dict[str, float]
     pillar_allocations: dict[str, float]
     broker_reported_virtual_equity: float | None = None
@@ -45,6 +46,7 @@ class CashDashboardMetrics:
             "unrealized_pnl": self.unrealized_pnl,
             "total_portfolio_equity": self.total_portfolio_equity,
             "generated_cash_ratio": self.generated_cash_ratio,
+            "realized_return": self.realized_return,
             "realized_pnl_by_pillar": dict(self.realized_pnl_by_pillar),
             "pillar_allocations": dict(self.pillar_allocations),
             "broker_reported_virtual_equity": self.broker_reported_virtual_equity,
@@ -85,6 +87,7 @@ def aggregate_cash_dashboard(
         unrealized_pnl=unrealized,
         total_portfolio_equity=equity,
         generated_cash_ratio=net_cash / original_capital if original_capital else 0.0,
+        realized_return=net_cash / original_capital if original_capital else 0.0,
         realized_pnl_by_pillar=realized_by_pillar,
         pillar_allocations=dict(DISPLAY_ALLOCATIONS),
         broker_reported_virtual_equity=broker_reported_virtual_equity,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,13 @@ from .capital_allocations import TOTAL_PAPER_CAPITAL
 from .daily_learning import DailyLearningJob
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
+
+AUTONOMOUS_ARM_ENV = "AUTONOMOUS_TRADING_ENABLED"
+
+
+def autonomous_trading_armed() -> bool:
+    """Require an exact local opt-in; missing or malformed values fail closed."""
+    return os.getenv(AUTONOMOUS_ARM_ENV, "false").strip().lower() == "true"
 
 
 @dataclass
@@ -78,6 +86,15 @@ def main() -> None:
         config=config,
         now_factory=lambda: datetime.now(UTC),
     )
+    if args.autonomous_paper and not autonomous_trading_armed():
+        runtime.disable_job(
+            "autonomous-paper-trading",
+            f"Execution disarmed: {AUTONOMOUS_ARM_ENV} must be explicitly true",
+        )
+        runtime.disable_job(
+            "oanda-fx-paper-trading",
+            f"Execution disarmed: {AUTONOMOUS_ARM_ENV} must be explicitly true",
+        )
     runtime.run_forever()
 
 
