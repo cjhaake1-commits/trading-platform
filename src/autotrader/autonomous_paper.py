@@ -381,6 +381,38 @@ class AutonomousPaperTradingJob:
                     attempts=24,
                     delay_seconds=0.25,
                 )
+                ledger.save_crypto_entry_state(
+                    signal.instrument.symbol,
+                    broker=broker,
+                    lifecycle_state="reconciled",
+                    requested_quantity=order_quantity,
+                    submitted_quantity=order_quantity,
+                    broker_filled_quantity=sync["quantity"],
+                    broker_position_quantity=sync["quantity"],
+                    reconciliation_difference=sync.get("reconciliation_difference"),
+                    reconciliation_tolerance=0.005,
+                    reconciliation_status=str(sync.get("reconciliation_status") or "broker_confirmed"),
+                    protection_state="pending",
+                    protection_quantity=None,
+                    stop_price=signal.proposal.stop_price,
+                    fill_price=sync["average_price"],
+                    client_order_id=client_id,
+                    protective_order_id=None,
+                    entry_order_id=broker_order_id,
+                    metadata={
+                        "requested_quantity": order_quantity,
+                        "submitted_quantity": order_quantity,
+                        "broker_filled_quantity": sync["quantity"],
+                        "broker_position_quantity": sync["quantity"],
+                        "reconciliation_difference": sync.get("reconciliation_difference"),
+                        "reconciliation_tolerance": 0.005,
+                        "reconciliation_status": sync.get("reconciliation_status"),
+                        "strategy_version": signal.proposal.source,
+                        "model_version": "five_pillar_baseline_v1",
+                        "proposal_stop": signal.proposal.stop_price,
+                        "proposal_entry": signal.proposal.entry_price,
+                    },
+                )
                 if signal.instrument.asset_class is AssetClass.CRYPTO:
                     protection = submit_alpaca_paper_crypto_stop_limit(
                         signal.instrument.symbol,
@@ -389,6 +421,29 @@ class AutonomousPaperTradingJob:
                         client_order_id=f"{client_id}-stop"[:48],
                     )
                     if not protection.ok:
+                        ledger.save_crypto_entry_state(
+                            signal.instrument.symbol,
+                            broker=broker,
+                            lifecycle_state="unprotected_position",
+                            requested_quantity=order_quantity,
+                            submitted_quantity=order_quantity,
+                            broker_filled_quantity=sync["quantity"],
+                            broker_position_quantity=sync["quantity"],
+                            reconciliation_difference=sync.get("reconciliation_difference"),
+                            reconciliation_tolerance=0.005,
+                            reconciliation_status=str(sync.get("reconciliation_status") or "broker_confirmed"),
+                            protection_state="failed",
+                            protection_quantity=None,
+                            stop_price=signal.proposal.stop_price,
+                            fill_price=sync["average_price"],
+                            client_order_id=client_id,
+                            protective_order_id=None,
+                            entry_order_id=broker_order_id,
+                            metadata={
+                                "protection_message": protection.message,
+                                "protection_details": protection.details,
+                            },
+                        )
                         emergency = close_alpaca_position(signal.instrument.symbol, ledger_path=self.config.ledger_path)
                         failures.append(
                             {
@@ -406,6 +461,32 @@ class AutonomousPaperTradingJob:
                         )
                         continue
                     protective_order_id = str(protection.details.get("id") or "") or None
+                    ledger.save_crypto_entry_state(
+                        signal.instrument.symbol,
+                        broker=broker,
+                        lifecycle_state="active",
+                        requested_quantity=order_quantity,
+                        submitted_quantity=order_quantity,
+                        broker_filled_quantity=sync["quantity"],
+                        broker_position_quantity=sync["quantity"],
+                        reconciliation_difference=sync.get("reconciliation_difference"),
+                        reconciliation_tolerance=0.005,
+                        reconciliation_status=str(sync.get("reconciliation_status") or "broker_confirmed"),
+                        protection_state="confirmed",
+                        protection_quantity=abs(float(sync["quantity"])),
+                        stop_price=signal.proposal.stop_price,
+                        fill_price=sync["average_price"],
+                        client_order_id=client_id,
+                        protective_order_id=protective_order_id,
+                        entry_order_id=broker_order_id,
+                        metadata={
+                            "protection_order": protection.details,
+                            "strategy_version": signal.proposal.source,
+                            "model_version": "five_pillar_baseline_v1",
+                            "proposal_stop": signal.proposal.stop_price,
+                            "proposal_entry": signal.proposal.entry_price,
+                        },
+                    )
                 entries.append(
                     {
                         "broker": broker,

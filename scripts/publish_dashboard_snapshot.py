@@ -31,7 +31,13 @@ def read_json(path: Path) -> dict[str, object]:
 
 def read_portfolio(
     path: Path,
-) -> tuple[dict[str, object], list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
+) -> tuple[
+    dict[str, object],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+]:
     if not path.exists():
         return {}, [], [], []
     with sqlite3.connect(path) as conn:
@@ -42,6 +48,10 @@ def read_portfolio(
             fills = [dict(row) for row in conn.execute("SELECT * FROM fills ORDER BY occurred_at")]
         except sqlite3.Error:
             fills = []
+        try:
+            crypto_states = [dict(row) for row in conn.execute("SELECT * FROM crypto_entry_state ORDER BY symbol")]
+        except sqlite3.Error:
+            crypto_states = []
         pillar_trades = []
         for table in ("international_trades", "metals_trades"):
             try:
@@ -51,7 +61,7 @@ def read_portfolio(
                 )
             except sqlite3.Error:
                 continue
-    return ({} if state is None else dict(state), positions, fills, pillar_trades)
+    return ({} if state is None else dict(state), positions, fills, pillar_trades, crypto_states)
 
 
 def read_activity(path: Path, limit: int = 50) -> tuple[list[dict[str, object]], dict[str, object]]:
@@ -100,6 +110,16 @@ def read_activity(path: Path, limit: int = 50) -> tuple[list[dict[str, object]],
 
 def ledger_stop_map(rows: list[dict[str, object]]) -> dict[str, float]:
     return {str(row.get("symbol") or ""): _float(row.get("stop_price")) for row in rows}
+
+
+def _canonical_crypto_symbol(symbol: object) -> str:
+    raw = str(symbol or "").replace("_", "/").upper()
+    if "/" in raw:
+        return raw
+    for quote in ("USD", "USDT", "USDC"):
+        if raw.endswith(quote) and len(raw) > len(quote):
+            return f"{raw[:-len(quote)]}/{quote}"
+    return raw
 
 
 def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[dict[str, object]], dict[str, float]]:
@@ -196,9 +216,15 @@ def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[di
 
 def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> dict[str, object]:
     status = read_json(status_path)
-    state, ledger_positions, fills, pillar_trades = read_portfolio(ledger_path)
+    portfolio_data = read_portfolio(ledger_path)
+    if len(portfolio_data) == 4:
+        state, ledger_positions, fills, pillar_trades = portfolio_data
+        crypto_states = []
+    else:
+        state, ledger_positions, fills, pillar_trades, crypto_states = portfolio_data
     activity, latest_cycle = read_activity(audit_path)
     live_positions, broker_metrics = live_broker_positions(ledger_positions)
+    crypto_by_symbol = {_canonical_crypto_symbol(row.get("symbol")): row for row in crypto_states}
 
     jobs = status.get("jobs") if isinstance(status.get("jobs"), dict) else {}
     auto = jobs.get("autonomous-paper-trading") if isinstance(jobs, dict) else {}
@@ -304,7 +330,40 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
         "coordinated_test": FivePillarTestConfig().as_dict(),
         "pillar_performance": pillar_performance,
         "fill_count": len(fills),
-        "positions": live_positions,
+        "positions": [
+            {
+                **position,
+                **(
+                    {
+                        "crypto_lifecycle_state": crypto_by_symbol.get(
+                            _canonical_crypto_symbol(position["symbol"]), {}
+                        ).get("lifecycle_state"),
+                        "crypto_reconciliation_status": crypto_by_symbol.get(
+                            _canonical_crypto_symbol(position["symbol"]), {}
+                        ).get("reconciliation_status"),
+                        "crypto_reconciliation_difference": crypto_by_symbol.get(
+                            _canonical_crypto_symbol(position["symbol"]), {}
+                        ).get("reconciliation_difference"),
+                        "crypto_reconciliation_tolerance": crypto_by_symbol.get(
+                            _canonical_crypto_symbol(position["symbol"]), {}
+                        ).get("reconciliation_tolerance"),
+                        "crypto_protection_state": crypto_by_symbol.get(
+                            _canonical_crypto_symbol(position["symbol"]), {}
+                        ).get("protection_state"),
+                        "crypto_protection_quantity": crypto_by_symbol.get(
+                            _canonical_crypto_symbol(position["symbol"]), {}
+                        ).get("protection_quantity"),
+                        "crypto_stop_price": crypto_by_symbol.get(
+                            _canonical_crypto_symbol(position["symbol"]), {}
+                        ).get("stop_price"),
+                    }
+                    if str(position.get("broker")) == "Alpaca Paper"
+                    and str(position.get("symbol") or "").upper().endswith("USD")
+                    else {}
+                ),
+            }
+            for position in live_positions
+        ],
         "latest_cycle": latest_cycle,
         "activity": activity,
     }

@@ -74,6 +74,17 @@ class CryptoExitResult:
     message: str
 
 
+@dataclass(frozen=True)
+class CryptoRecoveryResult:
+    ok: bool
+    symbol: str
+    stop_price: float | None
+    protection_quantity: float | None
+    protection_order_id: str | None
+    state: str
+    message: str
+
+
 class AlpacaCryptoExitCoordinator:
     """Fail-closed lifecycle for closing Alpaca PAPER crypto positions."""
 
@@ -475,3 +486,127 @@ def managed_protective_orders(
 def _protection_covers(orders: tuple[CryptoOrderSnapshot, ...], quantity: float) -> bool:
     reserved = sum(max(order.quantity - order.filled_quantity, 0.0) for order in orders)
     return reserved + 1e-12 >= quantity
+
+
+def recover_unprotected_crypto_position(
+    broker: CryptoExitPaperBroker,
+    *,
+    ledger_path: str = "var/autotrader/portfolio.db",
+    symbol: str,
+) -> CryptoRecoveryResult:
+    canonical = canonical_crypto_symbol(symbol)
+    ledger = PortfolioLedger(ledger_path)
+    state = ledger.load_crypto_entry_state(canonical)
+    if state is None:
+        return CryptoRecoveryResult(
+            False,
+            canonical,
+            None,
+            None,
+            None,
+            "manual_review_required",
+            "No persisted crypto entry state was found",
+        )
+    current = broker.position(canonical)
+    if current is None or current.quantity <= 1e-12:
+        return CryptoRecoveryResult(
+            False,
+            canonical,
+            None,
+            None,
+            None,
+            "manual_review_required",
+            "Broker position is no longer present",
+        )
+    stop_price = _as_float(state.get("stop_price"))
+    if stop_price is None or stop_price <= 0:
+        return CryptoRecoveryResult(
+            False,
+            canonical,
+            None,
+            None,
+            None,
+            "manual_review_required",
+            "Persisted approved stop could not be reconstructed",
+        )
+    if str(state.get("protection_state") or "").lower() == "confirmed" and _protection_covers(
+        managed_protective_orders(broker, canonical), current.quantity
+    ):
+        return CryptoRecoveryResult(
+            True,
+            canonical,
+            stop_price,
+            current.quantity,
+            None,
+            "active",
+            "Position is already protected",
+        )
+    recovery_client_id = f"recovery-{canonical.replace('/', '')}-stop"
+    protection = broker.submit_protection(canonical, current.quantity, stop_price, recovery_client_id)
+    confirmed = broker.order(protection.order_id)
+    if confirmed.status not in OPEN_ORDER_STATUSES or not _protection_covers((confirmed,), current.quantity):
+        ledger.save_crypto_entry_state(
+            canonical,
+            broker=str(state.get("broker") or "alpaca-paper"),
+            lifecycle_state="unprotected_position",
+            requested_quantity=_as_float(state.get("requested_quantity")),
+            submitted_quantity=_as_float(state.get("submitted_quantity")),
+            broker_filled_quantity=_as_float(state.get("broker_filled_quantity")),
+            broker_position_quantity=current.quantity,
+            reconciliation_difference=_as_float(state.get("reconciliation_difference")),
+            reconciliation_tolerance=_as_float(state.get("reconciliation_tolerance")),
+            reconciliation_status=str(state.get("reconciliation_status") or "broker_confirmed"),
+            protection_state="failed",
+            protection_quantity=current.quantity,
+            stop_price=stop_price,
+            fill_price=_as_float(state.get("fill_price")),
+            client_order_id=str(state.get("client_order_id") or "") or None,
+            protective_order_id=str(protection.order_id),
+            entry_order_id=str(state.get("entry_order_id") or "") or None,
+            metadata={"recovery": "protection confirmation failed"},
+        )
+        return CryptoRecoveryResult(
+            False,
+            canonical,
+            stop_price,
+            current.quantity,
+            protection.order_id,
+            "unprotected_position",
+            "Protection confirmation failed",
+        )
+    ledger.save_crypto_entry_state(
+        canonical,
+        broker=str(state.get("broker") or "alpaca-paper"),
+        lifecycle_state="active",
+        requested_quantity=_as_float(state.get("requested_quantity")),
+        submitted_quantity=_as_float(state.get("submitted_quantity")),
+        broker_filled_quantity=_as_float(state.get("broker_filled_quantity")),
+        broker_position_quantity=current.quantity,
+        reconciliation_difference=_as_float(state.get("reconciliation_difference")),
+        reconciliation_tolerance=_as_float(state.get("reconciliation_tolerance")),
+        reconciliation_status=str(state.get("reconciliation_status") or "broker_confirmed"),
+        protection_state="confirmed",
+        protection_quantity=current.quantity,
+        stop_price=stop_price,
+        fill_price=_as_float(state.get("fill_price")),
+        client_order_id=str(state.get("client_order_id") or "") or None,
+        protective_order_id=protection.order_id,
+        entry_order_id=str(state.get("entry_order_id") or "") or None,
+        metadata={"recovery": "protection restored"},
+    )
+    return CryptoRecoveryResult(
+        True,
+        canonical,
+        stop_price,
+        current.quantity,
+        protection.order_id,
+        "active",
+        "Protection restored",
+    )
+
+
+def _as_float(value: object) -> float | None:
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None

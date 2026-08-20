@@ -76,6 +76,27 @@ class PortfolioLedger:
                     reconciled_at TEXT NOT NULL,
                     metadata_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS crypto_entry_state (
+                    symbol TEXT PRIMARY KEY,
+                    broker TEXT NOT NULL,
+                    lifecycle_state TEXT NOT NULL,
+                    requested_quantity REAL,
+                    submitted_quantity REAL,
+                    broker_filled_quantity REAL,
+                    broker_position_quantity REAL,
+                    reconciliation_difference REAL,
+                    reconciliation_tolerance REAL,
+                    reconciliation_status TEXT NOT NULL,
+                    protection_state TEXT NOT NULL,
+                    protection_quantity REAL,
+                    stop_price REAL,
+                    fill_price REAL,
+                    client_order_id TEXT,
+                    protective_order_id TEXT,
+                    entry_order_id TEXT,
+                    updated_at TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL
+                );
                 """
             )
 
@@ -242,6 +263,112 @@ class PortfolioLedger:
                     json.dumps(metadata or {}, sort_keys=True),
                 ),
             )
+
+    def save_crypto_entry_state(
+        self,
+        symbol: str,
+        *,
+        broker: str,
+        lifecycle_state: str,
+        requested_quantity: float | None,
+        submitted_quantity: float | None,
+        broker_filled_quantity: float | None,
+        broker_position_quantity: float | None,
+        reconciliation_difference: float | None,
+        reconciliation_tolerance: float | None,
+        reconciliation_status: str,
+        protection_state: str,
+        protection_quantity: float | None,
+        stop_price: float | None,
+        fill_price: float | None = None,
+        client_order_id: str | None = None,
+        protective_order_id: str | None = None,
+        entry_order_id: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO crypto_entry_state (
+                    symbol, broker, lifecycle_state, requested_quantity, submitted_quantity,
+                    broker_filled_quantity, broker_position_quantity, reconciliation_difference,
+                    reconciliation_tolerance, reconciliation_status, protection_state,
+                    protection_quantity, stop_price, fill_price, client_order_id,
+                    protective_order_id, entry_order_id, updated_at, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol) DO UPDATE SET
+                    broker=excluded.broker,
+                    lifecycle_state=excluded.lifecycle_state,
+                    requested_quantity=excluded.requested_quantity,
+                    submitted_quantity=excluded.submitted_quantity,
+                    broker_filled_quantity=excluded.broker_filled_quantity,
+                    broker_position_quantity=excluded.broker_position_quantity,
+                    reconciliation_difference=excluded.reconciliation_difference,
+                    reconciliation_tolerance=excluded.reconciliation_tolerance,
+                    reconciliation_status=excluded.reconciliation_status,
+                    protection_state=excluded.protection_state,
+                    protection_quantity=excluded.protection_quantity,
+                    stop_price=excluded.stop_price,
+                    fill_price=excluded.fill_price,
+                    client_order_id=excluded.client_order_id,
+                    protective_order_id=excluded.protective_order_id,
+                    entry_order_id=excluded.entry_order_id,
+                    updated_at=excluded.updated_at,
+                    metadata_json=excluded.metadata_json
+                """,
+                (
+                    symbol,
+                    broker,
+                    lifecycle_state,
+                    requested_quantity,
+                    submitted_quantity,
+                    broker_filled_quantity,
+                    broker_position_quantity,
+                    reconciliation_difference,
+                    reconciliation_tolerance,
+                    reconciliation_status,
+                    protection_state,
+                    protection_quantity,
+                    stop_price,
+                    fill_price,
+                    client_order_id,
+                    protective_order_id,
+                    entry_order_id,
+                    datetime.now(UTC).isoformat(),
+                    json.dumps(metadata or {}, sort_keys=True),
+                ),
+            )
+
+    def load_crypto_entry_state(self, symbol: str) -> dict[str, object] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM crypto_entry_state WHERE symbol = ?", (symbol,)
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        metadata = result.get("metadata_json")
+        if isinstance(metadata, str):
+            try:
+                result["metadata"] = json.loads(metadata)
+            except Exception:
+                result["metadata"] = {}
+        return result
+
+    def crypto_entry_states(self) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM crypto_entry_state ORDER BY symbol").fetchall()
+        output = []
+        for row in rows:
+            record = dict(row)
+            metadata = record.get("metadata_json")
+            if isinstance(metadata, str):
+                try:
+                    record["metadata"] = json.loads(metadata)
+                except Exception:
+                    record["metadata"] = {}
+            output.append(record)
+        return output
 
     def snapshot(self) -> dict[str, object]:
         loaded = self.load_portfolio()

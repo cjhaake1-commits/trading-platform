@@ -6,6 +6,7 @@ import pytest
 
 import autotrader.autonomous_paper as autonomous_paper_module
 import autotrader.brokers.alpaca_crypto_exit as alpaca_exit_module
+import autotrader.order_test_app as order_test_app_module
 from autotrader.autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
 from autotrader.brokers.alpaca_crypto_exit import AlpacaCryptoExitPaperBroker
 from autotrader.cash_dashboard import aggregate_cash_dashboard
@@ -15,6 +16,7 @@ from autotrader.crypto_exit import (
     CryptoPositionSnapshot,
     canonical_crypto_symbol,
     managed_protective_orders,
+    recover_unprotected_crypto_position,
 )
 from autotrader.execution_safety import IdempotencyStore
 from autotrader.learning import RealizedOutcomeLearner
@@ -448,6 +450,165 @@ def test_successful_exit_updates_history_cash_accounting_and_learning(tmp_path):
     ).update(datetime(2026, 8, 20, tzinfo=UTC))
     assert learning["completed_trades"] == 1
     assert learning["cumulative_realized_pnl"] == 10.0
+
+
+def test_recovery_refuses_to_invent_a_stop(tmp_path):
+    class NoStopBroker:
+        def position(self, symbol):
+            return CryptoPositionSnapshot(symbol, 0.425654496, 0.0, 2345.3)
+
+        def open_orders(self, symbol):
+            return ()
+
+        def order(self, order_id):
+            raise AssertionError("should not call order when stop is missing")
+
+        def cancel_order(self, order_id):
+            raise AssertionError("should not cancel")
+
+        def submit_close(self, symbol, quantity):
+            raise AssertionError("should not close")
+
+        def submit_protection(self, symbol, quantity, stop_price, client_order_id):
+            raise AssertionError("should not protect")
+
+    result = recover_unprotected_crypto_position(
+        NoStopBroker(),
+        ledger_path=str(tmp_path / "portfolio.db"),
+        symbol="ETHUSD",
+    )
+
+    assert not result.ok
+    assert result.state == "manual_review_required"
+
+
+def test_recovery_uses_persisted_stop_and_broker_quantity(tmp_path):
+    class RecoveryBroker:
+        def __init__(self):
+            self.protection_calls = []
+            self.orders = {
+                "rec-1": CryptoOrderSnapshot(
+                    "rec-1",
+                    "ETH/USD",
+                    "sell",
+                    "stop_limit",
+                    "new",
+                    0.425654496,
+                    stop_price=2300.0,
+                    client_order_id="recovery-ETHUSD-stop",
+                )
+            }
+
+        def position(self, symbol):
+            return CryptoPositionSnapshot(symbol, 0.425654496, 0.0, 2345.3)
+
+        def open_orders(self, symbol):
+            return tuple(self.orders.values())
+
+        def order(self, order_id):
+            return self.orders[order_id]
+
+        def cancel_order(self, order_id):
+            raise AssertionError("not expected")
+
+        def submit_close(self, symbol, quantity):
+            raise AssertionError("not expected")
+
+        def submit_protection(self, symbol, quantity, stop_price, client_order_id):
+            self.protection_calls.append((symbol, quantity, stop_price, client_order_id))
+            return self.orders["rec-1"]
+
+    broker = RecoveryBroker()
+    ledger = PortfolioLedger(tmp_path / "portfolio.db")
+    ledger.save_crypto_entry_state(
+        "ETH/USD",
+        broker="alpaca-paper",
+        lifecycle_state="unprotected_position",
+        requested_quantity=0.4267213,
+        submitted_quantity=0.4267213,
+        broker_filled_quantity=0.425654496,
+        broker_position_quantity=0.425654496,
+        reconciliation_difference=0.001066804,
+        reconciliation_tolerance=0.005,
+        reconciliation_status="fractional_reconciliation",
+        protection_state="failed",
+        protection_quantity=None,
+        stop_price=2300.0,
+        fill_price=2345.3,
+        client_order_id="auto-ETH",
+        entry_order_id="entry-1",
+    )
+
+    result = recover_unprotected_crypto_position(broker, ledger_path=str(tmp_path / "portfolio.db"), symbol="ETH/USD")
+
+    assert result.ok
+    assert result.stop_price == 2300.0
+    assert result.protection_quantity == pytest.approx(0.425654496)
+    assert broker.protection_calls[0][1] == pytest.approx(0.425654496)
+
+
+def test_sync_accepts_bounded_fractional_crypto_difference(monkeypatch, tmp_path):
+    responses = iter(
+        [
+            {"positions": [{"symbol": "ETH/USD", "qty": "0.425654496", "avg_entry_price": "2345.3", "side": "long"}]},
+        ]
+    )
+
+    def fake_alpaca_open_positions():
+        payload = next(responses)
+
+        class Result:
+            ok = True
+            broker = "alpaca-paper"
+            message = "ok"
+            details = payload
+
+        return Result()
+
+    monkeypatch.setattr(order_test_app_module, "alpaca_open_positions", fake_alpaca_open_positions)
+
+    sync = order_test_app_module._sync_submitted_position(
+        broker="alpaca",
+        symbol="ETH/USD",
+        stop_price=2300.0,
+        ledger_path=str(tmp_path / "portfolio.db"),
+        initial_equity=5000.0,
+        expected_quantity=0.4267213,
+        asset_class=AssetClass.CRYPTO,
+        attempts=1,
+        delay_seconds=0.0,
+    )
+
+    assert sync["quantity"] == pytest.approx(0.425654496)
+    assert sync["requested_quantity"] == pytest.approx(0.4267213)
+    assert sync["reconciliation_status"] == "fractional_reconciliation"
+    assert sync["reconciliation_difference"] == pytest.approx(0.001066804)
+
+
+def test_sync_rejects_material_crypto_quantity_mismatch(monkeypatch, tmp_path):
+    def fake_alpaca_open_positions():
+        class Result:
+            ok = True
+            broker = "alpaca-paper"
+            message = "ok"
+            details = {"positions": [{"symbol": "ETH/USD", "qty": "0.2", "avg_entry_price": "2345.3", "side": "long"}]}
+
+        return Result()
+
+    monkeypatch.setattr(order_test_app_module, "alpaca_open_positions", fake_alpaca_open_positions)
+
+    with pytest.raises(RuntimeError, match="only reached"):
+        order_test_app_module._sync_submitted_position(
+            broker="alpaca",
+            symbol="ETH/USD",
+            stop_price=2300.0,
+            ledger_path=str(tmp_path / "portfolio.db"),
+            initial_equity=5000.0,
+            expected_quantity=0.4267213,
+            asset_class=AssetClass.CRYPTO,
+            attempts=1,
+            delay_seconds=0.0,
+        )
 
 
 def test_autonomous_take_profit_routes_crypto_through_guarded_coordinator(monkeypatch, tmp_path):
