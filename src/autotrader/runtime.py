@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -53,7 +52,7 @@ class RuntimeConfig:
     heartbeat_audit_seconds: float = 60.0
     max_consecutive_job_failures: int = 3
     snapshot_path: Path | None = None
-    live_env_var: str = "LIVE_TRADING_ENABLED"
+    autonomous_enabled: bool = False
 
 
 class AutonomousRuntime:
@@ -90,12 +89,9 @@ class AutonomousRuntime:
             raise ValueError("max_consecutive_job_failures must be positive")
 
         if self.config.mode is RunMode.LIVE:
-            unlocked = os.getenv(self.config.live_env_var, "").strip().lower() == "true"
-            if not unlocked:
-                raise RuntimeError(
-                    f"Live runtime requires {self.config.live_env_var}=true; "
-                    "paper/shadow remain available without it"
-                )
+            raise RuntimeError("Live runtime is disabled; only paper and shadow modes are available")
+        if self.config.autonomous_enabled and self.config.mode is not RunMode.PAPER:
+            raise RuntimeError("Autonomous execution authorization is valid only in paper mode")
 
     @property
     def states(self) -> dict[str, JobState]:
@@ -214,8 +210,20 @@ class AutonomousRuntime:
         )
 
     def snapshot(self) -> dict[str, object]:
+        healthy = self._operationally_healthy()
+        if not healthy:
+            execution_state = "faulted"
+        elif self.config.autonomous_enabled:
+            execution_state = "armed_paper"
+        else:
+            execution_state = "disarmed"
         return {
             "mode": self.config.mode.value,
+            "healthy": healthy,
+            "autonomous_enabled": self.config.autonomous_enabled,
+            "execution_state": execution_state,
+            "live_trading_enabled": False,
+            "safety_configuration_valid": True,
             "started_at": self._started_at.isoformat(),
             "last_heartbeat_at": (
                 None if self._last_heartbeat_at is None else self._last_heartbeat_at.isoformat()
@@ -240,6 +248,23 @@ class AutonomousRuntime:
                 for name, state in self._states.items()
             },
         }
+
+    def _operationally_healthy(self) -> bool:
+        if self._last_heartbeat_at is None:
+            return False
+        health = self._states.get("health")
+        if health is not None and (
+            health.disabled or health.consecutive_failures > 0 or health.last_error is not None
+        ):
+            return False
+        if self.config.autonomous_enabled:
+            for name in ("autonomous-paper-trading", "oanda-fx-paper-trading"):
+                state = self._states.get(name)
+                if state is not None and (
+                    state.disabled or state.consecutive_failures > 0 or state.last_error is not None
+                ):
+                    return False
+        return True
 
     def _write_snapshot(self, snapshot: dict[str, object]) -> None:
         path = self.config.snapshot_path

@@ -78,10 +78,10 @@ def test_runtime_disables_repeatedly_failing_job(tmp_path):
     assert runtime.states[job.name].consecutive_failures == 2
 
 
-def test_live_mode_requires_explicit_environment_unlock(tmp_path, monkeypatch):
-    monkeypatch.delenv("LIVE_TRADING_ENABLED", raising=False)
+def test_live_mode_remains_unavailable_even_with_environment_unlock(tmp_path, monkeypatch):
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
 
-    with pytest.raises(RuntimeError, match="LIVE_TRADING_ENABLED"):
+    with pytest.raises(RuntimeError, match="Live runtime is disabled"):
         AutonomousRuntime(
             [CountingJob()],
             SQLiteAuditStore(tmp_path / "audit.db"),
@@ -104,6 +104,44 @@ def test_runtime_writes_atomic_status_snapshot(tmp_path):
     assert snapshot.exists()
     assert state["mode"] == "paper"
     assert "scanner" in state["jobs"]
+    assert state["healthy"] is True
+    assert state["autonomous_enabled"] is False
+    assert state["execution_state"] == "disarmed"
+    assert state["live_trading_enabled"] is False
+
+
+def test_runtime_is_healthy_when_paper_execution_is_armed(tmp_path):
+    runtime = AutonomousRuntime(
+        [
+            CountingJob(name="health"),
+            CountingJob(name="autonomous-paper-trading"),
+            CountingJob(name="oanda-fx-paper-trading"),
+        ],
+        SQLiteAuditStore(tmp_path / "audit.db"),
+        RuntimeConfig(autonomous_enabled=True, heartbeat_audit_seconds=60.0),
+        now_factory=fixed_now,
+    )
+
+    state = runtime.run_once()
+
+    assert state["healthy"] is True
+    assert state["autonomous_enabled"] is True
+    assert state["execution_state"] == "armed_paper"
+
+
+def test_unhealthy_disarmed_runtime_is_faulted_without_authorization(tmp_path):
+    runtime = AutonomousRuntime(
+        [CountingJob(name="health", fail=True)],
+        SQLiteAuditStore(tmp_path / "audit.db"),
+        RuntimeConfig(autonomous_enabled=False, heartbeat_audit_seconds=60.0),
+        now_factory=fixed_now,
+    )
+
+    state = runtime.run_once()
+
+    assert state["healthy"] is False
+    assert state["autonomous_enabled"] is False
+    assert state["execution_state"] == "faulted"
 
 
 def test_autonomous_arming_defaults_false_and_requires_exact_true(monkeypatch):

@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 import streamlit as st
 
 from autotrader.broker_environment import require_alpaca_paper_url, require_oanda_practice_url
+from autotrader.dashboard_health import runtime_status_labels
 
 st.set_page_config(page_title="Autonomous Trading Command Center", page_icon="📈", layout="wide")
 DATA_PATH = Path("dashboard/data.json")
@@ -215,6 +216,19 @@ cash = data.get("cash_dashboard") if isinstance(data.get("cash_dashboard"), dict
 pillar_performance = data.get("pillar_performance") if isinstance(data.get("pillar_performance"), dict) else {}
 coordinated_test = data.get("coordinated_test") if isinstance(data.get("coordinated_test"), dict) else {}
 
+status_labels = runtime_status_labels(runtime)
+health_column, autonomous_column, live_column = st.columns(3)
+health_column.metric("Runtime Health", status_labels["runtime_health"])
+autonomous_column.metric(
+    "Autonomous Paper Trading",
+    status_labels["autonomous_paper_trading"],
+)
+live_column.metric("Live Trading", status_labels["live_trading"])
+if runtime.get("execution_state") == "disarmed":
+    st.info("Runtime services are healthy. Autonomous paper execution is deliberately disarmed.")
+elif runtime.get("execution_state") == "faulted":
+    st.error("Runtime execution is faulted and remains blocked pending operator review.")
+
 st.subheader("Cash and equity")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Original funded/simulated capital", _money(cash.get("original_capital", TOTAL_BASE_CAPITAL)))
@@ -416,6 +430,10 @@ with st.expander("Runtime snapshot", expanded=False):
         {
             "mode": runtime.get("mode"),
             "last_heartbeat_at": runtime.get("last_heartbeat_at"),
+            "healthy": runtime.get("healthy"),
+            "autonomous_enabled": runtime.get("autonomous_enabled"),
+            "execution_state": runtime.get("execution_state"),
+            "live_trading_enabled": runtime.get("live_trading_enabled"),
             "published_at": data.get("published_at"),
             "last_cycle_started_at": runtime.get("last_cycle_started_at"),
             "last_cycle_finished_at": runtime.get("last_cycle_finished_at"),

@@ -54,7 +54,13 @@ def main() -> None:
     if args.autonomous_paper and mode is not RunMode.PAPER:
         raise SystemExit("--autonomous-paper is only valid with --mode paper")
 
-    config = RuntimeConfig(mode=mode, heartbeat_seconds=args.heartbeat, snapshot_path=Path(args.status))
+    autonomous_enabled = args.autonomous_paper and autonomous_trading_armed()
+    config = RuntimeConfig(
+        mode=mode,
+        heartbeat_seconds=args.heartbeat,
+        snapshot_path=Path(args.status),
+        autonomous_enabled=autonomous_enabled,
+    )
     jobs = [HeartbeatJob()]
     if args.autonomous_paper:
         jobs.append(
@@ -86,7 +92,7 @@ def main() -> None:
         config=config,
         now_factory=lambda: datetime.now(UTC),
     )
-    if args.autonomous_paper and not autonomous_trading_armed():
+    if args.autonomous_paper and not autonomous_enabled:
         runtime.disable_job(
             "autonomous-paper-trading",
             f"Execution disarmed: {AUTONOMOUS_ARM_ENV} must be explicitly true",

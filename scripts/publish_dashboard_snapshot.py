@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from autotrader.brokers.alpaca_metals_paper import METALS_UNIVERSE
@@ -213,7 +213,22 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     gross_exposure = broker_metrics["gross_exposure"]
     risk_open = sum(_float(row.get("risk_dollars")) for row in live_positions)
     last_heartbeat = status.get("last_heartbeat_at")
-    healthy = bool(last_heartbeat) and not bool(auto.get("disabled")) and not bool(auto.get("last_error"))
+    heartbeat_current = _heartbeat_is_current(last_heartbeat)
+    health_job = jobs.get("health") if isinstance(jobs, dict) else {}
+    if not isinstance(health_job, dict):
+        health_job = {}
+    reported_healthy = status.get("healthy")
+    if isinstance(reported_healthy, bool):
+        healthy = reported_healthy and heartbeat_current
+    else:
+        healthy = (
+            heartbeat_current
+            and not bool(health_job.get("disabled"))
+            and not bool(health_job.get("consecutive_failures"))
+            and not bool(health_job.get("last_error"))
+        )
+    autonomous_enabled = status.get("autonomous_enabled") is True
+    execution_state = "faulted" if not healthy else ("armed_paper" if autonomous_enabled else "disarmed")
 
     stretch_low = 0.20
     stretch_high = 0.30
@@ -248,11 +263,15 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
         "runtime": {
             "mode": status.get("mode", "paper"),
             "healthy": healthy,
+            "autonomous_enabled": autonomous_enabled,
+            "execution_state": execution_state,
+            "live_trading_enabled": False,
             "last_heartbeat_at": last_heartbeat,
             # Missing/unreadable runtime state must display as disarmed, never enabled.
             "autonomous_job_disabled": bool(auto.get("disabled", True)),
             "consecutive_failures": int(auto.get("consecutive_failures", 0) or 0),
-            "last_error": auto.get("last_error"),
+            "last_error": auto.get("last_error") if execution_state == "faulted" else None,
+            "execution_message": auto.get("last_error"),
             "last_cycle_started_at": auto.get("last_started_at"),
             "last_cycle_finished_at": auto.get("last_finished_at"),
             "last_cycle_duration_ms": auto.get("last_duration_ms"),
@@ -289,6 +308,20 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
         "latest_cycle": latest_cycle,
         "activity": activity,
     }
+
+
+def _heartbeat_is_current(value: object, *, now: datetime | None = None) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if observed.tzinfo is None:
+        return False
+    current = now or datetime.now(UTC)
+    age = current - observed.astimezone(UTC)
+    return timedelta(seconds=-5) <= age <= timedelta(seconds=90)
 
 
 def main() -> None:
