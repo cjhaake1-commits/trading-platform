@@ -90,6 +90,17 @@ class RankedSignal:
     votes: tuple[str, ...]
 
 
+def _broker_environment(broker: str) -> str:
+    broker = broker.lower()
+    if broker == "alpaca-paper":
+        return "paper"
+    if broker == "oanda-practice":
+        return "practice"
+    if broker == "alpaca-crypto-paper":
+        return "paper"
+    return "sim"
+
+
 def choose_long_signal(
     instrument: Instrument, bars, *, scanner=None, strategies=None, minimum_score=5.0, momentum_only_score=12.0
 ) -> RankedSignal | None:
@@ -328,6 +339,58 @@ class AutonomousPaperTradingJob:
                 continue
             client_id = f"auto-{bucket}-{signal.instrument.symbol.replace('/', '')}"[:48]
             try:
+                manifest_payload = {
+                    "broker": broker,
+                    "environment": _broker_environment(broker),
+                    "pillar": pillar,
+                    "canonical_symbol": signal.instrument.symbol.replace("_", "/").upper(),
+                    "broker_symbol": signal.instrument.symbol,
+                    "side": signal.proposal.side.value,
+                    "model_version": "five_pillar_baseline_v1",
+                    "strategy_version": signal.proposal.source,
+                    "confidence": signal.proposal.confidence,
+                    "regime": signal.proposal.rationale or None,
+                    "approved_entry": signal.proposal.entry_price,
+                    "requested_quantity": order_quantity,
+                    "approved_notional": order_quantity * signal.proposal.entry_price,
+                    "approved_stop": signal.proposal.stop_price,
+                    "approved_target": None,
+                    "approved_dollar_risk": decision.max_loss_dollars,
+                    "allocation_at_approval": pillar_notional,
+                    "portfolio_risk_at_approval": gross,
+                    "risk_engine_decision": decision.reason,
+                    "lifecycle_state": "approved_manifest",
+                    "client_order_id_namespace": client_id,
+                }
+                manifest_payload["fingerprint"] = PortfolioLedger.manifest_fingerprint(manifest_payload)
+                manifest_id = manifest_payload["fingerprint"][:32]
+                ledger.save_entry_manifest(
+                    manifest_id=manifest_id,
+                    created_at=now,
+                    broker=broker,
+                    environment=manifest_payload["environment"],
+                    pillar=pillar,
+                    canonical_symbol=manifest_payload["canonical_symbol"],
+                    broker_symbol=manifest_payload["broker_symbol"],
+                    side=signal.proposal.side.value,
+                    model_version="five_pillar_baseline_v1",
+                    strategy_version=signal.proposal.source,
+                    confidence=signal.proposal.confidence,
+                    regime=manifest_payload["regime"],
+                    approved_entry=signal.proposal.entry_price,
+                    requested_quantity=order_quantity,
+                    approved_notional=order_quantity * signal.proposal.entry_price,
+                    approved_stop=signal.proposal.stop_price,
+                    approved_target=None,
+                    approved_dollar_risk=decision.max_loss_dollars,
+                    allocation_at_approval=pillar_notional,
+                    portfolio_risk_at_approval=gross,
+                    risk_engine_decision=decision.reason,
+                    lifecycle_state="approved_manifest",
+                    client_order_id_namespace=client_id,
+                    fingerprint=manifest_payload["fingerprint"],
+                    metadata={"signal": signal.votes, "manifest": manifest_payload},
+                )
                 protective_order_id = None
                 if signal.instrument.asset_class is AssetClass.CRYPTO:
                     result = submit_alpaca_paper_crypto_market_order(
@@ -370,6 +433,35 @@ class AutonomousPaperTradingJob:
                     )
                     continue
                 self.idempotency.mark_submitted(key, broker_order_id)
+                ledger.save_entry_manifest(
+                    manifest_id=manifest_id,
+                    created_at=now,
+                    broker=broker,
+                    environment=manifest_payload["environment"],
+                    pillar=pillar,
+                    canonical_symbol=manifest_payload["canonical_symbol"],
+                    broker_symbol=manifest_payload["broker_symbol"],
+                    side=signal.proposal.side.value,
+                    model_version="five_pillar_baseline_v1",
+                    strategy_version=signal.proposal.source,
+                    confidence=signal.proposal.confidence,
+                    regime=manifest_payload["regime"],
+                    approved_entry=signal.proposal.entry_price,
+                    requested_quantity=order_quantity,
+                    approved_notional=order_quantity * signal.proposal.entry_price,
+                    approved_stop=signal.proposal.stop_price,
+                    approved_target=None,
+                    approved_dollar_risk=decision.max_loss_dollars,
+                    allocation_at_approval=pillar_notional,
+                    portfolio_risk_at_approval=gross,
+                    risk_engine_decision=decision.reason,
+                    lifecycle_state="order_submitted",
+                    client_order_id_namespace=client_id,
+                    fingerprint=manifest_payload["fingerprint"],
+                    broker_order_id=broker_order_id,
+                    submitted_quantity=order_quantity,
+                    metadata={"submission": result.details},
+                )
                 sync = _sync_submitted_position(
                     broker=sync_broker,
                     symbol=signal.instrument.symbol,
@@ -413,6 +505,40 @@ class AutonomousPaperTradingJob:
                         "proposal_entry": signal.proposal.entry_price,
                     },
                 )
+                ledger.save_entry_manifest(
+                    manifest_id=manifest_id,
+                    created_at=now,
+                    broker=broker,
+                    environment=manifest_payload["environment"],
+                    pillar=pillar,
+                    canonical_symbol=manifest_payload["canonical_symbol"],
+                    broker_symbol=manifest_payload["broker_symbol"],
+                    side=signal.proposal.side.value,
+                    model_version="five_pillar_baseline_v1",
+                    strategy_version=signal.proposal.source,
+                    confidence=signal.proposal.confidence,
+                    regime=manifest_payload["regime"],
+                    approved_entry=signal.proposal.entry_price,
+                    requested_quantity=order_quantity,
+                    approved_notional=order_quantity * signal.proposal.entry_price,
+                    approved_stop=signal.proposal.stop_price,
+                    approved_target=None,
+                    approved_dollar_risk=decision.max_loss_dollars,
+                    allocation_at_approval=pillar_notional,
+                    portfolio_risk_at_approval=gross,
+                    risk_engine_decision=decision.reason,
+                    lifecycle_state="fill_confirmed",
+                    client_order_id_namespace=client_id,
+                    fingerprint=manifest_payload["fingerprint"],
+                    broker_order_id=broker_order_id,
+                    submitted_quantity=order_quantity,
+                    filled_quantity=sync["quantity"],
+                    broker_confirmed_position_quantity=sync["quantity"],
+                    average_fill_price=sync["average_price"],
+                    reconciliation_status=str(sync.get("reconciliation_status") or "broker_confirmed"),
+                    reconciliation_difference=sync.get("reconciliation_difference"),
+                    metadata={"fill_sync": sync},
+                )
                 if signal.instrument.asset_class is AssetClass.CRYPTO:
                     protection = submit_alpaca_paper_crypto_stop_limit(
                         signal.instrument.symbol,
@@ -439,6 +565,44 @@ class AutonomousPaperTradingJob:
                             client_order_id=client_id,
                             protective_order_id=None,
                             entry_order_id=broker_order_id,
+                            metadata={
+                                "protection_message": protection.message,
+                                "protection_details": protection.details,
+                            },
+                        )
+                        ledger.save_entry_manifest(
+                            manifest_id=manifest_id,
+                            created_at=now,
+                            broker=broker,
+                            environment=manifest_payload["environment"],
+                            pillar=pillar,
+                            canonical_symbol=manifest_payload["canonical_symbol"],
+                            broker_symbol=manifest_payload["broker_symbol"],
+                            side=signal.proposal.side.value,
+                            model_version="five_pillar_baseline_v1",
+                            strategy_version=signal.proposal.source,
+                            confidence=signal.proposal.confidence,
+                            regime=manifest_payload["regime"],
+                            approved_entry=signal.proposal.entry_price,
+                            requested_quantity=order_quantity,
+                            approved_notional=order_quantity * signal.proposal.entry_price,
+                            approved_stop=signal.proposal.stop_price,
+                            approved_target=None,
+                            approved_dollar_risk=decision.max_loss_dollars,
+                            allocation_at_approval=pillar_notional,
+                            portfolio_risk_at_approval=gross,
+                            risk_engine_decision=decision.reason,
+                            lifecycle_state="unprotected_position",
+                            client_order_id_namespace=client_id,
+                            fingerprint=manifest_payload["fingerprint"],
+                            broker_order_id=broker_order_id,
+                            submitted_quantity=order_quantity,
+                            filled_quantity=sync["quantity"],
+                            broker_confirmed_position_quantity=sync["quantity"],
+                            average_fill_price=sync["average_price"],
+                            reconciliation_status=str(sync.get("reconciliation_status") or "broker_confirmed"),
+                            reconciliation_difference=sync.get("reconciliation_difference"),
+                            protection_state="failed",
                             metadata={
                                 "protection_message": protection.message,
                                 "protection_details": protection.details,
@@ -486,6 +650,44 @@ class AutonomousPaperTradingJob:
                             "proposal_stop": signal.proposal.stop_price,
                             "proposal_entry": signal.proposal.entry_price,
                         },
+                    )
+                    ledger.save_entry_manifest(
+                        manifest_id=manifest_id,
+                        created_at=now,
+                        broker=broker,
+                        environment=manifest_payload["environment"],
+                        pillar=pillar,
+                        canonical_symbol=manifest_payload["canonical_symbol"],
+                        broker_symbol=manifest_payload["broker_symbol"],
+                        side=signal.proposal.side.value,
+                        model_version="five_pillar_baseline_v1",
+                        strategy_version=signal.proposal.source,
+                        confidence=signal.proposal.confidence,
+                        regime=manifest_payload["regime"],
+                        approved_entry=signal.proposal.entry_price,
+                        requested_quantity=order_quantity,
+                        approved_notional=order_quantity * signal.proposal.entry_price,
+                        approved_stop=signal.proposal.stop_price,
+                        approved_target=None,
+                        approved_dollar_risk=decision.max_loss_dollars,
+                        allocation_at_approval=pillar_notional,
+                        portfolio_risk_at_approval=gross,
+                        risk_engine_decision=decision.reason,
+                        lifecycle_state="active",
+                        client_order_id_namespace=client_id,
+                        fingerprint=manifest_payload["fingerprint"],
+                        broker_order_id=broker_order_id,
+                        submitted_quantity=order_quantity,
+                        filled_quantity=sync["quantity"],
+                        broker_confirmed_position_quantity=sync["quantity"],
+                        average_fill_price=sync["average_price"],
+                        reconciliation_status=str(sync.get("reconciliation_status") or "broker_confirmed"),
+                        reconciliation_difference=sync.get("reconciliation_difference"),
+                        protection_order_id=protective_order_id,
+                        protection_quantity=abs(float(sync["quantity"])),
+                        protection_stop=signal.proposal.stop_price,
+                        protection_state="confirmed",
+                        metadata={"protection_order": protection.details},
                     )
                 entries.append(
                     {

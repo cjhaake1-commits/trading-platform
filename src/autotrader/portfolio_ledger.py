@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from dataclasses import asdict
@@ -94,6 +95,49 @@ class PortfolioLedger:
                     client_order_id TEXT,
                     protective_order_id TEXT,
                     entry_order_id TEXT,
+                    updated_at TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS entry_manifests (
+                    manifest_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    broker TEXT NOT NULL,
+                    environment TEXT NOT NULL,
+                    pillar TEXT NOT NULL,
+                    canonical_symbol TEXT NOT NULL,
+                    broker_symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    model_version TEXT NOT NULL,
+                    strategy_version TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    regime TEXT,
+                    approved_entry REAL NOT NULL,
+                    requested_quantity REAL NOT NULL,
+                    approved_notional REAL NOT NULL,
+                    approved_stop REAL NOT NULL,
+                    approved_target REAL,
+                    approved_dollar_risk REAL NOT NULL,
+                    allocation_at_approval REAL NOT NULL,
+                    portfolio_risk_at_approval REAL NOT NULL,
+                    risk_engine_decision TEXT NOT NULL,
+                    lifecycle_state TEXT NOT NULL,
+                    client_order_id_namespace TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    broker_order_id TEXT,
+                    submitted_quantity REAL,
+                    filled_quantity REAL,
+                    broker_confirmed_position_quantity REAL,
+                    average_fill_price REAL,
+                    reconciliation_status TEXT,
+                    reconciliation_difference REAL,
+                    protection_order_id TEXT,
+                    protection_quantity REAL,
+                    protection_stop REAL,
+                    protection_state TEXT,
+                    close_order_ids_json TEXT,
+                    realized_pnl REAL,
+                    fees_costs REAL,
+                    closed_at TEXT,
                     updated_at TEXT NOT NULL,
                     metadata_json TEXT NOT NULL
                 );
@@ -339,6 +383,162 @@ class PortfolioLedger:
                 ),
             )
 
+    @staticmethod
+    def manifest_fingerprint(payload: dict[str, object]) -> str:
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def save_entry_manifest(
+        self,
+        *,
+        manifest_id: str,
+        created_at: datetime,
+        broker: str,
+        environment: str,
+        pillar: str,
+        canonical_symbol: str,
+        broker_symbol: str,
+        side: str,
+        model_version: str,
+        strategy_version: str,
+        confidence: float,
+        regime: str | None,
+        approved_entry: float,
+        requested_quantity: float,
+        approved_notional: float,
+        approved_stop: float,
+        approved_target: float | None,
+        approved_dollar_risk: float,
+        allocation_at_approval: float,
+        portfolio_risk_at_approval: float,
+        risk_engine_decision: str,
+        lifecycle_state: str,
+        client_order_id_namespace: str,
+        fingerprint: str,
+        broker_order_id: str | None = None,
+        submitted_quantity: float | None = None,
+        filled_quantity: float | None = None,
+        broker_confirmed_position_quantity: float | None = None,
+        average_fill_price: float | None = None,
+        reconciliation_status: str | None = None,
+        reconciliation_difference: float | None = None,
+        protection_order_id: str | None = None,
+        protection_quantity: float | None = None,
+        protection_stop: float | None = None,
+        protection_state: str | None = None,
+        close_order_ids: list[str] | None = None,
+        realized_pnl: float | None = None,
+        fees_costs: float | None = None,
+        closed_at: datetime | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO entry_manifests (
+                    manifest_id, created_at, broker, environment, pillar,
+                    canonical_symbol, broker_symbol, side, model_version,
+                    strategy_version, confidence, regime, approved_entry,
+                    requested_quantity, approved_notional, approved_stop,
+                    approved_target, approved_dollar_risk, allocation_at_approval,
+                    portfolio_risk_at_approval, risk_engine_decision,
+                    lifecycle_state, client_order_id_namespace, fingerprint,
+                    broker_order_id, submitted_quantity, filled_quantity,
+                    broker_confirmed_position_quantity, average_fill_price,
+                    reconciliation_status, reconciliation_difference,
+                    protection_order_id, protection_quantity, protection_stop,
+                    protection_state, close_order_ids_json, realized_pnl,
+                    fees_costs, closed_at, updated_at, metadata_json
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+                ON CONFLICT(manifest_id) DO UPDATE SET
+                    broker=excluded.broker,
+                    environment=excluded.environment,
+                    pillar=excluded.pillar,
+                    canonical_symbol=excluded.canonical_symbol,
+                    broker_symbol=excluded.broker_symbol,
+                    side=excluded.side,
+                    model_version=excluded.model_version,
+                    strategy_version=excluded.strategy_version,
+                    confidence=excluded.confidence,
+                    regime=excluded.regime,
+                    approved_entry=excluded.approved_entry,
+                    requested_quantity=excluded.requested_quantity,
+                    approved_notional=excluded.approved_notional,
+                    approved_stop=excluded.approved_stop,
+                    approved_target=excluded.approved_target,
+                    approved_dollar_risk=excluded.approved_dollar_risk,
+                    allocation_at_approval=excluded.allocation_at_approval,
+                    portfolio_risk_at_approval=excluded.portfolio_risk_at_approval,
+                    risk_engine_decision=excluded.risk_engine_decision,
+                    lifecycle_state=excluded.lifecycle_state,
+                    client_order_id_namespace=excluded.client_order_id_namespace,
+                    fingerprint=excluded.fingerprint,
+                    broker_order_id=excluded.broker_order_id,
+                    submitted_quantity=excluded.submitted_quantity,
+                    filled_quantity=excluded.filled_quantity,
+                    broker_confirmed_position_quantity=excluded.broker_confirmed_position_quantity,
+                    average_fill_price=excluded.average_fill_price,
+                    reconciliation_status=excluded.reconciliation_status,
+                    reconciliation_difference=excluded.reconciliation_difference,
+                    protection_order_id=excluded.protection_order_id,
+                    protection_quantity=excluded.protection_quantity,
+                    protection_stop=excluded.protection_stop,
+                    protection_state=excluded.protection_state,
+                    close_order_ids_json=excluded.close_order_ids_json,
+                    realized_pnl=excluded.realized_pnl,
+                    fees_costs=excluded.fees_costs,
+                    closed_at=excluded.closed_at,
+                    updated_at=excluded.updated_at,
+                    metadata_json=excluded.metadata_json
+                """,
+                (
+                    manifest_id,
+                    created_at.astimezone(UTC).isoformat(),
+                    broker,
+                    environment,
+                    pillar,
+                    canonical_symbol,
+                    broker_symbol,
+                    side,
+                    model_version,
+                    strategy_version,
+                    confidence,
+                    regime,
+                    approved_entry,
+                    requested_quantity,
+                    approved_notional,
+                    approved_stop,
+                    approved_target,
+                    approved_dollar_risk,
+                    allocation_at_approval,
+                    portfolio_risk_at_approval,
+                    risk_engine_decision,
+                    lifecycle_state,
+                    client_order_id_namespace,
+                    fingerprint,
+                    broker_order_id,
+                    submitted_quantity,
+                    filled_quantity,
+                    broker_confirmed_position_quantity,
+                    average_fill_price,
+                    reconciliation_status,
+                    reconciliation_difference,
+                    protection_order_id,
+                    protection_quantity,
+                    protection_stop,
+                    protection_state,
+                    json.dumps(close_order_ids or [], sort_keys=True),
+                    realized_pnl,
+                    fees_costs,
+                    None if closed_at is None else closed_at.astimezone(UTC).isoformat(),
+                    datetime.now(UTC).isoformat(),
+                    json.dumps(metadata or {}, sort_keys=True),
+                ),
+            )
+
     def load_crypto_entry_state(self, symbol: str) -> dict[str, object] | None:
         with self._connect() as connection:
             row = connection.execute(
@@ -369,6 +569,29 @@ class PortfolioLedger:
                     record["metadata"] = {}
             output.append(record)
         return output
+
+    def load_entry_manifest(self, manifest_id: str) -> dict[str, object] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM entry_manifests WHERE manifest_id = ?",
+                (manifest_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        metadata = result.get("metadata_json")
+        if isinstance(metadata, str):
+            try:
+                result["metadata"] = json.loads(metadata)
+            except Exception:
+                result["metadata"] = {}
+        close_ids = result.get("close_order_ids_json")
+        if isinstance(close_ids, str):
+            try:
+                result["close_order_ids"] = json.loads(close_ids)
+            except Exception:
+                result["close_order_ids"] = []
+        return result
 
     def snapshot(self) -> dict[str, object]:
         loaded = self.load_portfolio()

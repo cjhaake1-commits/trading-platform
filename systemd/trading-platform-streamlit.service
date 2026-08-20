@@ -1,0 +1,18 @@
+[Unit]
+Description=Trading Platform Streamlit Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/cjhaake1/trading-platform
+EnvironmentFile=-/home/cjhaake1/trading-platform/.env
+ExecStart=/home/cjhaake1/trading-platform/.venv/bin/streamlit run /home/cjhaake1/trading-platform/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=default.target
