@@ -74,7 +74,7 @@ class DailyLearningJob:
             duplicate_skips.extend(data.get("duplicate_skips") or [])
             sizing_skips.extend(data.get("sizing_skips") or [])
 
-        learning = RealizedOutcomeLearner(ledger_path=self.ledger_path).update(now)
+        learning = RealizedOutcomeLearner(ledger_path=self.ledger_path, audit_path=self.audit_db).update(now)
         record = {
             "date": day.isoformat(),
             "generated_at": now.astimezone(UTC).isoformat(),

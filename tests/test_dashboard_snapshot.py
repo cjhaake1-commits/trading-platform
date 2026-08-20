@@ -5,12 +5,19 @@ from pathlib import Path
 
 from autotrader.dashboard_health import runtime_status_labels
 
-MODULE_PATH = Path(__file__).parents[1] / "scripts" / "publish_dashboard_snapshot.py"
-SPEC = importlib.util.spec_from_file_location("publish_dashboard_snapshot", MODULE_PATH)
-assert SPEC is not None and SPEC.loader is not None
-publisher = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = publisher
-SPEC.loader.exec_module(publisher)
+SNAPSHOT_PATH = Path(__file__).parents[1] / "scripts" / "publish_dashboard_snapshot.py"
+SNAPSHOT_SPEC = importlib.util.spec_from_file_location("publish_dashboard_snapshot", SNAPSHOT_PATH)
+assert SNAPSHOT_SPEC is not None and SNAPSHOT_SPEC.loader is not None
+publisher = importlib.util.module_from_spec(SNAPSHOT_SPEC)
+sys.modules[SNAPSHOT_SPEC.name] = publisher
+SNAPSHOT_SPEC.loader.exec_module(publisher)
+
+DASHBOARD_PATH = Path(__file__).parents[1] / "src" / "autotrader" / "dashboard_app.py"
+DASHBOARD_SPEC = importlib.util.spec_from_file_location("dashboard_app", DASHBOARD_PATH)
+assert DASHBOARD_SPEC is not None and DASHBOARD_SPEC.loader is not None
+dashboard_app = importlib.util.module_from_spec(DASHBOARD_SPEC)
+sys.modules[DASHBOARD_SPEC.name] = dashboard_app
+DASHBOARD_SPEC.loader.exec_module(dashboard_app)
 
 
 def test_snapshot_ignores_stale_ledger_capital_and_derives_internal_cash(monkeypatch):
@@ -112,8 +119,8 @@ def test_dashboard_labels_healthy_armed_paper_and_unhealthy_disarmed():
 
 def test_snapshot_exposes_crypto_reconciliation_and_protection_state(monkeypatch):
     monkeypatch.setattr(
-        publisher,
-        "read_json",
+        dashboard_app,
+        "_read_json",
         lambda _path: {
             "mode": "paper",
             "healthy": True,
@@ -197,3 +204,51 @@ def test_snapshot_exposes_crypto_reconciliation_and_protection_state(monkeypatch
     assert eth["crypto_reconciliation_status"] == "fractional_reconciliation"
     assert eth["crypto_protection_state"] == "failed"
     assert eth["crypto_stop_price"] == 2300.0
+
+
+def test_dashboard_renders_learning_baseline_and_status(monkeypatch):
+    monkeypatch.setattr(
+        dashboard_app,
+        "_read_json",
+        lambda _path: {
+            "mode": "paper",
+            "healthy": True,
+            "autonomous_enabled": False,
+            "execution_state": "disarmed",
+            "last_heartbeat_at": datetime.now(UTC).isoformat(),
+            "jobs": {"health": {"disabled": False, "consecutive_failures": 0, "last_error": None}},
+        },
+    )
+    monkeypatch.setattr(
+        dashboard_app,
+        "_read_portfolio",
+        lambda _path: {"portfolio": {}, "positions": [], "fills": 0, "brokers": []},
+    )
+    monkeypatch.setattr(dashboard_app, "_read_audit", lambda _path, limit=30: [])
+    monkeypatch.setattr(
+        dashboard_app,
+        "_read_learning",
+        lambda: {
+            "stats": {"completed_trades": 20, "sample_status": "adaptive"},
+            "parameters": {"minimum_candidate_score": 5.0},
+            "model_state": {
+                "baseline_version": "five_pillar_baseline_v1",
+                "active_version": "challenger_20260820010101",
+                "promotions": [{"timestamp": "2026-08-20T01:01:01+00:00", "to": "challenger_20260820010101"}],
+            },
+            "history": [
+                {
+                    "parameter": "minimum_candidate_score",
+                    "old_value": 5.0,
+                    "new_value": 4.9,
+                    "reason": "bounded realized-outcome adaptation",
+                }
+            ],
+        },
+    )
+    html = dashboard_app.render_dashboard(Path("status"), Path("ledger"), Path("audit"))
+
+    assert "five_pillar_baseline_v1" in html
+    assert "challenger_20260820010101" in html
+    assert "adaptive" in html
+    assert "minimum_candidate_score" in html

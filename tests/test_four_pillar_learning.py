@@ -84,6 +84,90 @@ def test_learning_waits_for_minimum_samples(tmp_path):
     assert result["hard_guardrails_mutable"] is False
 
 
+def test_manifest_learning_input_is_ingested_and_bounds_updates(tmp_path):
+    audit = tmp_path / "audit.db"
+    ledger = tmp_path / "portfolio.db"
+    with sqlite3.connect(audit) as con:
+        con.execute(
+            """
+            CREATE TABLE audit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                data_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        manifest = [
+            {
+                "timestamp": "2026-08-20T12:00:00+00:00",
+                "broker": "alpaca-paper",
+                "pillar": "Crypto",
+                "instrument": "BTC/USD",
+                "side": "buy",
+                "proposed_entry": 100.0,
+                "stop": 95.0,
+                "target": 110.0,
+                "quantity": 2.0,
+                "model_confidence": 0.7,
+                "strategy_version": "model-v1",
+                "risk_engine_status": "approved",
+            },
+            {
+                "timestamp": "2026-08-20T12:05:00+00:00",
+                "broker": "alpaca-paper",
+                "pillar": "Stocks",
+                "instrument": "SPY",
+                "side": "buy",
+                "proposed_entry": 100.0,
+                "stop": 95.0,
+                "target": 110.0,
+                "quantity": 1.0,
+                "model_confidence": 0.2,
+                "strategy_version": "model-v1",
+                "risk_engine_status": "rejected",
+                "rejection_reason": "Maximum open positions reached",
+            },
+        ]
+        con.execute(
+            "INSERT INTO audit_events VALUES (NULL, ?, ?, ?, ?)",
+            (
+                "five_pillar_dry_run",
+                "Coordinated five-pillar no-submit dry run completed",
+                json.dumps({"manifest": manifest}),
+                "2026-08-20T12:00:00+00:00",
+            ),
+        )
+    with sqlite3.connect(ledger) as con:
+        con.execute(
+            """
+            CREATE TABLE fills (
+                broker TEXT, symbol TEXT, side TEXT, quantity REAL, price REAL,
+                realized_pnl REAL, occurred_at TEXT, metadata_json TEXT
+            )
+            """
+        )
+        for i in range(20):
+            con.execute(
+                "INSERT INTO fills VALUES ('paper','SPY','sell',1,100,1,?, '{}')",
+                (f"2026-08-20T13:{i:02d}:00+00:00",),
+            )
+    learner = RealizedOutcomeLearner(
+        ledger_path=str(ledger),
+        audit_path=str(audit),
+        stats_path=str(tmp_path / "stats.json"),
+        parameters_path=str(tmp_path / "params.json"),
+        history_path=str(tmp_path / "history.jsonl"),
+    )
+    result = learner.update()
+    assert result["manifest_evidence_count"] == 2
+    assert result["proposal_evidence_count"] == 2
+    assert result["sample_status"] in {"limited_adaptation", "adaptive"}
+    assert 0.8 <= result["parameters"]["confidence_calibration"] <= 1.2
+    assert result["objective"]["completed_trades"] == 20.0
+
+
 def _records(values, *, pillar="Crypto", regime="trend", costs=0.0):
     return [
         {
@@ -108,6 +192,34 @@ def test_learning_score_excludes_unrealized_and_subtracts_costs():
     assert result["net_realized_cash"] == 8.0
     assert result["trading_costs"] == 2.0
     assert result["completed_trades"] == 1.0
+
+
+def test_learning_score_tracks_execution_quality_and_no_trade_candidates():
+    proposal_only = {
+        "broker": "alpaca-paper",
+        "symbol": "SPY",
+        "pillar": "Stocks",
+        "proposed_entry": 100.0,
+        "stop_price": 95.0,
+        "target_price": 110.0,
+        "requested_quantity": 1.0,
+        "risk_engine_status": "rejected",
+        "rejection_reason": "cash/no-trade selected",
+    }
+    result = learning_score(
+        [
+            proposal_only,
+            {
+                "realized_pnl": 10.0,
+                "fees_costs": 1.0,
+                "execution_quality_penalty": 2.0,
+                "occurred_at": "2026-08-20T12:00:00+00:00",
+            },
+        ]
+    )
+    assert result["completed_trades"] == 1.0
+    assert result["execution_quality_penalty"] > 0.0
+    assert learning_score([proposal_only])["score"] == 0.0
 
 
 def test_challenger_cannot_modify_hard_controls(tmp_path):
@@ -166,6 +278,13 @@ def test_regime_and_pillar_scores_are_independent(tmp_path):
     )
     assert learner.regime_scores(records)["trend"]["net_realized_cash"] == 2.0
     assert learner.pillar_scores(records)["Forex"]["net_realized_cash"] == -1.0
+
+
+def test_unknown_regime_fallback_does_not_break_grouping(tmp_path):
+    learner = RealizedOutcomeLearner(model_state_path=str(tmp_path / "state.json"))
+    scores = learner.regime_scores([{"realized_pnl": 1.0, "pillar": "Crypto"}])
+    assert "unknown" in scores
+    assert scores["unknown"]["net_realized_cash"] == 1.0
 
 
 def test_cash_no_trade_beats_weak_trade():

@@ -31,6 +31,7 @@ PARAMETER_BOUNDS = {
 MAX_PARAMETER_CHANGE = 0.10
 PROMOTION_COOLDOWN = timedelta(days=7)
 MAX_DRAWDOWN_TOLERANCE = 0.02
+RECENCY_HALF_LIFE = timedelta(days=14)
 FORBIDDEN_PARAMETERS = {
     "risk_per_trade_pct",
     "max_portfolio_risk_pct",
@@ -48,6 +49,14 @@ FORBIDDEN_PARAMETERS = {
     "autonomous_trading_enabled",
     "autonomous_enable_disable",
 }
+
+
+def _manifest_number(record: dict[str, object], *names: str) -> float | None:
+    for name in names:
+        value = _finite(record.get(name))
+        if value is not None:
+            return value
+    return None
 
 
 def _costs(record: dict[str, object]) -> float:
@@ -93,15 +102,124 @@ def _regime(record: dict[str, object]) -> str:
     return str(value).strip().lower() if value else "unknown"
 
 
+def _recency_weight(occurred_at: object, *, now: datetime | None = None) -> float:
+    if not isinstance(occurred_at, str) or not occurred_at.strip():
+        return 1.0
+    try:
+        observed = datetime.fromisoformat(occurred_at.replace("Z", "+00:00"))
+    except ValueError:
+        return 1.0
+    if observed.tzinfo is None:
+        return 1.0
+    current = now or datetime.now(UTC)
+    age = max((current - observed.astimezone(UTC)).total_seconds(), 0.0)
+    half_life_seconds = max(RECENCY_HALF_LIFE.total_seconds(), 1.0)
+    return max(0.25, 0.5 ** (age / half_life_seconds))
+
+
+def _learning_intent(record: dict[str, object]) -> str:
+    value = str(
+        record.get("risk_engine_status")
+        or record.get("reconciliation_status")
+        or record.get("decision")
+        or record.get("status")
+        or ""
+    ).strip().lower()
+    if value in {"approved", "exact_match", "fractional_reconciliation", "broker_confirmed"}:
+        return "approved"
+    if value in {"rejected", "material_mismatch", "unprotected_position", "manual_review_required"}:
+        return "rejected"
+    return value or "unknown"
+
+
+def _normalize_manifest_record(record: dict[str, object], *, now: datetime | None = None) -> dict[str, object] | None:
+    if not isinstance(record, dict):
+        return None
+    proposed_entry = _manifest_number(record, "proposed_entry", "intended_entry", "entry_price", "price")
+    if proposed_entry is None:
+        return None
+    quantity = _manifest_number(
+        record,
+        "quantity",
+        "requested_quantity",
+        "submitted_quantity",
+        "broker_filled_quantity",
+    )
+    stop = _manifest_number(record, "stop", "stop_price", "invalidation_price")
+    target = _manifest_number(record, "target", "target_price")
+    fill_price = _manifest_number(record, "fill_price", "actual_entry")
+    exit_price = _manifest_number(record, "exit_price", "actual_exit")
+    realized_pnl = _manifest_number(record, "realized_pnl")
+    fees = _manifest_number(record, "fees_costs", "fees", "commission", "costs", "trading_costs")
+    if realized_pnl is None and fill_price is None and exit_price is None:
+        return {
+            "broker": str(record.get("broker") or "unknown"),
+            "pillar": str(record.get("pillar") or "unknown"),
+            "symbol": str(record.get("instrument") or record.get("symbol") or ""),
+            "side": str(record.get("side") or ""),
+            "proposed_entry": proposed_entry,
+            "stop_price": stop,
+            "target_price": target,
+            "requested_quantity": quantity,
+            "fill_price": None,
+            "exit_price": None,
+            "realized_pnl": None,
+            "fees_costs": fees or 0.0,
+            "model_confidence": _manifest_number(record, "model_confidence", "confidence") or 0.0,
+            "strategy_version": str(record.get("strategy_version") or record.get("model_version") or ""),
+            "risk_engine_status": str(record.get("risk_engine_status") or record.get("decision") or "unknown"),
+            "rejection_reason": str(record.get("rejection_reason") or ""),
+            "market_regime": str(record.get("market_regime") or record.get("regime") or "unknown"),
+            "occurred_at": str(record.get("timestamp") or record.get("occurred_at") or ""),
+            "manifest_source": "proposal",
+            "execution_quality_penalty": 0.0,
+            "intent_alignment": _learning_intent(record),
+        }
+    slippage = 0.0
+    if fill_price is not None:
+        slippage += abs(fill_price - proposed_entry) * max(quantity or 0.0, 0.0)
+    if exit_price is not None and stop is not None:
+        slippage += max(abs(exit_price - stop) - abs(exit_price - proposed_entry), 0.0) * 0.0
+    return {
+        "broker": str(record.get("broker") or "unknown"),
+        "pillar": str(record.get("pillar") or "unknown"),
+        "symbol": str(record.get("instrument") or record.get("symbol") or ""),
+        "side": str(record.get("side") or ""),
+        "proposed_entry": proposed_entry,
+        "stop_price": stop,
+        "target_price": target,
+        "requested_quantity": quantity,
+        "fill_price": fill_price,
+        "exit_price": exit_price,
+        "realized_pnl": realized_pnl or 0.0,
+        "fees_costs": fees or 0.0,
+        "model_confidence": _manifest_number(record, "model_confidence", "confidence") or 0.0,
+        "strategy_version": str(record.get("strategy_version") or record.get("model_version") or ""),
+        "risk_engine_status": str(record.get("risk_engine_status") or record.get("decision") or "unknown"),
+        "rejection_reason": str(record.get("rejection_reason") or ""),
+        "market_regime": str(record.get("market_regime") or record.get("regime") or "unknown"),
+        "occurred_at": str(record.get("timestamp") or record.get("occurred_at") or ""),
+        "manifest_source": "closed_trade" if realized_pnl is not None else "proposal",
+        "execution_quality_penalty": slippage,
+        "intent_alignment": _learning_intent(record),
+        "proposed_vs_actual_quantity": (quantity or 0.0)
+        - (_manifest_number(record, "broker_filled_quantity") or quantity or 0.0),
+    }
+
+
 def learning_score(records: list[dict[str, object]]) -> dict[str, float]:
     """Score realized outcomes only; unrealized marks never enter this objective."""
 
     net_outcomes = []
+    execution_penalty = 0.0
     for record in records:
         realized = _finite(record.get("realized_pnl"))
         if realized is None:
             continue
-        net_outcomes.append(realized - _costs(record))
+        weight = _recency_weight(record.get("occurred_at") or record.get("closed_at") or record.get("timestamp"))
+        net_outcome = (realized - _costs(record)) * weight
+        net_outcomes.append(net_outcome)
+        execution_penalty += max(_finite(record.get("execution_quality_penalty")) or 0.0, 0.0) * min(weight, 1.0)
     cumulative = 0.0
     peak = 0.0
     max_drawdown = 0.0
@@ -115,6 +233,7 @@ def learning_score(records: list[dict[str, object]]) -> dict[str, float]:
     drawdown_penalty = max_drawdown * 0.10
     tail_penalty = tail_risk * 0.25
     utilization_penalty = excess_utilization * 0.01
+    execution_penalty = execution_penalty * 0.01
     return {
         "completed_trades": float(len(net_outcomes)),
         "net_realized_cash": net_cash,
@@ -123,7 +242,8 @@ def learning_score(records: list[dict[str, object]]) -> dict[str, float]:
         "drawdown_penalty": drawdown_penalty,
         "tail_risk_penalty": tail_penalty,
         "excess_capital_utilization_penalty": utilization_penalty,
-        "score": net_cash - drawdown_penalty - tail_penalty - utilization_penalty,
+        "execution_quality_penalty": execution_penalty,
+        "score": net_cash - drawdown_penalty - tail_penalty - utilization_penalty - execution_penalty,
     }
 
 
@@ -163,6 +283,7 @@ def load_learned_parameters(path: str | Path) -> dict[str, float]:
 @dataclass
 class RealizedOutcomeLearner:
     ledger_path: str = "var/autotrader/portfolio.db"
+    audit_path: str = "var/autotrader/audit.db"
     stats_path: str = "var/autotrader/learning/performance_stats.json"
     parameters_path: str = "var/autotrader/learning/learned_parameters.json"
     history_path: str = "var/autotrader/learning/learning_history.jsonl"
@@ -204,6 +325,44 @@ class RealizedOutcomeLearner:
 
     def pillar_scores(self, records: list[dict[str, object]]) -> dict[str, dict[str, float]]:
         return _group_scores(records, _pillar)
+
+    def manifest_evidence(self, limit: int | None = None) -> list[dict[str, object]]:
+        path = Path(self.audit_path)
+        if not path.exists():
+            return []
+        evidence: list[dict[str, object]] = []
+        with sqlite3.connect(path) as con:
+            con.row_factory = sqlite3.Row
+            query = "SELECT event_type, message, data_json, created_at FROM audit_events ORDER BY id DESC"
+            if limit is not None:
+                query += " LIMIT ?"
+                rows = con.execute(query, (max(limit, 0),)).fetchall()
+            else:
+                rows = con.execute(query).fetchall()
+        for row in rows:
+            try:
+                payload = json.loads(row["data_json"])
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            manifest = payload.get("manifest")
+            if isinstance(manifest, list):
+                for item in manifest:
+                    normalized = _normalize_manifest_record(item, now=datetime.now(UTC))
+                    if normalized is not None:
+                        normalized["audit_event_type"] = row["event_type"]
+                        normalized["audit_message"] = row["message"]
+                        normalized["occurred_at"] = row["created_at"]
+                        evidence.append(normalized)
+            elif payload.get("decision"):
+                normalized = _normalize_manifest_record(payload.get("decision"), now=datetime.now(UTC))
+                if normalized is not None:
+                    normalized["audit_event_type"] = row["event_type"]
+                    normalized["audit_message"] = row["message"]
+                    normalized["occurred_at"] = row["created_at"]
+                    evidence.append(normalized)
+        return evidence
 
     def propose_challenger(self, baseline: dict[str, float], *, sample_size: int) -> dict[str, float]:
         """Create a bounded candidate without exposing any hard control."""
@@ -337,6 +496,9 @@ class RealizedOutcomeLearner:
     def update(self, now: datetime | None = None) -> dict[str, object]:
         now = now or datetime.now(UTC)
         trades = self._completed_trades()
+        manifest_evidence = self.manifest_evidence()
+        realized_records = [dict(t) for t in trades]
+        learning_records = [*realized_records, *manifest_evidence]
         pnls = [float(t["realized_pnl"]) for t in trades]
         wins = [p for p in pnls if p > 0]
         losses = [p for p in pnls if p < 0]
@@ -361,6 +523,11 @@ class RealizedOutcomeLearner:
             else ("limited_adaptation" if count < self.preferred_samples else "adaptive"),
             "hard_guardrails_mutable": False,
             "model_baseline_version": BASELINE_MODEL_VERSION,
+            "manifest_evidence_count": len(manifest_evidence),
+            "proposal_evidence_count": sum(
+                1 for item in manifest_evidence if item.get("manifest_source") == "proposal"
+            ),
+            "execution_quality_penalty": learning_score(learning_records)["execution_quality_penalty"],
         }
         self._write_json(self.stats_path, stats)
 
@@ -392,6 +559,33 @@ class RealizedOutcomeLearner:
                             "reason": "bounded realized-outcome adaptation",
                         }
                     )
+            if manifest_evidence:
+                confidence_quality = sum(
+                    max(0.0, min(1.0, _finite(item.get("model_confidence")) or 0.0))
+                    for item in manifest_evidence
+                    if item.get("manifest_source") == "closed_trade"
+                )
+                calibration_shift = 0.0
+                if confidence_quality > 0:
+                    calibration_shift = min(0.02, confidence_quality / max(len(manifest_evidence), 1) * 0.01)
+                old = params["confidence_calibration"]
+                low, high = PARAMETER_BOUNDS["confidence_calibration"]
+                new = max(low, min(high, old + calibration_shift if expectancy >= 0 else old - calibration_shift))
+                if abs(new - old) > 1e-12:
+                    params["confidence_calibration"] = round(new, 6)
+                    changes.append(
+                        {
+                            "timestamp": now.astimezone(UTC).isoformat(),
+                            "parameter": "confidence_calibration",
+                            "old_value": old,
+                            "new_value": params["confidence_calibration"],
+                            "sample_size": count,
+                            "expectancy": expectancy,
+                            "profit_factor": stats["profit_factor"],
+                            "win_rate": stats["win_rate"],
+                            "reason": "bounded manifest-calibrated adaptation",
+                        }
+                    )
         state = self._model_state()
         active_parameters = state.get("active_parameters")
         if isinstance(active_parameters, dict):
@@ -407,8 +601,7 @@ class RealizedOutcomeLearner:
             with history.open("a", encoding="utf-8") as handle:
                 for change in changes:
                     handle.write(json.dumps(change, sort_keys=True) + "\n")
-        realized_records = [dict(t) for t in trades]
-        score = learning_score(realized_records)
+        score = learning_score(learning_records)
         challenger_parameters = self.propose_challenger(params, sample_size=count)
         challenger_version = state.get("challenger_version") or "challenger_candidate_v1"
         state.update(
@@ -417,6 +610,8 @@ class RealizedOutcomeLearner:
                 "challenger_version": challenger_version,
                 "challenger_parameters": challenger_parameters,
                 "last_evaluated_at": now.astimezone(UTC).isoformat(),
+                "sample_size": count,
+                "manifest_evidence_count": len(manifest_evidence),
             }
         )
         self._write_model_state(state)
@@ -425,13 +620,15 @@ class RealizedOutcomeLearner:
             "parameters": params,
             "changes": changes,
             "objective": score,
-            "regime_scores": self.regime_scores(realized_records),
-            "pillar_scores": self.pillar_scores(realized_records),
+            "regime_scores": self.regime_scores(learning_records),
+            "pillar_scores": self.pillar_scores(learning_records),
             "active_model_version": state.get("active_version", BASELINE_MODEL_VERSION),
             "challenger_model_version": challenger_version,
             "challenger_parameters": challenger_parameters,
             "promotion_occurred": False,
             "hard_boundary_parameters": sorted(FORBIDDEN_PARAMETERS),
+            "manifest_evidence": manifest_evidence,
+            "learning_records": learning_records,
         }
 
     def _completed_trades(self) -> list[dict[str, object]]:

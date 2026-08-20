@@ -108,6 +108,28 @@ def read_activity(path: Path, limit: int = 50) -> tuple[list[dict[str, object]],
     return result, latest_cycle
 
 
+def read_learning(learning_dir: Path = Path("var/autotrader/learning")) -> dict[str, object]:
+    stats = read_json(learning_dir / "performance_stats.json")
+    parameters = read_json(learning_dir / "learned_parameters.json")
+    model_state = read_json(learning_dir / "model_state.json")
+    history_path = learning_dir / "learning_history.jsonl"
+    history: list[dict[str, object]] = []
+    if history_path.exists():
+        for line in history_path.read_text(encoding="utf-8").splitlines():
+            try:
+                item = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(item, dict):
+                history.append(item)
+    return {
+        "stats": stats,
+        "parameters": parameters,
+        "model_state": model_state,
+        "history": history[-20:],
+    }
+
+
 def ledger_stop_map(rows: list[dict[str, object]]) -> dict[str, float]:
     return {str(row.get("symbol") or ""): _float(row.get("stop_price")) for row in rows}
 
@@ -223,6 +245,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     else:
         state, ledger_positions, fills, pillar_trades, crypto_states = portfolio_data
     activity, latest_cycle = read_activity(audit_path)
+    learning = read_learning()
     live_positions, broker_metrics = live_broker_positions(ledger_positions)
     crypto_by_symbol = {_canonical_crypto_symbol(row.get("symbol")): row for row in crypto_states}
 
@@ -329,6 +352,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
         "cash_dashboard": cash_dashboard.as_dict(),
         "coordinated_test": FivePillarTestConfig().as_dict(),
         "pillar_performance": pillar_performance,
+        "learning": learning,
         "fill_count": len(fills),
         "positions": [
             {
