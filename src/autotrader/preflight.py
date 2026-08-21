@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .brokers.connectivity import ConnectivityResult, test_alpaca_paper, test_oanda_practice
@@ -35,6 +36,74 @@ class PreflightReport:
     @property
     def failed_checks(self) -> tuple[str, ...]:
         return tuple(name for name, ok in self.checks.items() if not ok)
+
+
+def _manifest_stop_for_symbol(ledger: PortfolioLedger, symbol: str) -> float | None:
+    manifest = ledger.latest_entry_manifest_for_symbol(symbol, broker="alpaca-paper")
+    if isinstance(manifest, dict):
+        for key in ("protection_stop", "approved_stop"):
+            value = manifest.get(key)
+            if value is not None:
+                try:
+                    stop = float(value)
+                    if stop > 0:
+                        return stop
+                except (TypeError, ValueError):
+                    continue
+    return None
+
+
+def _sync_portfolio_to_broker_truth(
+    ledger: PortfolioLedger,
+    portfolio: PortfolioState,
+    broker_positions: list,
+    *,
+    peak_equity: float,
+) -> bool:
+    changed = False
+    broker_by_symbol = {position.symbol: position for position in broker_positions}
+    for symbol in list(portfolio.positions):
+        if symbol not in broker_by_symbol:
+            del portfolio.positions[symbol]
+            changed = True
+    for broker_position in broker_positions:
+        existing = portfolio.positions.get(broker_position.symbol)
+        if existing is not None and abs(existing.quantity - broker_position.quantity) <= 1e-8:
+            continue
+        stop_price = None
+        if existing is not None and existing.stop_price > 0:
+            stop_price = existing.stop_price
+        else:
+            stop_price = _manifest_stop_for_symbol(ledger, broker_position.symbol)
+        if stop_price is None:
+            continue
+        opened_at = (
+            existing.opened_at
+            if existing is not None and existing.opened_at is not None
+            else datetime.now(UTC)
+        )
+        from .models import AssetClass, Position
+
+        asset_class = (
+            existing.asset_class
+            if existing is not None
+            else (AssetClass.FOREX if "/" in broker_position.symbol else AssetClass.STOCK)
+        )
+        portfolio.positions[broker_position.symbol] = Position(
+            symbol=broker_position.symbol,
+            asset_class=asset_class,
+            quantity=broker_position.quantity,
+            average_price=broker_position.average_price or (existing.average_price if existing else 0.0),
+            stop_price=stop_price,
+            realized_pnl=existing.realized_pnl if existing is not None else 0.0,
+            initial_stop_price=existing.initial_stop_price if existing is not None else stop_price,
+            highest_price=existing.highest_price if existing is not None else broker_position.average_price,
+            opened_at=opened_at,
+        )
+        changed = True
+    if changed:
+        ledger.save_portfolio(portfolio, peak_equity=peak_equity)
+    return changed
 
 
 def run_preflight(
@@ -91,6 +160,10 @@ def run_preflight(
         broker_positions.extend(
             normalize_oanda_positions(oanda_positions.details.get("positions", []))
         )
+
+    if loaded is not None and broker_positions:
+        _sync_portfolio_to_broker_truth(ledger, portfolio, broker_positions, peak_equity=peak_equity)
+        portfolio, peak_equity = ledger.load_portfolio() or (portfolio, peak_equity)
 
     reconciliation = PositionReconciler().reconcile(portfolio, broker_positions)
     profile = competitive_paper_profile()
