@@ -507,7 +507,240 @@ def _decision_row(row: dict[str, object]) -> str:
     )
 
 
-def render_dashboard() -> None:
+def _build_dashboard_context() -> dict[str, object]:
+    live_runtime = load_live_runtime_status()
+    snapshot = load_snapshot()
+    runtime = live_runtime if live_runtime else (snapshot.get("runtime", {}) if isinstance(snapshot.get("runtime"), dict) else {})
+    runtime_source = "LIVE VM" if live_runtime else ("PUBLISHED SNAPSHOT" if snapshot else "UNAVAILABLE")
+    runtime_source_age = _path_age_label(Path("var/autotrader/status.json")) if live_runtime else _age_label(runtime.get("last_heartbeat_at")) if runtime else "UNAVAILABLE"
+    runtime_labels = runtime_status_labels(runtime if isinstance(runtime, dict) else {})
+    learning = snapshot.get("learning") if isinstance(snapshot.get("learning"), dict) else {}
+    live_positions, live_metrics, live_pillar_status, live_errors = fetch_live_broker_data()
+    snapshot_positions = snapshot.get("positions") if isinstance(snapshot.get("positions"), list) else []
+    positions = _build_live_positions(snapshot_positions, live_positions)
+    unresolved = snapshot.get("unresolved_manifests") if isinstance(snapshot.get("unresolved_manifests"), list) else []
+    pillar_performance = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+    cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
+    activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
+    trades = snapshot.get("trades") if isinstance(snapshot.get("trades"), list) else []
+    orders = snapshot.get("orders") if isinstance(snapshot.get("orders"), list) else []
+    jobs = runtime.get("jobs") if isinstance(runtime.get("jobs"), dict) else {}
+    pillar_job_map = {
+        "US Stocks / ETFs": "autonomous-paper-trading",
+        "Crypto": "autonomous-paper-trading",
+        "Forex": "oanda-fx-paper-trading",
+        "Metals / Commodities": "alpaca-metals-paper-trading",
+        "International": "saxo-international-paper-trading",
+    }
+    live_job_rows: list[dict[str, object]] = []
+    for pillar_name, job_name in pillar_job_map.items():
+        job = jobs.get(job_name) if isinstance(jobs, dict) else {}
+        job = job if isinstance(job, dict) else {}
+        live_job_rows.append(
+            {
+                "pillar": pillar_name,
+                "job": job_name,
+                "state": "DISABLED" if job.get("disabled") else ("DEGRADED" if job.get("last_error") else "SCANNING"),
+                "last_started_at": job.get("last_started_at"),
+                "last_finished_at": job.get("last_finished_at"),
+                "last_duration_ms": job.get("last_duration_ms"),
+                "failures": job.get("consecutive_failures", 0),
+                "last_error": job.get("last_error"),
+            }
+        )
+
+    _, last_finished = _runtime_job_times(runtime if isinstance(runtime, dict) else {})
+    heartbeat_age = _age_label(runtime.get("last_heartbeat_at"))
+    cycle_age = _age_label(last_finished)
+    autonomous_state = "ARMED" if runtime.get("autonomous_enabled") else "DISARMED"
+    live_state = "DISABLED" if runtime.get("live_trading_enabled") is False else "UNKNOWN"
+    five_state = "RUNNING" if runtime.get("healthy") and runtime.get("execution_state") == "armed_paper" else ("DEGRADED" if runtime.get("healthy") else "FAIL-CLOSED")
+    learning_engine_state = "ACTIVE" if not any(
+        isinstance(jobs.get(name), dict) and jobs.get(name, {}).get("disabled")
+        for name in ("daily-learning",)
+    ) else "DEGRADED"
+    learning_model_state = str(learning.get("stats", {}).get("sample_status") or "COLLECTING EVIDENCE").upper()
+    original_capital = _float(cash.get("original_capital"), TOTAL_BASE_CAPITAL)
+    deployed = _float(cash.get("capital_deployed"))
+    unrealized = _float(cash.get("unrealized_pnl"))
+    net_cash = _float(cash.get("net_trading_cash_generated"))
+    protected_cash = _float(cash.get("protected_cash_reserve"))
+    available_cash = max(original_capital + net_cash - deployed - protected_cash, 0.0)
+    total_equity = original_capital + net_cash + unrealized
+    daily_realized = _float(cash.get("daily_realized_return") or cash.get("realized_return"))
+    daily_unrealized = _float(cash.get("daily_unrealized_return"))
+    cumulative_realized = _float(cash.get("cumulative_realized_return") or cash.get("realized_return"))
+    generated_cash_ratio = _float(cash.get("generated_cash_ratio") or cash.get("realized_return"))
+    dist_low = 0.20 - daily_realized
+    dist_high = 0.40 - daily_realized
+    return {
+        "snapshot": snapshot,
+        "runtime": runtime,
+        "runtime_source": runtime_source,
+        "runtime_source_age": runtime_source_age,
+        "runtime_labels": runtime_labels,
+        "learning": learning,
+        "live_positions": live_positions,
+        "live_metrics": live_metrics,
+        "live_pillar_status": live_pillar_status,
+        "live_errors": live_errors,
+        "positions": positions,
+        "unresolved": unresolved,
+        "pillar_performance": pillar_performance,
+        "cash": cash,
+        "activity": activity,
+        "trades": trades,
+        "orders": orders,
+        "jobs": jobs,
+        "live_job_rows": live_job_rows,
+        "heartbeat_age": heartbeat_age,
+        "cycle_age": cycle_age,
+        "autonomous_state": autonomous_state,
+        "live_state": live_state,
+        "five_state": five_state,
+        "learning_engine_state": learning_engine_state,
+        "learning_model_state": learning_model_state,
+        "original_capital": original_capital,
+        "deployed": deployed,
+        "unrealized": unrealized,
+        "net_cash": net_cash,
+        "protected_cash": protected_cash,
+        "available_cash": available_cash,
+        "total_equity": total_equity,
+        "daily_realized": daily_realized,
+        "daily_unrealized": daily_unrealized,
+        "cumulative_realized": cumulative_realized,
+        "generated_cash_ratio": generated_cash_ratio,
+        "dist_low": dist_low,
+        "dist_high": dist_high,
+    }
+
+
+def _render_overview(ctx: dict[str, object]) -> None:
+    runtime = ctx["runtime"]
+    live_job_rows = ctx["live_job_rows"]
+    unresolved = ctx["unresolved"]
+    learning = ctx["learning"]
+    positions = ctx["positions"]
+    runtime_labels = ctx["runtime_labels"]
+    st.markdown(
+        """
+        <div class="hero-title">FIVE-PILLAR AUTONOMOUS TRADING COMMAND CENTER</div>
+        <div class="hero-sub">Research · Execution · Learning · Capital Discipline</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption("CHRIS HAAKE CAPITAL SYSTEMS")
+    st.markdown(
+        f"""
+        <div class="small-note">Runtime source: <strong>{escape(str(ctx['runtime_source']))}</strong> · freshness: <strong>{escape(str(ctx['runtime_source_age']))}</strong></div>
+        <div class="status-grid">
+          <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {'status-healthy' if runtime_labels['runtime_health'] == 'Healthy' else 'status-faulted'}">{escape(runtime_labels['runtime_health'])}</div></div>
+          <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {'status-armed' if ctx['autonomous_state'] == 'ARMED' else 'status-disarmed'}">{escape(str(ctx['autonomous_state']))}</div></div>
+          <div class="status-card"><div class="status-label">LIVE TRADING</div><div class="status-value status-disabled">{escape(str(ctx['live_state']))}</div></div>
+          <div class="status-card"><div class="status-label">FIVE-PILLAR STATUS</div><div class="status-value">{escape(str(ctx['five_state']))}</div></div>
+          <div class="status-card"><div class="status-label">LEARNING ENGINE</div><div class="status-value">{escape(str(ctx['learning_engine_state']))}</div></div>
+          <div class="status-card"><div class="status-label">LAST HEARTBEAT</div><div class="status-value">{escape(str(ctx['heartbeat_age']))}</div></div>
+          <div class="status-card"><div class="status-label">LAST CYCLE</div><div class="status-value">{escape(str(ctx['cycle_age']))}</div></div>
+          <div class="status-card"><div class="status-label">CURRENT UTC</div><div class="status-value">{escape(datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S'))} UTC</div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='section-title'>Live System Activity</div>", unsafe_allow_html=True)
+    if live_job_rows:
+        rows_html = "".join(
+            f"<tr><td>{escape(str(row['pillar']))}</td><td>{escape(str(row['job']))}</td><td>{escape(str(row['state']))}</td><td>{escape(str(row['last_started_at'] or '—'))}</td><td>{escape(str(row['last_finished_at'] or '—'))}</td><td>{escape(str(row['last_duration_ms'] or '—'))}</td><td>{escape(str(row['failures'] or 0))}</td><td>{escape(str(row['last_error'] or '—'))}</td></tr>"
+            for row in live_job_rows
+        )
+        st.markdown(
+            f"""
+            <div class="table-panel">
+              <table>
+                <thead><tr><th>Pillar</th><th>Job</th><th>State</th><th>Last Start</th><th>Last Finish</th><th>Duration</th><th>Failures</th><th>Last Error</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+              </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    st.markdown("<div class='section-title'>Capital & Cash Command Center</div>", unsafe_allow_html=True)
+    cols = st.columns(4)
+    cols[0].metric("Starting Strategy Capital", _money(ctx["original_capital"]))
+    cols[1].metric("Capital Deployed", _money(ctx["deployed"]))
+    cols[2].metric("Available Cash", _money(ctx["available_cash"]))
+    cols[3].metric("Protected / Harvested Cash", _money(ctx["protected_cash"]))
+    cols = st.columns(4)
+    cols[0].metric("Daily Net Trading Cash", _money(ctx["net_cash"]))
+    cols[1].metric("Cumulative Net Trading Cash", _money(ctx["net_cash"]))
+    cols[2].metric("Unrealized P&L", _money(ctx["unrealized"]))
+    cols[3].metric("Total Strategy Equity", _money(ctx["total_equity"]))
+    cols = st.columns(4)
+    cols[0].metric("Daily Realized Return", _pct(ctx["daily_realized"]))
+    cols[1].metric("Daily Unrealized Return", _pct(ctx["daily_unrealized"]))
+    cols[2].metric("Cumulative Realized Return", _pct(ctx["cumulative_realized"]))
+    cols[3].metric("Generated Cash Ratio", _pct(ctx["generated_cash_ratio"]))
+    st.markdown("<div class='section-title'>Open Positions</div>", unsafe_allow_html=True)
+    if positions:
+        rows_html = "".join(_position_row(row) for row in positions)
+        st.markdown(
+            f"""
+            <div class="table-panel">
+              <table>
+                <thead><tr><th>Pillar</th><th>Broker</th><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Market Value</th><th>Unrealized P&L</th><th>Return %</th><th>Stop</th><th>Target</th><th>Protection</th><th>Manifest</th><th>Lifecycle</th><th>Reconciliation</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+              </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("No open managed positions were found in the current snapshot.")
+    st.markdown("<div class='section-title'>Learning Intelligence</div>", unsafe_allow_html=True)
+    learning_meta = learning.get("model_state") if isinstance(learning.get("model_state"), dict) else {}
+    learning_stats = learning.get("stats") if isinstance(learning.get("stats"), dict) else {}
+    learning_params = learning.get("parameters") if isinstance(learning.get("parameters"), dict) else {}
+    l1, l2, l3, l4 = st.columns(4)
+    l1.metric("Baseline Model", str(learning_meta.get("baseline_version") or "five_pillar_baseline_v1"))
+    l2.metric("Challenger", str(learning_meta.get("active_version") or "challenger_candidate_v1"))
+    l3.metric("Completed Trades", str(learning_stats.get("completed_trades") or 0))
+    l4.metric("Learning Status", "ACTIVE" if ctx["learning_engine_state"] == "ACTIVE" else "COLLECTING EVIDENCE")
+    st.markdown(
+        f"""
+        <div class="panel" style="padding:1rem">
+          <div class="small-note">Engine: <strong>{escape(str(ctx['learning_engine_state']))}</strong> · Model state: <strong>{escape(str(ctx['learning_model_state']))}</strong></div>
+          <div class="small-note">Current bounded parameters: <code>{escape(json.dumps(learning_params, sort_keys=True))}</code></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='section-title'>Execution & System Health</div>", unsafe_allow_html=True)
+    e1, e2, e3, e4 = st.columns(4)
+    e1.metric("Unresolved Manifests", str(int(_float(runtime.get("unresolved_manifest_count"), 0.0))))
+    e2.metric("Broker Requests", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("requests"), 0.0))))
+    e3.metric("Retries", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("retries"), 0.0))))
+    e4.metric("429 Events", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("rate_limited"), 0.0))))
+    if ctx["live_errors"]:
+        st.warning(" · ".join(ctx["live_errors"]))
+    if unresolved:
+        unresolved_rows = "".join(
+            f"<tr><td>{escape(str(row.get('created_at') or '—'))}</td><td>{escape(str(row.get('canonical_symbol') or '—'))}</td><td>{escape(str(row.get('broker_order_id') or '—'))}</td><td>{escape(str(row.get('lifecycle_state') or '—'))}</td></tr>"
+            for row in unresolved[:20]
+        )
+        st.markdown(
+            f"""
+            <div class="section-title">Unresolved Manifests</div>
+            <div class="table-panel">
+              <table>
+                <thead><tr><th>Created</th><th>Symbol</th><th>Broker Order ID</th><th>Lifecycle</th></tr></thead>
+                <tbody>{unresolved_rows}</tbody>
+              </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+def _render_dashboard_legacy() -> None:
     live_runtime = load_live_runtime_status()
     snapshot = load_snapshot()
     runtime = live_runtime if live_runtime else (snapshot.get("runtime", {}) if isinstance(snapshot.get("runtime"), dict) else {})
@@ -844,6 +1077,367 @@ def render_dashboard() -> None:
             """,
             unsafe_allow_html=True,
         )
+
+
+def _dashboard_css() -> str:
+    return """
+    <style>
+    :root{--bg:#07111f;--panel:#111a2d;--line:rgba(154,176,213,.18);--gold:#d7b56d;--text:#ecf2fb;--muted:#9aa9c1;--blue:#5fa8ff;--green:#4dd4a7;--purple:#b08cff;--orange:#ffb570;--teal:#56d1d8;}
+    .stApp{background:radial-gradient(circle at top,#12233e 0,#07111f 35%,#050b15 100%);color:var(--text);}
+    .block-container{padding-top:1.1rem;padding-bottom:3rem;max-width:1480px;}
+    [data-testid="stHeader"]{background:rgba(5,11,21,.86);}
+    [data-testid="stSidebar"]{background:linear-gradient(180deg,rgba(8,15,28,.98),rgba(10,18,33,.94));border-right:1px solid var(--line);}
+    [data-testid="stMetric"],.panel,.pillar,.table-panel,.brand-box,.status-card{background:linear-gradient(180deg,rgba(17,26,45,.98),rgba(10,18,33,.95));border:1px solid var(--line);border-radius:18px;box-shadow:0 16px 40px rgba(0,0,0,.24);}
+    [data-testid="stMetric"]{padding:.15rem .3rem;}
+    [data-testid="stMetricLabel"]{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;}
+    [data-testid="stMetricValue"]{color:var(--text);font-size:1.35rem;font-weight:700;}
+    .hero-title{font-size:clamp(1.55rem,2.8vw,2.7rem);font-weight:800;margin:0;max-width:28ch;line-height:1.08;}
+    .hero-sub{color:var(--muted);margin-top:.35rem;font-size:.96rem;line-height:1.55;max-width:54ch;}
+    .brand-box{padding:1.1rem 1rem;margin-bottom:1rem;}
+    .brand-mark{display:flex;align-items:center;justify-content:center;width:3rem;height:3rem;border-radius:16px;border:1px solid var(--gold);color:var(--gold);font-weight:800;margin-bottom:.75rem;background:rgba(215,181,109,.06);}
+    .brand-name{font-size:1rem;font-weight:800;text-transform:uppercase;letter-spacing:.14em;}
+    .brand-sub,.brand-footer{color:var(--muted);font-size:.83rem;margin-top:.25rem;}
+    .status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem;margin:.25rem 0 1rem;}
+    .status-card{padding:.95rem 1rem;}
+    .status-label{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.14em;}
+    .status-value{margin-top:.25rem;font-size:1.03rem;font-weight:800;}
+    .status-healthy{color:#72e08a;}.status-faulted{color:#ff7c7c;}.status-disarmed{color:#c8d6ef;}.status-armed{color:#77d8ff;}.status-disabled{color:#8f9bb3;}
+    .section-title{margin:1.4rem 0 .65rem;font-size:1rem;text-transform:uppercase;letter-spacing:.18em;color:var(--gold);}
+    .pillar{padding:.95rem;min-height:260px;position:relative;overflow:hidden;}
+    .pillar::before{content:'';position:absolute;inset:0 auto auto 0;width:100%;height:3px;background:var(--accent,var(--gold));opacity:.88;}
+    .pillar-blue{--accent:var(--blue);}.pillar-green{--accent:var(--green);}.pillar-purple{--accent:var(--purple);}.pillar-gold{--accent:var(--orange);}.pillar-teal{--accent:var(--teal);}
+    .pillar-top{display:flex;justify-content:space-between;gap:.6rem;align-items:flex-start;margin-bottom:.7rem;}
+    .pillar-name{font-size:.92rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;}
+    .pillar-sub{color:var(--muted);font-size:.75rem;margin-top:.2rem;}
+    .pillar-state{font-size:1.05rem;font-weight:800;margin:.4rem 0 .7rem;color:var(--text);}
+    .pillar-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem .7rem;}
+    .pillar-grid span,.pillar-foot span{display:block;color:var(--muted);font-size:.67rem;text-transform:uppercase;letter-spacing:.14em;}
+    .pillar-grid strong,.pillar-foot strong{display:block;margin-top:.15rem;font-size:.88rem;}
+    .pillar-foot{display:grid;gap:.45rem;margin-top:.7rem;}
+    .table-panel{padding:.85rem;overflow-x:auto;}
+    table{width:100%;border-collapse:collapse;min-width:980px;}
+    th,td{border-bottom:1px solid var(--line);padding:.6rem .5rem;font-size:.84rem;vertical-align:top;}
+    th{text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-size:.67rem;}
+    .small-note{color:var(--muted);font-size:.78rem;line-height:1.4;}
+    .progress{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;margin-top:.4rem;}
+    .progress > div{height:100%;background:linear-gradient(90deg,var(--gold),#88d7ff);}
+    @media (max-width:768px){.block-container{padding-left:.9rem;padding-right:.9rem;}}
+    </style>
+    """
+
+
+def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
+    runtime = ctx["runtime"] if isinstance(ctx["runtime"], dict) else {}
+    live_runtime = ctx["runtime_source"]
+    runtime_labels = ctx["runtime_labels"]
+    st.markdown(
+        """
+        <div class="hero-title">FIVE-PILLAR AUTONOMOUS TRADING COMMAND CENTER</div>
+        <div class="hero-sub">Research · Execution · Learning · Capital Discipline</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption("CHRIS HAAKE CAPITAL SYSTEMS")
+    st.markdown(
+        f"""
+        <div class="small-note">Runtime source: <strong>{escape(str(live_runtime))}</strong> · freshness: <strong>{escape(str(ctx['runtime_source_age']))}</strong></div>
+        <div class="status-grid">
+          <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {'status-healthy' if runtime_labels['runtime_health'] == 'Healthy' else 'status-faulted'}">{escape(runtime_labels['runtime_health'])}</div></div>
+          <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {'status-armed' if ctx['autonomous_state'] == 'ARMED' else 'status-disarmed'}">{escape(str(ctx['autonomous_state']))}</div></div>
+          <div class="status-card"><div class="status-label">LIVE TRADING</div><div class="status-value status-disabled">{escape(str(ctx['live_state']))}</div></div>
+          <div class="status-card"><div class="status-label">FIVE-PILLAR STATUS</div><div class="status-value">{escape(str(ctx['five_state']))}</div></div>
+          <div class="status-card"><div class="status-label">LEARNING ENGINE</div><div class="status-value">{escape(str(ctx['learning_engine_state']))}</div></div>
+          <div class="status-card"><div class="status-label">LAST HEARTBEAT</div><div class="status-value">{escape(str(ctx['heartbeat_age']))}</div></div>
+          <div class="status-card"><div class="status-label">LAST CYCLE</div><div class="status-value">{escape(str(ctx['cycle_age']))}</div></div>
+          <div class="status-card"><div class="status-label">CURRENT UTC TIME</div><div class="status-value">{escape(datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S'))} UTC</div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='small-note'>Current view: <strong>{}</strong></div>".format(escape(selected_view)), unsafe_allow_html=True)
+    if runtime.get("safety_configuration_valid") is False:
+        st.warning("Safety configuration is invalid; execution remains fail-closed.")
+    if ctx["live_errors"]:
+        st.warning(" · ".join(ctx["live_errors"]))
+
+
+def _render_pillars_view(ctx: dict[str, object]) -> None:
+    pillar_rows: list[dict[str, object]] = []
+    live_pillar_status = ctx["live_pillar_status"] if isinstance(ctx["live_pillar_status"], dict) else {}
+    pillar_performance = ctx["pillar_performance"] if isinstance(ctx["pillar_performance"], dict) else {}
+    jobs = ctx["jobs"] if isinstance(ctx["jobs"], dict) else {}
+    runtime = ctx["runtime"] if isinstance(ctx["runtime"], dict) else {}
+    pillar_job_map = {
+        "US Stocks / ETFs": "autonomous-paper-trading",
+        "Crypto": "autonomous-paper-trading",
+        "Forex": "oanda-fx-paper-trading",
+        "Metals / Commodities": "alpaca-metals-paper-trading",
+        "International": "saxo-international-paper-trading",
+    }
+    for name, broker, accent in PILLARS:
+        job_name = pillar_job_map[name]
+        job = jobs.get(job_name) if isinstance(jobs, dict) else {}
+        job = job if isinstance(job, dict) else {}
+        broker_state = live_pillar_status.get(name) if isinstance(live_pillar_status, dict) else {}
+        broker_state = broker_state if isinstance(broker_state, dict) else {}
+        positions_count = int(broker_state.get("positions", 0) or 0)
+        connected = bool(broker_state.get("connected"))
+        connection = "CONNECTED" if connected else ("ERROR" if job.get("last_error") else "DEFERRED")
+        connection_class = "good" if connected and not job.get("last_error") else ("warn" if job.get("last_error") else "neutral")
+        current_state = broker_state.get("state") or ("TRADING" if positions_count else "SCANNING")
+        if not connected and job.get("disabled"):
+            current_state = "DEGRADED"
+        pillar_rows.append(
+            {
+                "name": name,
+                "broker": broker,
+                "accent": accent,
+                "cap": PILLAR_BASE_CAPITAL,
+                "deployed": _float(broker_state.get("gross_exposure", 0.0) if name != "Forex" else ctx["live_metrics"].get("oanda_exposure", 0.0)),
+                "available": max(
+                    PILLAR_BASE_CAPITAL
+                    - _float(
+                        broker_state.get("gross_exposure", 0.0)
+                        if name != "Forex"
+                        else ctx["live_metrics"].get("oanda_exposure", 0.0)
+                    ),
+                    0.0,
+                ),
+                "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
+                "unrealized_pnl": _float(broker_state.get("unrealized_pnl", 0.0)),
+                "positions": positions_count,
+                "completed_trades": _float((pillar_performance.get(name) or {}).get("number_of_trades")),
+                "win_rate": f"{_float((pillar_performance.get(name) or {}).get('win_rate')) * 100:.2f}%",
+                "expectancy": _float((pillar_performance.get(name) or {}).get("expectancy")),
+                "last_scan": job.get("last_started_at") or runtime.get("last_heartbeat_at"),
+                "last_decision": job.get("last_finished_at") or runtime.get("last_heartbeat_at"),
+                "connection": connection,
+                "connection_class": connection_class,
+                "scanner": "ACTIVE" if not job.get("disabled") and not job.get("last_error") else ("DISABLED" if job.get("disabled") else "DEGRADED"),
+                "state": current_state,
+            }
+        )
+    st.markdown("<div class='section-title'>Five Pillars</div>", unsafe_allow_html=True)
+    for row in (pillar_rows[:3], pillar_rows[3:]):
+        cols = st.columns(len(row))
+        for col, pillar in zip(cols, row, strict=False):
+            with col:
+                _render_pillar_card(pillar["name"], pillar)
+    st.markdown(
+        """
+        <div class="small-note">Each pillar shows its live broker connection, scanner state, hard $1,000 cap, deployed capital, available allocation, realized P&amp;L, unrealized P&amp;L, positions, completed trades, win rate, and latest decision.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_positions_view(ctx: dict[str, object]) -> None:
+    positions = ctx["positions"]
+    st.markdown("<div class='section-title'>Positions</div>", unsafe_allow_html=True)
+    if positions:
+        rows_html = "".join(_position_row(row) for row in positions)
+        st.markdown(
+            f"""
+            <div class="table-panel">
+              <table>
+                <thead><tr><th>Pillar</th><th>Broker</th><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Market Value</th><th>Unrealized P&amp;L</th><th>Return %</th><th>Stop</th><th>Target</th><th>Protection</th><th>Manifest</th><th>Lifecycle</th><th>Reconciliation</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+              </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("No open managed positions were found in the current snapshot.")
+
+
+def _render_trades_view(ctx: dict[str, object]) -> None:
+    trades = ctx["trades"] if isinstance(ctx["trades"], list) else []
+    st.markdown("<div class='section-title'>Trades</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="small-note">Broker-confirmed completed trades only. Cancelled zero-fill orders are excluded from realized accounting and learning.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if trades:
+        rows_html = "".join(_trade_row(row) for row in trades)
+        st.markdown(
+            f"""
+            <div class="table-panel">
+              <table>
+                <thead><tr><th>Timestamp</th><th>Pillar</th><th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>Qty</th><th>Realized P&amp;L</th><th>Return</th><th>Fees</th><th>Duration</th><th>Exit Reason</th><th>Model</th><th>Learning</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+              </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("No broker-confirmed completed trades were found in the current snapshot.")
+    t1, t2, t3, t4, t5 = st.columns(5)
+    t1.metric("Trades Today", str(int(_float(ctx["cash"].get("trades_today"), 0.0))))
+    t2.metric("Win Rate", str(ctx["cash"].get("win_rate") or "—"))
+    t3.metric("Avg Win", _money(ctx["cash"].get("avg_win")))
+    t4.metric("Avg Loss", _money(ctx["cash"].get("avg_loss")))
+    t5.metric("Expectancy", _money(ctx["cash"].get("expectancy")))
+
+
+def _render_learning_view(ctx: dict[str, object]) -> None:
+    learning = ctx["learning"] if isinstance(ctx["learning"], dict) else {}
+    learning_meta = learning.get("model_state") if isinstance(learning.get("model_state"), dict) else {}
+    learning_stats = learning.get("stats") if isinstance(learning.get("stats"), dict) else {}
+    learning_params = learning.get("parameters") if isinstance(learning.get("parameters"), dict) else {}
+    st.markdown("<div class='section-title'>Learning Intelligence</div>", unsafe_allow_html=True)
+    l1, l2, l3, l4 = st.columns(4)
+    l1.metric("Engine Status", ctx["learning_engine_state"])
+    l2.metric("Model State", ctx["learning_model_state"])
+    l3.metric("Baseline", str(learning_meta.get("baseline_version") or "five_pillar_baseline_v1"))
+    l4.metric("Challenger", str(learning_meta.get("active_version") or "challenger_candidate_v1"))
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Sample Size", str(learning_stats.get("completed_trades") or 0))
+    m2.metric("Trades Evaluated", str(learning_stats.get("completed_trades") or 0))
+    m3.metric("Promotion Eligibility", str(learning_meta.get("promotion_eligibility") or "COLLECTING EVIDENCE"))
+    m4.metric("Last Evaluation", str(learning_meta.get("last_evaluation_at") or ctx["runtime"].get("last_heartbeat_at") or "—"))
+    st.markdown(
+        f"""
+        <div class="panel" style="padding:1rem">
+          <div class="small-note">Current bounded parameters: <code>{escape(json.dumps(learning_params, sort_keys=True))}</code></div>
+          <div class="small-note">Recent parameter changes, strategy weights, session preferences, regime preferences, promotion history, rollback history, and realized cash contribution by model are read from the durable learning snapshot when available.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_performance_view(ctx: dict[str, object]) -> None:
+    st.markdown("<div class='section-title'>Performance</div>", unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Starting Capital", _money(ctx["original_capital"]))
+    c2.metric("Current Equity", _money(ctx["total_equity"]))
+    c3.metric("Realized Cash", _money(ctx["net_cash"]))
+    c4.metric("Unrealized P&L", _money(ctx["unrealized"]))
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric("Daily Return", _pct(ctx["daily_realized"]))
+    c6.metric("Cumulative Return", _pct(ctx["cumulative_realized"]))
+    c7.metric("Generated Cash Ratio", _pct(ctx["generated_cash_ratio"]))
+    c8.metric("Risk-adjusted Return", "—")
+    left, right = st.columns(2)
+    left.markdown(
+        """
+        <div class="panel" style="padding:1rem">
+          <div class="status-label">Operating Benchmark — reporting only</div>
+          <div class="status-value">$20–$305 Daily Realized Cash</div>
+          <div class="small-note">Benchmarks do not force trades. Cash/no-trade is valid.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    right.markdown(
+        f"""
+        <div class="panel" style="padding:1rem">
+          <div class="status-label">Stretch Benchmark — reporting only</div>
+          <div class="status-value">20%–40% Daily Return</div>
+          <div class="small-note">Current realized return: {escape(_pct(ctx["daily_realized"]))} · current unrealized return: {escape(_pct(ctx["daily_unrealized"]))}</div>
+          <div class="small-note">Distance to 20%: {escape(_pct(ctx["dist_low"]))} · Distance to 40%: {escape(_pct(ctx["dist_high"]))}</div>
+          <div class="progress"><div style="width:{max(0.0, min(100.0, abs(ctx['daily_realized']) / 0.40 * 100.0)):.1f}%"></div></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_risk_health_view(ctx: dict[str, object]) -> None:
+    st.markdown("<div class='section-title'>Risk & Health</div>", unsafe_allow_html=True)
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Strategy Baseline", _money(TOTAL_BASE_CAPITAL))
+    r2.metric("Unresolved Manifests", str(len(ctx["unresolved"]) if isinstance(ctx["unresolved"], list) else 0))
+    r3.metric("Broker Requests", str(int(_float(ctx["runtime"].get("rate_limit_telemetry", {}).get("requests"), 0.0))))
+    r4.metric("429 Events", str(int(_float(ctx["runtime"].get("rate_limit_telemetry", {}).get("rate_limited"), 0.0))))
+    st.markdown(
+        """
+        <div class="small-note">The system remains PAPER/SIM only. Live trading stays disabled, duplicate intents stay blocked, and unresolved manifests are surfaced instead of being overwritten.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if ctx["live_errors"]:
+        st.warning(" · ".join(ctx["live_errors"]))
+
+
+def _render_execution_log_view(ctx: dict[str, object]) -> None:
+    st.markdown("<div class='section-title'>Execution Log</div>", unsafe_allow_html=True)
+    rows = ctx["activity"] if isinstance(ctx["activity"], list) else []
+    if rows:
+        rows_html = "".join(
+            "".join(
+                [
+                    "<tr>",
+                    f"<td>{escape(str(row.get('timestamp') or row.get('time') or '—'))}</td>",
+                    f"<td>{escape(str(row.get('pillar') or '—'))}</td>",
+                    f"<td>{escape(str(row.get('symbol') or '—'))}</td>",
+                    f"<td>{escape(str(row.get('event') or '—'))}</td>",
+                    f"<td>{escape(str(row.get('decision') or '—'))}</td>",
+                    f"<td>{escape(str(row.get('score') or '—'))}</td>",
+                    f"<td>{escape(str(row.get('reason') or '—'))}</td>",
+                    f"<td>{escape(str(row.get('result') or '—'))}</td>",
+                    "</tr>",
+                ]
+            )
+            for row in rows[:50]
+        )
+        st.markdown(
+            f"""
+            <div class="table-panel">
+              <table>
+                <thead><tr><th>Timestamp</th><th>Pillar</th><th>Symbol</th><th>Event</th><th>Decision</th><th>Score</th><th>Reason</th><th>Result</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+              </table>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info("No execution log events were found in the current snapshot.")
+
+
+def render_dashboard() -> None:
+    st.markdown("<meta http-equiv='refresh' content='25'>", unsafe_allow_html=True)
+    st.markdown(_dashboard_css(), unsafe_allow_html=True)
+    st.sidebar.markdown(
+        """
+        <div class="brand-box">
+          <div class="brand-mark">CH</div>
+          <div class="brand-name">Chris Haake<br>Capital Systems</div>
+          <div class="brand-sub">FIVE-PILLAR AUTONOMOUS SYSTEM</div>
+          <div class="brand-sub">Christopher J. Haake</div>
+          <div class="brand-footer">Research. Discipline. Execution.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    selected_view = st.sidebar.radio(
+        "Navigation",
+        ["OVERVIEW", "PILLARS", "POSITIONS", "TRADES", "LEARNING", "PERFORMANCE", "RISK & HEALTH", "EXECUTION LOG"],
+        key="dashboard_navigation",
+    )
+    ctx = _build_dashboard_context()
+    _render_dashboard_shell(ctx, selected_view)
+    if selected_view == "OVERVIEW":
+        _render_overview(ctx)
+    elif selected_view == "PILLARS":
+        _render_pillars_view(ctx)
+    elif selected_view == "POSITIONS":
+        _render_positions_view(ctx)
+    elif selected_view == "TRADES":
+        _render_trades_view(ctx)
+    elif selected_view == "LEARNING":
+        _render_learning_view(ctx)
+    elif selected_view == "PERFORMANCE":
+        _render_performance_view(ctx)
+    elif selected_view == "RISK & HEALTH":
+        _render_risk_health_view(ctx)
+    elif selected_view == "EXECUTION LOG":
+        _render_execution_log_view(ctx)
 
 
 def main() -> None:
