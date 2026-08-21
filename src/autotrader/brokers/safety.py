@@ -87,7 +87,11 @@ def _request(
                     budget.note_rate_limit(deferred=attempt + 1 < retries)
                 time.sleep(delay)
                 continue
-            last_error = RuntimeError(f"HTTP {exc.code}: {raw}")
+            retry_after = _retry_after_seconds(exc.headers.get("Retry-After"))
+            last_error = RuntimeError(
+                f"HTTP {exc.code}: {raw}"
+                + (f" | retry_after={retry_after}" if retry_after is not None else "")
+            )
             if budget is not None and exc.code == 429:
                 budget.note_rate_limit(deferred=False)
             break

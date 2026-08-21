@@ -71,6 +71,11 @@ class AlpacaBacklogCheckpoint:
     next_manifest_index: int = 0
     last_manifest_id: str | None = None
     updated_at: str | None = None
+    history_window_start: str | None = None
+    history_window_end: str | None = None
+    next_cursor: str | None = None
+    retry_after_until: str | None = None
+    last_successful_request: str | None = None
 
 
 def _canonical_symbol(symbol: str) -> str:
@@ -188,6 +193,18 @@ def fetch_alpaca_bulk_snapshot(
         budget.note_rate_limit(deferred=True)
         deferred = True
         positions_payload = []
+        return AlpacaBulkSnapshot(
+            (),
+            (),
+            (),
+            budget,
+            window_start,
+            window_end,
+            False,
+            False,
+            False,
+            deferred,
+        )
     else:
         positions_complete = True
     try:
@@ -202,6 +219,20 @@ def fetch_alpaca_bulk_snapshot(
         budget.note_rate_limit(deferred=True)
         deferred = True
         open_orders_payload = []
+        positions = tuple(_parse_position(row) for row in positions_payload if isinstance(row, dict))
+        positions = tuple(row for row in positions if row is not None)
+        return AlpacaBulkSnapshot(
+            positions,
+            (),
+            (),
+            budget,
+            window_start,
+            window_end,
+            positions_complete,
+            False,
+            False,
+            deferred,
+        )
     else:
         open_orders_complete = True
     recent_query = ["status=all", "nested=true", "limit=500"]
@@ -222,6 +253,22 @@ def fetch_alpaca_bulk_snapshot(
         budget.note_rate_limit(deferred=True)
         deferred = True
         recent_orders_payload = []
+        positions = tuple(_parse_position(row) for row in positions_payload if isinstance(row, dict))
+        positions = tuple(row for row in positions if row is not None)
+        open_orders = tuple(_parse_order(row) for row in open_orders_payload if isinstance(row, dict))
+        open_orders = tuple(row for row in open_orders if row is not None)
+        return AlpacaBulkSnapshot(
+            positions,
+            open_orders,
+            (),
+            budget,
+            window_start,
+            window_end,
+            positions_complete,
+            open_orders_complete,
+            False,
+            deferred,
+        )
     else:
         recent_orders_complete = True
 
@@ -270,6 +317,31 @@ def load_backlog_checkpoint(path: str | Path) -> AlpacaBacklogCheckpoint:
                 if payload.get("updated_at") in {None, ""}
                 else str(payload.get("updated_at"))
             ),
+            history_window_start=(
+                None
+                if payload.get("history_window_start") in {None, ""}
+                else str(payload.get("history_window_start"))
+            ),
+            history_window_end=(
+                None
+                if payload.get("history_window_end") in {None, ""}
+                else str(payload.get("history_window_end"))
+            ),
+            next_cursor=(
+                None
+                if payload.get("next_cursor") in {None, ""}
+                else str(payload.get("next_cursor"))
+            ),
+            retry_after_until=(
+                None
+                if payload.get("retry_after_until") in {None, ""}
+                else str(payload.get("retry_after_until"))
+            ),
+            last_successful_request=(
+                None
+                if payload.get("last_successful_request") in {None, ""}
+                else str(payload.get("last_successful_request"))
+            ),
         )
     except Exception:
         return AlpacaBacklogCheckpoint()
@@ -287,6 +359,11 @@ def save_backlog_checkpoint(
                 "next_manifest_index": checkpoint.next_manifest_index,
                 "last_manifest_id": checkpoint.last_manifest_id,
                 "updated_at": checkpoint.updated_at or datetime.now(UTC).isoformat(),
+                "history_window_start": checkpoint.history_window_start,
+                "history_window_end": checkpoint.history_window_end,
+                "next_cursor": checkpoint.next_cursor,
+                "retry_after_until": checkpoint.retry_after_until,
+                "last_successful_request": checkpoint.last_successful_request,
             },
             indent=2,
             sort_keys=True,

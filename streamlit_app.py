@@ -1391,11 +1391,26 @@ def _render_performance_view(ctx: dict[str, object]) -> None:
 
 def _render_risk_health_view(ctx: dict[str, object]) -> None:
     st.markdown("<div class='section-title'>Risk & Health</div>", unsafe_allow_html=True)
+    backlog = ctx["snapshot"].get("runtime", {}).get("backlog_progress") if isinstance(ctx.get("snapshot"), dict) else {}
+    backlog = backlog if isinstance(backlog, dict) else {}
     r1, r2, r3, r4 = st.columns(4)
     r1.metric("Strategy Baseline", _money(TOTAL_BASE_CAPITAL))
     r2.metric("Unresolved Manifests", str(len(ctx["unresolved"]) if isinstance(ctx["unresolved"], list) else 0))
     r3.metric("Broker Requests", str(int(_float(ctx["runtime"].get("rate_limit_telemetry", {}).get("requests"), 0.0))))
     r4.metric("429 Events", str(int(_float(ctx["runtime"].get("rate_limit_telemetry", {}).get("rate_limited"), 0.0))))
+    b1, b2, b3, b4 = st.columns(4)
+    b1.metric("Legacy Total", str(int(_float(backlog.get("legacy_total"), 0.0))))
+    b2.metric("Legacy Deferred", str(int(_float(backlog.get("legacy_deferred"), 0.0))))
+    b3.metric("Manual Review", str(int(_float(backlog.get("legacy_manual_review"), 0.0))))
+    b4.metric("Active v2 Unresolved", str(int(_float(backlog.get("active_experiment_unresolved"), 0.0))))
+    st.markdown(
+        f"""
+        <div class="small-note">Oldest unresolved: <strong>{escape(str(backlog.get('oldest_unresolved_timestamp') or 'UNAVAILABLE'))}</strong> · newest unresolved: <strong>{escape(str(backlog.get('newest_unresolved_timestamp') or 'UNAVAILABLE'))}</strong></div>
+        <div class="small-note">Current history window: <strong>{escape(str((backlog.get('current_history_window') or {}).get('start') or 'UNAVAILABLE'))}</strong> → <strong>{escape(str((backlog.get('current_history_window') or {}).get('end') or 'UNAVAILABLE'))}</strong></div>
+        <div class="small-note">Cooldown until: <strong>{escape(str(backlog.get('cooldown_until') or 'UNAVAILABLE'))}</strong> · Last successful reconciliation: <strong>{escape(str(backlog.get('last_successful_reconciliation') or 'UNAVAILABLE'))}</strong></div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown(
         """
         <div class="small-note">The system remains PAPER/SIM only. Live trading stays disabled, duplicate intents stay blocked, and unresolved manifests are surfaced instead of being overwritten.</div>

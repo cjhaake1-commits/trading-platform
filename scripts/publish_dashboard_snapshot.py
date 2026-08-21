@@ -26,9 +26,20 @@ def read_json(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def read_backlog_checkpoint(path: Path = Path("var/autotrader/alpaca_backlog_checkpoint.json")) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def read_portfolio(
@@ -419,6 +430,35 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             except sqlite3.Error:
                 rows = []
             unresolved_manifests = [dict(row) for row in rows]
+    backlog_checkpoint = read_backlog_checkpoint()
+    active_experiment_unresolved = 0
+    legacy_backlog_total = 0
+    legacy_backlog_deferred = 0
+    legacy_backlog_manual_review = 0
+    if unresolved_manifests:
+        for row in unresolved_manifests:
+            created_at = _parse_iso(row.get("created_at"))
+            experiment_match = False
+            metadata = row.get("metadata_json")
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except Exception:
+                    metadata = {}
+            if isinstance(metadata, dict):
+                experiment_match = (
+                    str(metadata.get("experiment_id") or "").strip()
+                    == experiment_state.get("experiment_id")
+                )
+            if experiment_match or (
+                created_at is not None
+                and experiment_start is not None
+                and created_at >= experiment_start
+            ):
+                active_experiment_unresolved += 1
+            else:
+                legacy_backlog_total += 1
+                legacy_backlog_deferred += 1
 
     classified_positions = [
         _serialize_position(row, experiment_start=experiment_start, source="broker")
@@ -535,6 +575,22 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                 "retries": int((latest_cycle.get("broker_retries") or 0) or 0),
                 "rate_limited": int((latest_cycle.get("broker_rate_limited") or 0) or 0),
                 "deferred": int((latest_cycle.get("broker_deferred") or 0) or 0),
+            },
+            "backlog_progress": {
+                "legacy_total": legacy_backlog_total,
+                "legacy_resolved": 0,
+                "legacy_deferred": legacy_backlog_deferred,
+                "legacy_manual_review": legacy_backlog_manual_review,
+                "active_experiment_unresolved": active_experiment_unresolved,
+                "percent_complete": 0.0 if legacy_backlog_total == 0 else 0.0,
+                "oldest_unresolved_timestamp": unresolved_manifests[0]["created_at"] if unresolved_manifests else None,
+                "newest_unresolved_timestamp": unresolved_manifests[-1]["created_at"] if unresolved_manifests else None,
+                "current_history_window": {
+                    "start": backlog_checkpoint.get("history_window_start"),
+                    "end": backlog_checkpoint.get("history_window_end"),
+                },
+                "cooldown_until": backlog_checkpoint.get("retry_after_until"),
+                "last_successful_reconciliation": backlog_checkpoint.get("last_successful_request"),
             },
         },
             "portfolio": {
