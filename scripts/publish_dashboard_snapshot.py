@@ -431,6 +431,11 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                 rows = []
             unresolved_manifests = [dict(row) for row in rows]
     backlog_checkpoint = read_backlog_checkpoint()
+    ledger_position_index = {
+        str(row.get("symbol") or "").replace("_", "/").upper(): dict(row)
+        for row in ledger_positions
+        if isinstance(row, dict)
+    }
     active_experiment_unresolved = 0
     legacy_backlog_total = 0
     legacy_backlog_deferred = 0
@@ -460,10 +465,17 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                 legacy_backlog_total += 1
                 legacy_backlog_deferred += 1
 
-    classified_positions = [
-        _serialize_position(row, experiment_start=experiment_start, source="broker")
-        for row in live_positions
-    ]
+    classified_positions = []
+    for row in live_positions:
+        merged_row = dict(row)
+        ledger_row = ledger_position_index.get(str(row.get("symbol") or "").replace("_", "/").upper())
+        if ledger_row:
+            for key in ("opened_at", "broker", "broker_position_id"):
+                if merged_row.get(key) in {None, ""} and ledger_row.get(key) not in {None, ""}:
+                    merged_row[key] = ledger_row.get(key)
+        classified_positions.append(
+            _serialize_position(merged_row, experiment_start=experiment_start, source="broker")
+        )
     for position in classified_positions:
         if str(position.get("broker")) == "Alpaca Paper" and str(position.get("symbol") or "").upper().endswith("USD"):
             crypto = crypto_by_symbol.get(_canonical_crypto_symbol(position.get("symbol")), {})

@@ -32,7 +32,10 @@ def main() -> None:
         "total_paper_capital": TOTAL_PAPER_CAPITAL,
         "pillar_allocations": PILLAR_ALLOCATIONS,
         "current_exposure": exposure,
-        "note": "Existing positions preserved. Pillars already above $1,000 receive no new exposure until capacity is available.",
+        "note": (
+            "Existing positions preserved. Pillars already above $1,000 receive no "
+            "new exposure until capacity is available."
+        ),
     })
 
 

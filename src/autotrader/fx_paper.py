@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from .brokers.practice_orders import submit_oanda_practice_market_order
 from .capital_allocations import PILLAR_ALLOCATIONS, PILLAR_FOREX, TOTAL_PAPER_CAPITAL
 from .execution_safety import IdempotencyStore
+from .experiment_state import load_experiment_baseline_start, position_is_experiment_eligible
 from .fx_signals import qualify_fx_signal
 from .marketdata import YahooHistoricalData
 from .models import AssetClass, Instrument, Side
@@ -49,6 +50,7 @@ class FxPaperTradingJob:
     def __init__(self, config: FxPaperConfig | None = None) -> None:
         self.config = config or FxPaperConfig()
         self.cadence_seconds = self.config.cadence_seconds
+        self.experiment_baseline_start = load_experiment_baseline_start()
         self.feed = YahooHistoricalData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
@@ -116,23 +118,53 @@ class FxPaperTradingJob:
                 break
 
             portfolio = fresh.portfolio
+            strategy_portfolio = self._strategy_portfolio(portfolio)
+            if signal.proposal.symbol in portfolio.positions:
+                duplicates.append(
+                    {
+                        "symbol": signal.proposal.symbol,
+                        "broker": "oanda-practice",
+                        "side": signal.proposal.side.value,
+                        "reason": "existing position blocks duplicate entry",
+                    }
+                )
+                continue
             pillar_notional = sum(
                 abs(position.quantity * position.average_price)
-                for position in portfolio.positions.values()
+                for position in strategy_portfolio.positions.values()
                 if position.asset_class is AssetClass.FOREX
             )
             if pillar_notional >= pillar_limit:
-                rejections.append({"symbol": signal.proposal.symbol, "pillar": PILLAR_FOREX, "reason": f"pillar capital fully allocated ({pillar_notional:.2f} >= {pillar_limit:.2f})"})
+                rejections.append(
+                    {
+                        "symbol": signal.proposal.symbol,
+                        "pillar": PILLAR_FOREX,
+                        "reason": (
+                            f"pillar capital fully allocated ({pillar_notional:.2f} >= "
+                            f"{pillar_limit:.2f})"
+                        ),
+                    }
+                )
                 continue
 
-            gross = sum(abs(position.quantity * position.average_price) for position in portfolio.positions.values())
+            gross = sum(
+                abs(position.quantity * position.average_price)
+                for position in strategy_portfolio.positions.values()
+            )
             risk_decision = self.risk.evaluate(
                 signal.proposal,
-                portfolio,
+                strategy_portfolio,
                 RiskContext(peak_equity=fresh.peak_equity, gross_notional=gross, asset_class_notional=pillar_notional),
             )
             if not risk_decision.approved:
-                rejections.append({"symbol": signal.proposal.symbol, "pillar": PILLAR_FOREX, "side": signal.proposal.side.value, "reason": risk_decision.reason})
+                rejections.append(
+                    {
+                        "symbol": signal.proposal.symbol,
+                        "pillar": PILLAR_FOREX,
+                        "side": signal.proposal.side.value,
+                        "reason": risk_decision.reason,
+                    }
+                )
                 continue
 
             remaining_notional = max(pillar_limit - pillar_notional, 0.0)
@@ -183,7 +215,13 @@ class FxPaperTradingJob:
                 ttl_seconds=max(int(self.cadence_seconds * 2), 600),
                 now=now,
             ):
-                duplicates.append({"symbol": signal.proposal.symbol, "broker": "oanda-practice", "side": signal.proposal.side.value})
+                duplicates.append(
+                    {
+                        "symbol": signal.proposal.symbol,
+                        "broker": "oanda-practice",
+                        "side": signal.proposal.side.value,
+                    }
+                )
                 continue
 
             client_id = f"fx-{bucket}-{signal.proposal.side.value[0]}-{signal.proposal.symbol.replace('/', '')}"[:48]
@@ -196,7 +234,16 @@ class FxPaperTradingJob:
                 )
                 if not result.ok:
                     self.idempotency.release(key)
-                    failures.append({"symbol": signal.proposal.symbol, "broker": "oanda-practice", "side": signal.proposal.side.value, "units": signed_units, "message": result.message, "details": result.details})
+                    failures.append(
+                        {
+                            "symbol": signal.proposal.symbol,
+                            "broker": "oanda-practice",
+                            "side": signal.proposal.side.value,
+                            "units": signed_units,
+                            "message": result.message,
+                            "details": result.details,
+                        }
+                    )
                     continue
 
                 fill = result.details.get("order_fill_transaction")
@@ -232,7 +279,34 @@ class FxPaperTradingJob:
                 self.idempotency.release(key)
                 raise
 
-        return JobResult(True, "OANDA FX cycle completed", {**counts, "entries": entries, "risk_rejections": rejections, "sizing_skips": sizing_skips, "submission_failures": failures, "duplicate_skips": duplicates})
+        return JobResult(
+            True,
+            "OANDA FX cycle completed",
+            {
+                **counts,
+                "entries": entries,
+                "risk_rejections": rejections,
+                "sizing_skips": sizing_skips,
+                "submission_failures": failures,
+                "duplicate_skips": duplicates,
+            },
+        )
+
+    def _strategy_portfolio(self, portfolio):
+        strategy_positions = {
+            symbol: position
+            for symbol, position in portfolio.positions.items()
+            if position_is_experiment_eligible(position.opened_at, self.experiment_baseline_start)
+        }
+        deployed = sum(abs(position.quantity * position.average_price) for position in strategy_positions.values())
+        cash = max(self.config.initial_equity - deployed, 0.0)
+        return type(portfolio)(
+            equity=max(self.config.initial_equity, cash + deployed),
+            cash=cash,
+            daily_pnl=0.0,
+            weekly_pnl=0.0,
+            positions=strategy_positions,
+        )
 
     def _load_histories(self, now: datetime):
         start = now - timedelta(days=max(self.config.lookback_days, 2))

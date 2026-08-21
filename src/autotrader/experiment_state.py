@@ -47,6 +47,26 @@ def load_experiment_state(path: str | Path = DEFAULT_EXPERIMENT_PATH) -> dict[st
     }
 
 
+def load_experiment_baseline_start(path: str | Path = DEFAULT_EXPERIMENT_PATH) -> datetime:
+    state = load_experiment_state(path)
+    baseline_start_time = str(state.get("baseline_start_time") or "").strip()
+    try:
+        parsed = datetime.fromisoformat(baseline_start_time.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(UTC)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def position_is_experiment_eligible(opened_at: datetime | None, baseline_start: datetime) -> bool:
+    if opened_at is None:
+        return False
+    if opened_at.tzinfo is None:
+        opened_at = opened_at.replace(tzinfo=UTC)
+    return opened_at.astimezone(UTC) >= baseline_start.astimezone(UTC)
+
+
 def ensure_experiment_state(path: str | Path = DEFAULT_EXPERIMENT_PATH) -> dict[str, str]:
     resolved = Path(path)
     state = load_experiment_state(resolved)

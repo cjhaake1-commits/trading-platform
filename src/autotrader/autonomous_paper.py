@@ -15,6 +15,7 @@ from .brokers.safety import alpaca_open_positions, close_alpaca_position, close_
 from .capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL, pillar_for_asset
 from .crypto_exit import AlpacaCryptoExitCoordinator
 from .execution_safety import IdempotencyStore
+from .experiment_state import load_experiment_baseline_start, position_is_experiment_eligible
 from .learning import load_learned_parameters
 from .marketdata import YahooHistoricalData
 from .models import AssetClass, Instrument, PortfolioState, Side, TradeIntent, TradeProposal
@@ -143,6 +144,7 @@ class AutonomousPaperTradingJob:
     def __init__(self, config: AutonomousPaperConfig | None = None) -> None:
         self.config = config or AutonomousPaperConfig()
         self.cadence_seconds = self.config.cadence_seconds
+        self.experiment_baseline_start = load_experiment_baseline_start()
         self.feed = YahooHistoricalData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
@@ -186,6 +188,7 @@ class AutonomousPaperTradingJob:
         portfolio = (
             PortfolioState(self.config.initial_equity, self.config.initial_equity) if loaded is None else loaded[0]
         )
+        strategy_portfolio = self._strategy_portfolio(portfolio)
         diagnostics, signals = [], []
         for instrument, bars in histories.items():
             if instrument.symbol in portfolio.positions:
@@ -258,11 +261,12 @@ class AutonomousPaperTradingJob:
             if not fresh.ready:
                 break
             portfolio = fresh.portfolio
+            strategy_portfolio = self._strategy_portfolio(portfolio)
             pillar = pillar_for_asset(signal.instrument.asset_class)
             pillar_limit = PILLAR_ALLOCATIONS[pillar]
             pillar_notional = sum(
                 abs(p.quantity * p.average_price)
-                for p in portfolio.positions.values()
+                for p in strategy_portfolio.positions.values()
                 if pillar_for_asset(p.asset_class) == pillar
             )
             if pillar_notional >= pillar_limit:
@@ -274,10 +278,10 @@ class AutonomousPaperTradingJob:
                     }
                 )
                 continue
-            gross = sum(abs(p.quantity * p.average_price) for p in portfolio.positions.values())
+            gross = sum(abs(p.quantity * p.average_price) for p in strategy_portfolio.positions.values())
             decision = self.risk.evaluate(
                 signal.proposal,
-                portfolio,
+                strategy_portfolio,
                 RiskContext(peak_equity=fresh.peak_equity, gross_notional=gross, asset_class_notional=pillar_notional),
             )
             if not decision.approved:
@@ -798,6 +802,22 @@ class AutonomousPaperTradingJob:
                 "pillar_allocations": PILLAR_ALLOCATIONS,
                 "learned_parameters": learned,
             },
+        )
+
+    def _strategy_portfolio(self, portfolio: PortfolioState) -> PortfolioState:
+        strategy_positions = {
+            symbol: position
+            for symbol, position in portfolio.positions.items()
+            if position_is_experiment_eligible(position.opened_at, self.experiment_baseline_start)
+        }
+        deployed = sum(abs(position.quantity * position.average_price) for position in strategy_positions.values())
+        cash = max(self.config.initial_equity - deployed, 0.0)
+        return PortfolioState(
+            equity=max(self.config.initial_equity, cash + deployed),
+            cash=cash,
+            daily_pnl=0.0,
+            weekly_pnl=0.0,
+            positions=strategy_positions,
         )
 
     def _load_histories(self, now: datetime):
