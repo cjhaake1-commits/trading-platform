@@ -38,7 +38,7 @@ autotrader-preflight = "autotrader.preflight_app:main"
 where = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 addopts = "-ra"
 

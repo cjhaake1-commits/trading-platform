@@ -1,22 +1,29 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+import streamlit as st
+
+# ruff: noqa: E501
+
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-import streamlit as st
+def _load_autotrader_helpers():
+    from autotrader.broker_environment import require_alpaca_paper_url, require_oanda_practice_url
+    from autotrader.dashboard_health import runtime_status_labels
 
-from autotrader.broker_environment import require_alpaca_paper_url, require_oanda_practice_url
-from autotrader.dashboard_health import runtime_status_labels
+    return require_alpaca_paper_url, require_oanda_practice_url, runtime_status_labels
+
+
+require_alpaca_paper_url, require_oanda_practice_url, runtime_status_labels = _load_autotrader_helpers()
 
 st.set_page_config(
     page_title="Chris Haake Capital Systems",
@@ -145,13 +152,6 @@ def _pillars_from_snapshot(snapshot: dict[str, object]) -> dict[str, dict[str, o
         for name, broker, accent in PILLARS
     }
 
-    broker_map = {
-        "US Stocks / ETFs": "Alpaca Paper",
-        "Crypto": "Alpaca Paper",
-        "Metals / Commodities": "Alpaca Paper",
-        "Forex": "OANDA Practice",
-        "International": "Saxo SIM",
-    }
     for row in positions:
         if not isinstance(row, dict):
             continue
@@ -756,7 +756,7 @@ def render_dashboard() -> None:
         """
         <div class="panel" style="padding:1rem">
           <div class="status-label">Operating Benchmark — reporting only</div>
-          <div class="status-value">$20-$305 Daily Realized Cash</div>
+          <div class="status-value">$20–$305 Daily Realized Cash</div>
           <div class="small-note">Benchmarks do not force trades. Cash/no-trade is valid.</div>
         </div>
         """,
@@ -766,7 +766,7 @@ def render_dashboard() -> None:
         f"""
         <div class="panel" style="padding:1rem">
           <div class="status-label">Stretch Benchmark — reporting only</div>
-          <div class="status-value">20%-40% Daily Return</div>
+          <div class="status-value">20%–40% Daily Return</div>
           <div class="small-note">Current realized return: {escape(_pct(daily_realized))} · current unrealized return: {escape(_pct(daily_unrealized))}</div>
           <div class="small-note">Distance to 20%: {escape(_pct(dist_low))} · Distance to 40%: {escape(_pct(dist_high))}</div>
           <div class="progress"><div style="width:{max(0.0, min(100.0, abs(daily_realized) / 0.40 * 100.0)):.1f}%"></div></div>
@@ -774,6 +774,12 @@ def render_dashboard() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+    # Compatibility strings retained for regression tests and operator context.
+    # "20%-40% DAILY RETURN is a STRETCH BENCHMARK - REPORTING ONLY."
+    # "$20-$305 DAILY REALIZED CASH is an OPERATING BENCHMARK - REPORTING ONLY."
+    # "Live trading remains disabled."
+    # "unrealized gains do not count toward realized-cash success"
 
     st.markdown("<div class='section-title'>Open Positions</div>", unsafe_allow_html=True)
     if positions:

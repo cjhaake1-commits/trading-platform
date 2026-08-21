@@ -185,7 +185,7 @@ def test_unresolved_manifest_blocks_duplicate_entry_in_autonomous_job(monkeypatc
     )
     result = job.run(datetime.now(UTC))
 
-    assert result.details["duplicate_skips"]
-    assert result.details["duplicate_skips"][0]["reason"] == (
+    assert result.data["duplicate_skips"]
+    assert result.data["duplicate_skips"][0]["reason"] == (
         "existing unresolved manifest blocks duplicate entry"
     )

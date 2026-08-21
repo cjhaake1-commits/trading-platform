@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from .brokers.alpaca_metals_paper import AlpacaMetalsConfigurationError
 from .brokers.saxo_sim import SaxoSimAdapter
 from .capital_allocations import PILLAR_METALS
-from .international_trading import InternationalExecutionService, InternationalOrderSpec
+from .international_trading import InternationalExecutionService
 from .marketdata import YahooHistoricalData
-from .metals_trading import MetalsExecutionService, MetalsOrderSpec
+from .metals_trading import MetalsExecutionService
 from .models import AssetClass, Instrument, MarketBar, Side
 from .runtime import JobResult
 from .scanner import CandidateScanner
@@ -48,17 +48,33 @@ class MetalsPaperTradingJob:
         self.feed = YahooHistoricalData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
-        self.service = MetalsExecutionService.from_env(self.history_path)
+        try:
+            self.service = MetalsExecutionService.from_env(self.history_path)
+        except AlpacaMetalsConfigurationError:
+            self.service = None
 
     def run(self, now: datetime) -> JobResult:
         now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+        if self.service is None:
+            return JobResult(
+                True,
+                "Metals cycle deferred",
+                {
+                    "pillar": PILLAR_METALS,
+                    "reason": "alpaca paper credentials unavailable",
+                },
+            )
         histories = self._load_histories(now)
         if not histories:
             return JobResult(True, "Metals cycle found no usable market data", {"pillar": PILLAR_METALS})
         best = self._best_signal(histories)
         if best is None:
             return JobResult(True, "Metals cycle found no qualifying entry", {"pillar": PILLAR_METALS})
-        return JobResult(True, "Metals cycle scanned successfully", {"pillar": PILLAR_METALS, "candidate": best.instrument.symbol})
+        return JobResult(
+            True,
+            "Metals cycle scanned successfully",
+            {"pillar": PILLAR_METALS, "candidate": best.instrument.symbol},
+        )
 
     def _load_histories(self, now: datetime) -> dict[Instrument, list[MarketBar]]:
         end = now.astimezone(UTC)
@@ -82,7 +98,6 @@ class MetalsPaperTradingJob:
             proposal = self.strategies.mean_reversion(candidate.instrument, histories[candidate.instrument])
         if proposal is None or proposal.side is not Side.BUY:
             return None
-        portfolio = self.service.history.records()
         return candidate
 
 
@@ -95,14 +110,22 @@ class InternationalPaperTradingJob:
     search_top: int = 5
 
     def __post_init__(self) -> None:
-        self.adapter = SaxoSimAdapter.from_env()
+        try:
+            self.adapter = SaxoSimAdapter.from_env()
+        except Exception:
+            self.adapter = None
         self.feed = YahooHistoricalData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
-        self.service = InternationalExecutionService.from_env(self.history_path)
+        try:
+            self.service = InternationalExecutionService.from_env(self.history_path)
+        except Exception:
+            self.service = None
 
     def run(self, now: datetime) -> JobResult:
         now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+        if self.adapter is None or self.service is None:
+            return JobResult(True, "International cycle deferred", {"reason": "saxo sim credentials unavailable"})
         try:
             instruments = self.adapter.search_instruments(
                 self.search_keywords,
@@ -114,8 +137,6 @@ class InternationalPaperTradingJob:
         if not instruments:
             return JobResult(True, "International cycle found no instruments", {})
         histories: dict[Instrument, list[MarketBar]] = {}
-        end = now.astimezone(UTC)
-        start = end - timedelta(days=14)
         for item in instruments:
             instrument = Instrument(item.symbol.replace(".", "-"), AssetClass.STOCK)
             try:

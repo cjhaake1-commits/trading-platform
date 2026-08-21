@@ -7,7 +7,6 @@ from typing import Callable, Iterable
 
 from .brokers.safety import (
     BrokerRequestBudget,
-    _alpaca_api_symbol,
     _alpaca_auth,
     _alpaca_headers,
     _request,
@@ -281,7 +280,7 @@ def reconcile_alpaca_equity_backlog(
 
     if apply_paper_cleanup and cancelled_ids:
         try:
-            _consume_budget(budget)
+            _consume_budget(snapshot.budget)
             refreshed_payload, _ = request_fn(
                 f"{base}/v2/orders?status=all&nested=true&limit=500",
                 method="GET",
@@ -289,7 +288,7 @@ def reconcile_alpaca_equity_backlog(
                 budget=snapshot.budget,
             )
         except RuntimeError:
-            budget.note_rate_limit(deferred=True)
+            snapshot.budget.note_rate_limit(deferred=True)
             refreshed_payload = []
         recent_orders = tuple(
             _parse_order(row) for row in refreshed_payload if isinstance(row, dict)
