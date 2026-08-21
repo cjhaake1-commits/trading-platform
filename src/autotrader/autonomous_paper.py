@@ -148,6 +148,7 @@ class AutonomousPaperTradingJob:
         self.strategies = BaselineStrategies()
         self.risk = RiskEngine()
         self.idempotency = IdempotencyStore(self.config.idempotency_path)
+        self.unresolved_states = set(PortfolioLedger.unresolved_entry_states())
 
     def run(self, now: datetime) -> JobResult:
         if now.tzinfo is None:
@@ -340,15 +341,10 @@ class AutonomousPaperTradingJob:
             client_id = f"auto-{bucket}-{signal.instrument.symbol.replace('/', '')}"[:48]
             try:
                 canonical_symbol = signal.instrument.symbol.replace("_", "/").upper()
-                existing_manifest = ledger.latest_entry_manifest_for_symbol(canonical_symbol, broker=broker)
-                if existing_manifest and str(existing_manifest.get("lifecycle_state") or "").lower() in {
-                    "approved_manifest",
-                    "order_submitted",
-                    "fill_confirmed",
-                    "reconciliation_pending",
-                    "filled_position_pending",
-                    "active",
-                }:
+                existing_manifest = ledger.latest_unresolved_entry_manifest_for_symbol(
+                    canonical_symbol, broker=broker
+                )
+                if existing_manifest is not None:
                     duplicates.append(
                         {
                             "symbol": signal.instrument.symbol,
@@ -356,6 +352,7 @@ class AutonomousPaperTradingJob:
                             "manifest_id": existing_manifest.get("manifest_id"),
                             "lifecycle_state": existing_manifest.get("lifecycle_state"),
                             "reason": "existing unresolved manifest blocks duplicate entry",
+                            "resume_state": "existing_entry_reconciliation_resumed",
                         }
                     )
                     self.idempotency.release(key)

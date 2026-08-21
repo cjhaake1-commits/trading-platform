@@ -392,7 +392,7 @@ class PortfolioLedger:
         self,
         *,
         manifest_id: str,
-        created_at: datetime,
+        created_at: datetime | str,
         broker: str,
         environment: str,
         pillar: str,
@@ -432,6 +432,8 @@ class PortfolioLedger:
         closed_at: datetime | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
+        created_at_dt = _utc_datetime(created_at)
+        closed_at_dt = None if closed_at is None else _utc_datetime(closed_at)
         with self._connect() as connection:
             connection.execute(
                 """
@@ -496,7 +498,7 @@ class PortfolioLedger:
                 """,
                 (
                     manifest_id,
-                    created_at.astimezone(UTC).isoformat(),
+                    created_at_dt.isoformat(),
                     broker,
                     environment,
                     pillar,
@@ -533,7 +535,7 @@ class PortfolioLedger:
                     json.dumps(close_order_ids or [], sort_keys=True),
                     realized_pnl,
                     fees_costs,
-                    None if closed_at is None else closed_at.astimezone(UTC).isoformat(),
+                    None if closed_at_dt is None else closed_at_dt.isoformat(),
                     datetime.now(UTC).isoformat(),
                     json.dumps(metadata or {}, sort_keys=True),
                 ),
@@ -624,6 +626,87 @@ class PortfolioLedger:
                 result["close_order_ids"] = []
         return result
 
+    @staticmethod
+    def unresolved_entry_states() -> tuple[str, ...]:
+        return (
+            "approved_manifest",
+            "order_submitted",
+            "order_pending",
+            "filled_position_pending",
+            "reconciliation_pending",
+            "protection_pending",
+            "protection_submitted",
+            "active",
+            "unprotected_position",
+            "manual_review_required",
+        )
+
+    def latest_unresolved_entry_manifest_for_symbol(
+        self,
+        canonical_symbol: str,
+        *,
+        broker: str | None = None,
+    ) -> dict[str, object] | None:
+        query = "SELECT * FROM entry_manifests WHERE canonical_symbol = ? AND lifecycle_state IN ({})".format(
+            ",".join("?" for _ in self.unresolved_entry_states())
+        )
+        params: list[object] = [canonical_symbol, *self.unresolved_entry_states()]
+        if broker is not None:
+            query += " AND broker = ?"
+            params.append(broker)
+        query += " ORDER BY created_at DESC, manifest_id DESC LIMIT 1"
+        with self._connect() as connection:
+            row = connection.execute(query, tuple(params)).fetchone()
+        if row is None:
+            return None
+        result = dict(row)
+        metadata = result.get("metadata_json")
+        if isinstance(metadata, str):
+            try:
+                result["metadata"] = json.loads(metadata)
+            except Exception:
+                result["metadata"] = {}
+        close_ids = result.get("close_order_ids_json")
+        if isinstance(close_ids, str):
+            try:
+                result["close_order_ids"] = json.loads(close_ids)
+            except Exception:
+                result["close_order_ids"] = []
+        return result
+
+    def unresolved_entry_manifests(
+        self,
+        *,
+        broker: str | None = None,
+    ) -> list[dict[str, object]]:
+        query = "SELECT * FROM entry_manifests WHERE lifecycle_state IN ({})".format(
+            ",".join("?" for _ in self.unresolved_entry_states())
+        )
+        params: list[object] = [*self.unresolved_entry_states()]
+        if broker is not None:
+            query += " AND broker = ?"
+            params.append(broker)
+        query += " ORDER BY created_at ASC, manifest_id ASC"
+        with self._connect() as connection:
+            rows = connection.execute(query, tuple(params)).fetchall()
+        output: list[dict[str, object]] = []
+        for row in rows:
+            result = dict(row)
+            metadata = result.get("metadata_json")
+            if isinstance(metadata, str):
+                try:
+                    result["metadata"] = json.loads(metadata)
+                except Exception:
+                    result["metadata"] = {}
+            close_ids = result.get("close_order_ids_json")
+            if isinstance(close_ids, str):
+                try:
+                    result["close_order_ids"] = json.loads(close_ids)
+                except Exception:
+                    result["close_order_ids"] = []
+            output.append(result)
+        return output
+
     def snapshot(self) -> dict[str, object]:
         loaded = self.load_portfolio()
         with self._connect() as connection:
@@ -644,3 +727,11 @@ class PortfolioLedger:
             "brokers": brokers,
             "fill_count": fills,
         }
+
+
+def _utc_datetime(value: datetime | str) -> datetime:
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

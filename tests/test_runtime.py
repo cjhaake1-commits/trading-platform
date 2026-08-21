@@ -187,3 +187,34 @@ def test_runtime_restart_with_autonomous_flag_remains_disarmed_by_default(
         "AUTONOMOUS_TRADING_ENABLED"
         in captured["jobs"]["autonomous-paper-trading"]["last_error"]
     )
+
+
+def test_runtime_includes_all_five_pillar_jobs_when_autonomous_paper_requested(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setenv("AUTONOMOUS_TRADING_ENABLED", "false")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "autotrader-runtime",
+            "--autonomous-paper",
+            "--audit-db",
+            str(tmp_path / "audit.db"),
+            "--status",
+            str(tmp_path / "status.json"),
+            "--ledger",
+            str(tmp_path / "portfolio.db"),
+            "--idempotency",
+            str(tmp_path / "idempotency.db"),
+        ],
+    )
+
+    def capture_without_starting(self, stop_event=None):
+        captured.update(self.snapshot())
+
+    monkeypatch.setattr(AutonomousRuntime, "run_forever", capture_without_starting)
+    runtime_app_module.main()
+
+    assert captured["jobs"]["autonomous-paper-trading"]["disabled"]
+    assert captured["jobs"]["oanda-fx-paper-trading"]["disabled"]
+    assert captured["jobs"]["alpaca-metals-paper-trading"]["disabled"]
+    assert captured["jobs"]["saxo-international-paper-trading"]["disabled"]

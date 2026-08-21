@@ -11,6 +11,7 @@ from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
 from .capital_allocations import TOTAL_PAPER_CAPITAL
 from .daily_learning import DailyLearningJob
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
+from .pillar_jobs import InternationalPaperTradingJob, MetalsPaperTradingJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
 
 AUTONOMOUS_ARM_ENV = "AUTONOMOUS_TRADING_ENABLED"
@@ -84,6 +85,8 @@ def main() -> None:
                 )
             )
         )
+        jobs.append(MetalsPaperTradingJob())
+        jobs.append(InternationalPaperTradingJob())
         jobs.append(DailyLearningJob(audit_db=args.audit_db))
 
     runtime = AutonomousRuntime(
@@ -99,6 +102,14 @@ def main() -> None:
         )
         runtime.disable_job(
             "oanda-fx-paper-trading",
+            f"Execution disarmed: {AUTONOMOUS_ARM_ENV} must be explicitly true",
+        )
+        runtime.disable_job(
+            "alpaca-metals-paper-trading",
+            f"Execution disarmed: {AUTONOMOUS_ARM_ENV} must be explicitly true",
+        )
+        runtime.disable_job(
+            "saxo-international-paper-trading",
             f"Execution disarmed: {AUTONOMOUS_ARM_ENV} must be explicitly true",
         )
     runtime.run_forever()
