@@ -411,6 +411,34 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
     else:
         errors.append("OANDA Streamlit secrets are not configured")
 
+    saxo_env = _secret("SAXO_ENV")
+    saxo_token = _secret("SAXO_ACCESS_TOKEN")
+    saxo_base = _secret("SAXO_BASE_URL")
+    if saxo_env and saxo_token and saxo_base:
+        try:
+            from autotrader.brokers.saxo_sim import SaxoConfigurationError, SaxoSimAdapter
+
+            summary = SaxoSimAdapter.from_env().account_summary()
+            pillar_status["International"]["connected"] = True
+            pillar_status["International"]["positions"] = 0
+            pillar_status["International"]["state"] = "CONNECTED / SCANNING"
+            metrics["gross_exposure"] += 0.0
+            _ = summary  # keep the read-only probe explicit and side-effect free
+        except SaxoConfigurationError as exc:
+            pillar_status["International"]["state"] = "AUTH REQUIRED"
+            errors.append(f"International auth required: {exc}")
+        except RuntimeError as exc:
+            message = str(exc)
+            if "401" in message or "auth" in message.lower() or "token" in message.lower():
+                pillar_status["International"]["state"] = "AUTH REQUIRED"
+                errors.append(f"International auth required: {exc}")
+            else:
+                pillar_status["International"]["state"] = "DEGRADED"
+                errors.append(f"International live read failed: {exc}")
+    else:
+        pillar_status["International"]["state"] = "AUTH REQUIRED"
+        errors.append("International Saxo SIM secrets are not configured")
+
     return positions, metrics, pillar_status, errors
 
 
@@ -873,6 +901,13 @@ def _render_dashboard_legacy() -> None:
         .block-container{padding-top:1.1rem;padding-bottom:3rem;max-width:1480px;}
         [data-testid="stHeader"]{background:rgba(5,11,21,.86);}
         [data-testid="stSidebar"]{background:linear-gradient(180deg,rgba(8,15,28,.98),rgba(10,18,33,.94));border-right:1px solid var(--line);}
+        [data-testid="stSidebar"] [data-testid="stSidebarNav"]{display:none;}
+        [data-testid="stSidebar"] .stRadio{margin-top:.75rem;}
+        [data-testid="stSidebar"] .stRadio [role="radiogroup"]{gap:.15rem;}
+        [data-testid="stSidebar"] .stRadio label{padding:.55rem .7rem;border-radius:12px;border:1px solid transparent;color:var(--text);background:rgba(255,255,255,.02);font-size:.9rem;line-height:1.25;}
+        [data-testid="stSidebar"] .stRadio label:hover{border-color:rgba(215,181,109,.35);background:rgba(215,181,109,.06);}
+        [data-testid="stSidebar"] .stRadio label[data-checked="true"],[data-testid="stSidebar"] .stRadio label:has(input:checked){border-color:rgba(215,181,109,.85);background:rgba(215,181,109,.12);box-shadow:0 0 0 1px rgba(215,181,109,.25) inset;}
+        [data-testid="stSidebar"] .stRadio label p{color:inherit;font-weight:600;}
         [data-testid="stMetric"],.panel,.pillar,.table-panel,.brand-box,.status-card{background:linear-gradient(180deg,rgba(17,26,45,.98),rgba(10,18,33,.95));border:1px solid var(--line);border-radius:18px;box-shadow:0 16px 40px rgba(0,0,0,.24);}
         [data-testid="stMetric"]{padding:.15rem .3rem;}
         [data-testid="stMetricLabel"]{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;}
@@ -883,8 +918,6 @@ def _render_dashboard_legacy() -> None:
         .brand-mark{display:flex;align-items:center;justify-content:center;width:3rem;height:3rem;border-radius:16px;border:1px solid var(--gold);color:var(--gold);font-weight:800;margin-bottom:.75rem;background:rgba(215,181,109,.06);}
         .brand-name{font-size:1rem;font-weight:800;text-transform:uppercase;letter-spacing:.14em;}
         .brand-sub,.brand-footer{color:var(--muted);font-size:.83rem;margin-top:.25rem;}
-        .sidebar-nav{margin-top:1rem;display:grid;gap:.45rem;}
-        .nav-chip{padding:.55rem .7rem;border-radius:999px;border:1px solid var(--line);color:var(--text);background:rgba(255,255,255,.02);font-size:.86rem;}
         .status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem;margin:.25rem 0 1rem;}
         .status-card{padding:.95rem 1rem;}
         .status-label{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.14em;}
@@ -928,9 +961,6 @@ def _render_dashboard_legacy() -> None:
           <div class="brand-sub">FIVE-PILLAR AUTONOMOUS SYSTEM</div>
           <div class="brand-sub">Christopher J. Haake</div>
           <div class="brand-footer">Research. Discipline. Execution.</div>
-        </div>
-        <div class="sidebar-nav">
-          <div class="nav-chip">OVERVIEW</div><div class="nav-chip">PILLARS</div><div class="nav-chip">POSITIONS</div><div class="nav-chip">TRADES</div><div class="nav-chip">LEARNING</div><div class="nav-chip">PERFORMANCE</div><div class="nav-chip">RISK &amp; HEALTH</div><div class="nav-chip">EXECUTION LOG</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1474,20 +1504,43 @@ def _render_execution_log_view(ctx: dict[str, object]) -> None:
 
 
 def render_dashboard() -> None:
-    st.markdown("<meta http-equiv='refresh' content='25'>", unsafe_allow_html=True)
+    last_refreshed = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    st.session_state["dashboard_last_refreshed"] = last_refreshed
     st.markdown(_dashboard_css(), unsafe_allow_html=True)
     st.sidebar.markdown(
         """
         <div class="brand-box">
           <div class="brand-mark">CH</div>
           <div class="brand-name">Chris Haake<br>Capital Systems</div>
-          <div class="brand-sub">FIVE-PILLAR AUTONOMOUS SYSTEM</div>
-          <div class="brand-sub">Christopher J. Haake</div>
-          <div class="brand-footer">Research. Discipline. Execution.</div>
+        <div class="brand-sub">FIVE-PILLAR AUTONOMOUS SYSTEM</div>
+        <div class="brand-sub">Christopher J. Haake</div>
+        <div class="brand-footer">Research. Discipline. Execution.</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    auto_refresh = st.sidebar.toggle("Auto Refresh", value=bool(st.session_state.get("dashboard_auto_refresh", True)))
+    st.session_state["dashboard_auto_refresh"] = auto_refresh
+    refresh_interval = st.sidebar.radio(
+        "Refresh Interval",
+        ["30 seconds", "60 seconds", "120 seconds"],
+        index=["30 seconds", "60 seconds", "120 seconds"].index(
+            str(st.session_state.get("dashboard_refresh_interval", "60 seconds"))
+        )
+        if str(st.session_state.get("dashboard_refresh_interval", "60 seconds")) in {"30 seconds", "60 seconds", "120 seconds"}
+        else 1,
+        horizontal=False,
+        key="dashboard_refresh_interval_widget",
+    )
+    st.session_state["dashboard_refresh_interval"] = refresh_interval
+    if st.sidebar.button("Refresh Now", use_container_width=True):
+        st.rerun()
+    if auto_refresh:
+        interval_seconds = {"30 seconds": 30, "60 seconds": 60, "120 seconds": 120}.get(refresh_interval, 60)
+        st.markdown(f"<meta http-equiv='refresh' content='{interval_seconds}'>", unsafe_allow_html=True)
+        st.sidebar.caption(f"Last refreshed: {last_refreshed}")
+    else:
+        st.sidebar.caption(f"Auto refresh paused · Last refreshed: {last_refreshed}")
     selected_view = st.sidebar.radio(
         "Navigation",
         ["OVERVIEW", "PILLARS", "POSITIONS", "TRADES", "LEARNING", "PERFORMANCE", "RISK & HEALTH", "EXECUTION LOG"],
