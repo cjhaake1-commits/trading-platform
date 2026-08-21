@@ -232,18 +232,27 @@ elif runtime.get("execution_state") == "faulted":
 st.subheader("Cash and equity")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Original funded/simulated capital", _money(cash.get("original_capital", TOTAL_BASE_CAPITAL)))
-c2.metric("Net trading cash generated", _money(cash.get("net_trading_cash_generated", 0.0)))
-c3.metric("Available cash", _money(cash.get("available_cash", TOTAL_BASE_CAPITAL)))
-c4.metric("Protected / harvested reserve", _money(cash.get("protected_cash_reserve", 0.0)))
+c2.metric("Daily Net Trading Cash Generated", _money(cash.get("net_trading_cash_generated", 0.0)))
+c3.metric("Cumulative Net Trading Cash Generated", _money(cash.get("net_trading_cash_generated", 0.0)))
+c4.metric("Available Cash", _money(cash.get("available_cash", TOTAL_BASE_CAPITAL)))
 c5, c6, c7, c8 = st.columns(4)
-c5.metric("Capital currently deployed", _money(cash.get("capital_deployed", 0.0)))
-c6.metric("Unrealized P&L", _money(cash.get("unrealized_pnl", 0.0)))
-c7.metric("Total portfolio equity", _money(cash.get("total_portfolio_equity", TOTAL_BASE_CAPITAL)))
-c8.metric("Generated cash ratio", _pct(cash.get("generated_cash_ratio", 0.0)))
-st.metric("Realized return", _pct(cash.get("realized_return", cash.get("generated_cash_ratio", 0.0))))
+c5.metric("Protected / Harvested Cash", _money(cash.get("protected_cash_reserve", 0.0)))
+c6.metric("Capital Deployed", _money(cash.get("capital_deployed", 0.0)))
+c7.metric("Unrealized P&L", _money(cash.get("unrealized_pnl", 0.0)))
+c8.metric("Total Strategy Equity", _money(cash.get("total_portfolio_equity", TOTAL_BASE_CAPITAL)))
+st.metric("Daily Realized Return", _pct(cash.get("daily_realized_return", cash.get("realized_return", 0.0))))
+st.metric("Daily Unrealized Return", _pct(cash.get("daily_unrealized_return", 0.0)))
+st.metric("Cumulative Realized Return", _pct(cash.get("cumulative_realized_return", cash.get("realized_return", 0.0))))
+st.metric("Distance to 20%", _pct(cash.get("benchmark_distance_to_20_pct", 0.0)))
+st.metric("Distance to 40%", _pct(cash.get("benchmark_distance_to_40_pct", 0.0)))
+st.metric("Generated Cash Ratio", _pct(cash.get("generated_cash_ratio", 0.0)))
 st.caption(
-    "Net trading cash includes realized profits and losses less commissions, "
-    "fees, and trading costs. Unrealized gains are excluded."
+    "20%-40% DAILY RETURN is a STRETCH BENCHMARK - REPORTING ONLY. "
+    "$20-$305 DAILY REALIZED CASH is an OPERATING BENCHMARK - REPORTING ONLY. "
+    "Benchmarks do not force trades. Cash/no-trade remains valid. "
+    "Unrealized gains do not count toward realized-cash success. "
+    "Risk limits and $1,000 pillar caps cannot be raised to chase benchmarks. "
+    "Live trading remains disabled."
 )
 
 st.subheader("Realized P&L and internal allocation by pillar")
@@ -282,6 +291,40 @@ st.table(
         }
         for pillar, metrics in pillar_performance.items()
         if isinstance(metrics, dict)
+    ]
+)
+
+st.subheader("Learning")
+st.caption(
+    "The bounded learner optimizes sustainable realized cash and risk-adjusted return, not benchmark chasing."
+)
+learning = data.get("learning") if isinstance(data.get("learning"), dict) else {}
+learning_model_state = learning.get("model_state") if isinstance(learning.get("model_state"), dict) else {}
+learning_stats = learning.get("stats") if isinstance(learning.get("stats"), dict) else {}
+learning_parameters = learning.get("parameters") if isinstance(learning.get("parameters"), dict) else {}
+promotion_list = (
+    learning_model_state.get("promotions")
+    if isinstance(learning_model_state.get("promotions"), list)
+    else []
+)
+recent_change = promotion_list[-1] if promotion_list else "none"
+st.table(
+    [
+        {"Field": "Baseline model", "Value": learning_model_state.get("baseline_version", "five_pillar_baseline_v1")},
+        {
+            "Field": "Challenger model",
+            "Value": learning_model_state.get("challenger_version", "challenger_candidate_v1"),
+        },
+        {"Field": "Completed-trade sample size", "Value": learning_stats.get("completed_trades", 0)},
+        {"Field": "Learning status", "Value": learning_stats.get("sample_status", "collecting_evidence")},
+        {"Field": "Current bounded parameters", "Value": json.dumps(learning_parameters, sort_keys=True)},
+        {"Field": "Recent parameter changes", "Value": json.dumps(learning.get("history", [])[-3:], sort_keys=True)},
+        {
+            "Field": "Promotion eligibility",
+            "Value": learning_model_state.get("next_promotion_eligible_at", "not scheduled"),
+        },
+        {"Field": "Most recent promotion / rollback", "Value": recent_change},
+        {"Field": "Realized cash contribution by model", "Value": learning_stats.get("cumulative_realized_pnl", 0.0)},
     ]
 )
 

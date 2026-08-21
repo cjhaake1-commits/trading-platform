@@ -104,13 +104,13 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
     learning = _read_learning()
     portfolio = ledger.get("portfolio") or {}
     positions = ledger.get("positions") or []
+    cash_dashboard = ledger.get("cash_dashboard") or {}
     jobs = status.get("jobs") if isinstance(status.get("jobs"), dict) else {}
     paper_job = jobs.get("autonomous-paper-trading") if isinstance(jobs, dict) else None
     health_job = jobs.get("health") if isinstance(jobs, dict) else None
 
     equity = portfolio.get("equity")
     peak = portfolio.get("peak_equity")
-    daily_pnl = portfolio.get("daily_pnl")
     weekly_pnl = portfolio.get("weekly_pnl")
     drawdown = None
     try:
@@ -118,6 +118,12 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
             drawdown = max((float(peak) - float(equity)) / float(peak), 0.0)
     except Exception:
         pass
+
+    def _pct(value) -> str:
+        try:
+            return f"{float(value) * 100:.2f}%"
+        except Exception:
+            return "â€”"
 
     runtime_live = bool(status.get("last_heartbeat_at")) and bool(paper_job) and not bool(
         (paper_job or {}).get("disabled")
@@ -162,6 +168,24 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
     next_promotion = html.escape(str(learning_state.get("next_promotion_eligible_at") or "not scheduled"))
     latest_promotion_ts = html.escape(str(latest_promotion.get("timestamp") or "none"))
     latest_promotion_target = html.escape(str(latest_promotion.get("to") or "none"))
+    autonomous_label = "ARMED" if status.get("autonomous_enabled") else "DISARMED"
+    daily_net_cash = _fmt_money(cash_dashboard.get("net_trading_cash_generated"))
+    cumulative_net_cash = _fmt_money(cash_dashboard.get("net_trading_cash_generated"))
+    daily_realized_return = _pct(cash_dashboard.get("daily_realized_return") or cash_dashboard.get("realized_return"))
+    daily_unrealized_return = _pct(cash_dashboard.get("daily_unrealized_return"))
+    cumulative_realized_return = _pct(
+        cash_dashboard.get("cumulative_realized_return") or cash_dashboard.get("realized_return")
+    )
+    distance_to_20 = _pct(cash_dashboard.get("benchmark_distance_to_20_pct"))
+    distance_to_40 = _pct(cash_dashboard.get("benchmark_distance_to_40_pct"))
+    available_cash = _fmt_money(cash_dashboard.get("available_cash"))
+    protected_cash = _fmt_money(cash_dashboard.get("protected_cash_reserve"))
+    capital_deployed = _fmt_money(cash_dashboard.get("capital_deployed"))
+    unrealized_pnl = _fmt_money(cash_dashboard.get("unrealized_pnl"))
+    cumulative_net_cash_card = (
+        "<div class='card'><div class='k'>Cumulative Net Trading Cash Generated</div>"
+        f"<div class='v'>{cumulative_net_cash}</div></div>"
+    )
     learning_rows = "".join(
         f"<tr><td>{html.escape(str(item.get('parameter', '')))}</td>"
         f"<td>{html.escape(str(item.get('old_value', '')))}</td>"
@@ -191,7 +215,19 @@ section{{margin-top:24px}} code{{color:#b8c7ff}} .meta{{font-size:13px;color:#9a
 <div class='grid'>
 <div class='card'><div class='k'>Runtime</div><div class='v {runtime_class}'>{runtime_label}</div></div>
 <div class='card'><div class='k'>Portfolio Equity</div><div class='v'>{_fmt_money(equity)}</div></div>
-<div class='card'><div class='k'>Daily P&L</div><div class='v'>{_fmt_money(daily_pnl)}</div></div>
+<div class='card'><div class='k'>Autonomous PAPER</div><div class='v {runtime_class}'>{autonomous_label}</div></div>
+<div class='card'><div class='k'>Live Trading</div><div class='v good'>DISABLED</div></div>
+<div class='card'><div class='k'>Daily Net Trading Cash Generated</div><div class='v'>{daily_net_cash}</div></div>
+{cumulative_net_cash_card}
+<div class='card'><div class='k'>Daily Realized Return</div><div class='v'>{daily_realized_return}</div></div>
+<div class='card'><div class='k'>Daily Unrealized Return</div><div class='v'>{daily_unrealized_return}</div></div>
+<div class='card'><div class='k'>Cumulative Realized Return</div><div class='v'>{cumulative_realized_return}</div></div>
+<div class='card'><div class='k'>Distance to 20%</div><div class='v'>{distance_to_20}</div></div>
+<div class='card'><div class='k'>Distance to 40%</div><div class='v'>{distance_to_40}</div></div>
+<div class='card'><div class='k'>Available Cash</div><div class='v'>{available_cash}</div></div>
+<div class='card'><div class='k'>Protected / Harvested Cash</div><div class='v'>{protected_cash}</div></div>
+<div class='card'><div class='k'>Capital Deployed</div><div class='v'>{capital_deployed}</div></div>
+<div class='card'><div class='k'>Unrealized P&L</div><div class='v'>{unrealized_pnl}</div></div>
 <div class='card'><div class='k'>Weekly P&L</div><div class='v'>{_fmt_money(weekly_pnl)}</div></div>
 <div class='card'><div class='k'>Peak Drawdown</div><div class='v'>{_fmt_pct(drawdown)}</div></div>
 <div class='card'><div class='k'>Open Positions</div><div class='v'>{len(positions)}</div></div>
@@ -212,6 +248,7 @@ Health job disabled: <code>{html.escape(str((health_job or {}).get('disabled','â
 <div class='card'><div class='k'>Status</div><div class='v'>{sample_status}</div></div>
 </div>
 <div class='card meta'>
+Daily realized return target is a stretch benchmark only, not a constraint.<br>
 Next promotion eligible: <code>{next_promotion}</code><br>
 Latest promotion: <code>{latest_promotion_ts}</code><br>
 Latest promotion target: <code>{latest_promotion_target}</code><br>

@@ -32,6 +32,11 @@ class CashDashboardMetrics:
     total_portfolio_equity: float
     generated_cash_ratio: float
     realized_return: float
+    daily_realized_return: float
+    daily_unrealized_return: float
+    cumulative_realized_return: float
+    benchmark_distance_to_20_pct: float
+    benchmark_distance_to_40_pct: float
     realized_pnl_by_pillar: dict[str, float]
     pillar_allocations: dict[str, float]
     broker_reported_virtual_equity: float | None = None
@@ -47,6 +52,11 @@ class CashDashboardMetrics:
             "total_portfolio_equity": self.total_portfolio_equity,
             "generated_cash_ratio": self.generated_cash_ratio,
             "realized_return": self.realized_return,
+            "daily_realized_return": self.daily_realized_return,
+            "daily_unrealized_return": self.daily_unrealized_return,
+            "cumulative_realized_return": self.cumulative_realized_return,
+            "benchmark_distance_to_20_pct": self.benchmark_distance_to_20_pct,
+            "benchmark_distance_to_40_pct": self.benchmark_distance_to_40_pct,
             "realized_pnl_by_pillar": dict(self.realized_pnl_by_pillar),
             "pillar_allocations": dict(self.pillar_allocations),
             "broker_reported_virtual_equity": self.broker_reported_virtual_equity,
@@ -78,6 +88,9 @@ def aggregate_cash_dashboard(
         unrealized += _number(position.get("unrealized_pnl"))
 
     equity = original_capital + net_cash + unrealized
+    daily_realized_return = net_cash / original_capital if original_capital else 0.0
+    daily_unrealized_return = unrealized / original_capital if original_capital else 0.0
+    cumulative_realized_return = daily_realized_return
     return CashDashboardMetrics(
         original_capital=original_capital,
         net_trading_cash_generated=net_cash,
@@ -86,8 +99,13 @@ def aggregate_cash_dashboard(
         capital_deployed=deployed,
         unrealized_pnl=unrealized,
         total_portfolio_equity=equity,
-        generated_cash_ratio=net_cash / original_capital if original_capital else 0.0,
-        realized_return=net_cash / original_capital if original_capital else 0.0,
+        generated_cash_ratio=daily_realized_return,
+        realized_return=daily_realized_return,
+        daily_realized_return=daily_realized_return,
+        daily_unrealized_return=daily_unrealized_return,
+        cumulative_realized_return=cumulative_realized_return,
+        benchmark_distance_to_20_pct=0.20 - daily_realized_return,
+        benchmark_distance_to_40_pct=0.40 - daily_realized_return,
         realized_pnl_by_pillar=realized_by_pillar,
         pillar_allocations=dict(DISPLAY_ALLOCATIONS),
         broker_reported_virtual_equity=broker_reported_virtual_equity,
