@@ -646,28 +646,11 @@ def _render_overview(ctx: dict[str, object]) -> None:
     broker_account = ctx["broker_account"] if isinstance(ctx["broker_account"], dict) else {}
     legacy_positions = ctx["legacy_positions"] if isinstance(ctx["legacy_positions"], list) else []
     experiment = ctx["experiment"] if isinstance(ctx["experiment"], dict) else {}
-    runtime_labels = ctx["runtime_labels"]
-    st.markdown(
-        """
-        <div class="hero-title">FIVE-PILLAR AUTONOMOUS TRADING COMMAND CENTER</div>
-        <div class="hero-sub">Research · Execution · Learning · Capital Discipline</div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.caption("CHRIS HAAKE CAPITAL SYSTEMS")
+    st.markdown("<div class='section-title'>Overview</div>", unsafe_allow_html=True)
     st.markdown(
         f"""
         <div class="small-note">Runtime source: <strong>{escape(str(ctx['runtime_source']))}</strong> · freshness: <strong>{escape(str(ctx['runtime_source_age']))}</strong></div>
-        <div class="status-grid">
-          <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {'status-healthy' if runtime_labels['runtime_health'] == 'Healthy' else 'status-faulted'}">{escape(runtime_labels['runtime_health'])}</div></div>
-          <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {'status-armed' if ctx['autonomous_state'] == 'ARMED' else 'status-disarmed'}">{escape(str(ctx['autonomous_state']))}</div></div>
-          <div class="status-card"><div class="status-label">LIVE TRADING</div><div class="status-value status-disabled">{escape(str(ctx['live_state']))}</div></div>
-          <div class="status-card"><div class="status-label">FIVE-PILLAR STATUS</div><div class="status-value">{escape(str(ctx['five_state']))}</div></div>
-          <div class="status-card"><div class="status-label">LEARNING ENGINE</div><div class="status-value">{escape(str(ctx['learning_engine_state']))}</div></div>
-          <div class="status-card"><div class="status-label">LAST HEARTBEAT</div><div class="status-value">{escape(str(ctx['heartbeat_age']))}</div></div>
-          <div class="status-card"><div class="status-label">LAST CYCLE</div><div class="status-value">{escape(str(ctx['cycle_age']))}</div></div>
-          <div class="status-card"><div class="status-label">CURRENT UTC</div><div class="status-value">{escape(datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S'))} UTC</div></div>
-        </div>
+        <div class="small-note">The active experiment only counts <strong>five_pillar_paper_v2</strong> evidence; legacy history remains visible but isolated.</div>
         """,
         unsafe_allow_html=True,
     )
@@ -694,6 +677,12 @@ def _render_overview(ctx: dict[str, object]) -> None:
     cols[1].metric("Capital Deployed", _money(ctx["deployed"]))
     cols[2].metric("Available Cash", _money(ctx["available_cash"]))
     cols[3].metric("Protected / Harvested Cash", _money(ctx["protected_cash"]))
+    util_cols = st.columns(4)
+    util_pct = (ctx["deployed"] / ctx["original_capital"] * 100.0) if ctx["original_capital"] else 0.0
+    util_cols[0].metric("Capital Utilization", f"{_money(ctx['deployed'])} / {_money(ctx['original_capital'])}")
+    util_cols[1].metric("Utilization %", f"{util_pct:.1f}%")
+    util_cols[2].metric("Capital Reserved", _money(max(ctx["original_capital"] - ctx["deployed"] - ctx["available_cash"], 0.0)))
+    util_cols[3].metric("Capital Blocked", _money(_float(runtime.get("unresolved_manifest_count"), 0.0)))
     cols = st.columns(4)
     cols[0].metric("Daily Net Trading Cash", _money(ctx["net_cash"]))
     cols[1].metric("Cumulative Net Trading Cash", _money(ctx["net_cash"]))
@@ -719,6 +708,33 @@ def _render_overview(ctx: dict[str, object]) -> None:
         f"""
         <div class="small-note">Controlled experiment: <strong>{escape(str(experiment.get("experiment_id") or "five_pillar_paper_v2"))}</strong> · baseline start: <strong>{escape(str(experiment.get("baseline_start_time") or "UNAVAILABLE"))}</strong></div>
         <div class="small-note">Legacy broker history is visible above, but the active strategy experiment only counts learning-eligible evidence from the controlled baseline forward.</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='section-title'>Capital Utilization by Pillar</div>", unsafe_allow_html=True)
+    pillar_util_rows = []
+    for name, data in _pillars_from_snapshot(ctx["snapshot"]).items():
+        deployed = _float(data.get("deployed"))
+        cap = _float(data.get("cap"))
+        available = _float(data.get("available"))
+        reason = "HOLDING CASH" if deployed <= 0 else "DEPLOYED"
+        if name == "International" and any("Saxo SIM HTTP 401" in str(err) for err in ctx.get("live_errors") or []):
+            reason = "AUTH REQUIRED"
+        elif name == "Forex" and any("position already open" in str(row.get("reason")) for row in ctx.get("activity", []) if isinstance(row, dict)):
+            reason = "SAME-SYMBOL CONFLICT"
+        pillar_util_rows.append(
+            f"<tr><td>{escape(name)}</td><td>{_money(deployed)}</td><td>{_money(cap)}</td><td>{_pct(deployed / cap if cap else 0.0)}</td><td>{_money(available)}</td><td>{escape(reason)}</td></tr>"
+        )
+    st.markdown(
+        """
+        <div class="table-panel">
+          <table>
+            <thead><tr><th>Pillar</th><th>Deployed</th><th>Cap</th><th>Utilization</th><th>Available</th><th>Idle Capital Reason</th></tr></thead>
+            <tbody>
+        """ + "".join(pillar_util_rows) + """
+            </tbody>
+          </table>
+        </div>
         """,
         unsafe_allow_html=True,
     )

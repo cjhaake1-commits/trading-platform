@@ -494,6 +494,11 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     active_positions = [row for row in classified_positions if row.get("learning_eligible")]
     legacy_positions = [row for row in classified_positions if not row.get("learning_eligible")]
     active_records = _aggregate_experiment_records([*fills, *pillar_trades], experiment_start=experiment_start)
+    active_deployed = sum(_float(row.get("market_value")) for row in active_positions)
+    active_realized_cash = sum(
+        _float(record.get("realized_pnl")) - _float(record.get("fees_costs"))
+        for record in active_records
+    )
 
     jobs = status.get("jobs") if isinstance(status.get("jobs"), dict) else {}
     auto = jobs.get("autonomous-paper-trading") if isinstance(jobs, dict) else {}
@@ -531,7 +536,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     active_cash_dashboard = aggregate_cash_dashboard(
         realized_records=active_records,
         positions=active_positions,
-        available_cash=max(TOTAL_PAPER_CAPITAL, 0.0),
+        available_cash=max(TOTAL_PAPER_CAPITAL + active_realized_cash - active_deployed, 0.0),
         original_capital=TOTAL_PAPER_CAPITAL,
         broker_reported_virtual_equity=_float((alpaca_connection.details or {}).get("equity"))
         if alpaca_connection.ok
