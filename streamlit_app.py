@@ -126,6 +126,11 @@ def load_live_runtime_status() -> dict[str, object]:
     return _safe_json(Path("var/autotrader/status.json"))
 
 
+@st.cache_data(ttl=60)
+def load_experiment_state() -> dict[str, object]:
+    return _safe_json(Path("var/autotrader/experiment.json"))
+
+
 def _pillars_from_snapshot(snapshot: dict[str, object]) -> dict[str, dict[str, object]]:
     performance = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     positions = snapshot.get("positions") if isinstance(snapshot.get("positions"), list) else []
@@ -451,6 +456,8 @@ def _position_row(position: dict[str, object]) -> str:
     protection = str(position.get("crypto_protection_state") or position.get("protection_state") or "—")
     lifecycle = str(position.get("crypto_lifecycle_state") or position.get("lifecycle_state") or "—")
     recon = str(position.get("crypto_reconciliation_status") or position.get("reconciliation_status") or "—")
+    classification = str(position.get("classification") or "UNRESOLVED")
+    learning_eligible = "YES" if position.get("learning_eligible") else "NO"
     stop = position.get("crypto_stop_price") if position.get("crypto_stop_price") is not None else position.get("stop_price")
     return (
         "<tr>"
@@ -469,6 +476,8 @@ def _position_row(position: dict[str, object]) -> str:
         f"<td>{escape(str(position.get('manifest_id') or '—'))}</td>"
         f"<td>{escape(lifecycle)}</td>"
         f"<td>{escape(recon)}</td>"
+        f"<td>{escape(classification)}</td>"
+        f"<td>{escape(learning_eligible)}</td>"
         "</tr>"
     )
 
@@ -510,6 +519,7 @@ def _decision_row(row: dict[str, object]) -> str:
 def _build_dashboard_context() -> dict[str, object]:
     live_runtime = load_live_runtime_status()
     snapshot = load_snapshot()
+    experiment = load_experiment_state()
     runtime = live_runtime if live_runtime else (snapshot.get("runtime", {}) if isinstance(snapshot.get("runtime"), dict) else {})
     runtime_source = "LIVE VM" if live_runtime else ("PUBLISHED SNAPSHOT" if snapshot else "UNAVAILABLE")
     runtime_source_age = _path_age_label(Path("var/autotrader/status.json")) if live_runtime else _age_label(runtime.get("last_heartbeat_at")) if runtime else "UNAVAILABLE"
@@ -517,10 +527,15 @@ def _build_dashboard_context() -> dict[str, object]:
     learning = snapshot.get("learning") if isinstance(snapshot.get("learning"), dict) else {}
     live_positions, live_metrics, live_pillar_status, live_errors = fetch_live_broker_data()
     snapshot_positions = snapshot.get("positions") if isinstance(snapshot.get("positions"), list) else []
-    positions = _build_live_positions(snapshot_positions, live_positions)
+    broker_positions = _build_live_positions(snapshot_positions, live_positions)
+    active_positions = snapshot.get("active_positions") if isinstance(snapshot.get("active_positions"), list) else []
+    legacy_positions = snapshot.get("legacy_positions") if isinstance(snapshot.get("legacy_positions"), list) else []
+    positions = _build_live_positions(active_positions, live_positions)
     unresolved = snapshot.get("unresolved_manifests") if isinstance(snapshot.get("unresolved_manifests"), list) else []
     pillar_performance = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
+    legacy_cash = snapshot.get("legacy_cash_dashboard") if isinstance(snapshot.get("legacy_cash_dashboard"), dict) else {}
+    broker_account = snapshot.get("broker_account") if isinstance(snapshot.get("broker_account"), dict) else {}
     activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
     trades = snapshot.get("trades") if isinstance(snapshot.get("trades"), list) else []
     orders = snapshot.get("orders") if isinstance(snapshot.get("orders"), list) else []
@@ -575,6 +590,7 @@ def _build_dashboard_context() -> dict[str, object]:
     dist_high = 0.40 - daily_realized
     return {
         "snapshot": snapshot,
+        "experiment": experiment,
         "runtime": runtime,
         "runtime_source": runtime_source,
         "runtime_source_age": runtime_source_age,
@@ -584,10 +600,15 @@ def _build_dashboard_context() -> dict[str, object]:
         "live_metrics": live_metrics,
         "live_pillar_status": live_pillar_status,
         "live_errors": live_errors,
+        "broker_positions": broker_positions,
         "positions": positions,
+        "active_positions": active_positions,
+        "legacy_positions": legacy_positions,
         "unresolved": unresolved,
         "pillar_performance": pillar_performance,
         "cash": cash,
+        "legacy_cash": legacy_cash,
+        "broker_account": broker_account,
         "activity": activity,
         "trades": trades,
         "orders": orders,
@@ -622,6 +643,9 @@ def _render_overview(ctx: dict[str, object]) -> None:
     unresolved = ctx["unresolved"]
     learning = ctx["learning"]
     positions = ctx["positions"]
+    broker_account = ctx["broker_account"] if isinstance(ctx["broker_account"], dict) else {}
+    legacy_positions = ctx["legacy_positions"] if isinstance(ctx["legacy_positions"], list) else []
+    experiment = ctx["experiment"] if isinstance(ctx["experiment"], dict) else {}
     runtime_labels = ctx["runtime_labels"]
     st.markdown(
         """
@@ -680,6 +704,24 @@ def _render_overview(ctx: dict[str, object]) -> None:
     cols[1].metric("Daily Unrealized Return", _pct(ctx["daily_unrealized"]))
     cols[2].metric("Cumulative Realized Return", _pct(ctx["cumulative_realized"]))
     cols[3].metric("Generated Cash Ratio", _pct(ctx["generated_cash_ratio"]))
+    st.markdown("<div class='section-title'>Broker Paper Account History</div>", unsafe_allow_html=True)
+    broker_cols = st.columns(4)
+    broker_cols[0].metric("Broker Equity Proxy", _money((broker_account or {}).get("equity_proxy")))
+    broker_cols[1].metric("Broker Gross Exposure", _money((broker_account or {}).get("gross_exposure")))
+    broker_cols[2].metric("Broker Unrealized P&L", _money((broker_account or {}).get("unrealized_pnl")))
+    broker_cols[3].metric("Legacy Positions", str(len(legacy_positions)))
+    exp_cols = st.columns(4)
+    exp_cols[0].metric("Experiment ID", str(experiment.get("experiment_id") or "five_pillar_paper_v2"))
+    exp_cols[1].metric("Experiment Baseline", str(experiment.get("baseline_start_time") or "UNAVAILABLE"))
+    exp_cols[2].metric("Active Experiment Positions", str(len(ctx.get("active_positions") or [])))
+    exp_cols[3].metric("Controlled Baseline Capital", _money(TOTAL_BASE_CAPITAL))
+    st.markdown(
+        f"""
+        <div class="small-note">Controlled experiment: <strong>{escape(str(experiment.get("experiment_id") or "five_pillar_paper_v2"))}</strong> · baseline start: <strong>{escape(str(experiment.get("baseline_start_time") or "UNAVAILABLE"))}</strong></div>
+        <div class="small-note">Legacy broker history is visible above, but the active strategy experiment only counts learning-eligible evidence from the controlled baseline forward.</div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown("<div class='section-title'>Open Positions</div>", unsafe_allow_html=True)
     if positions:
         rows_html = "".join(_position_row(row) for row in positions)
@@ -687,7 +729,7 @@ def _render_overview(ctx: dict[str, object]) -> None:
             f"""
             <div class="table-panel">
               <table>
-                <thead><tr><th>Pillar</th><th>Broker</th><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Market Value</th><th>Unrealized P&L</th><th>Return %</th><th>Stop</th><th>Target</th><th>Protection</th><th>Manifest</th><th>Lifecycle</th><th>Reconciliation</th></tr></thead>
+                <thead><tr><th>Pillar</th><th>Broker</th><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Market Value</th><th>Unrealized P&L</th><th>Return %</th><th>Stop</th><th>Target</th><th>Protection</th><th>Manifest</th><th>Lifecycle</th><th>Reconciliation</th><th>Classification</th><th>Learning Eligible</th></tr></thead>
                 <tbody>{rows_html}</tbody>
               </table>
             </div>
@@ -1021,7 +1063,7 @@ def _render_dashboard_legacy() -> None:
             f"""
             <div class="table-panel">
               <table>
-                <thead><tr><th>Pillar</th><th>Broker</th><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Market Value</th><th>Unrealized P&L</th><th>Return %</th><th>Stop</th><th>Target</th><th>Protection</th><th>Manifest</th><th>Lifecycle</th><th>Reconciliation</th></tr></thead>
+                <thead><tr><th>Pillar</th><th>Broker</th><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Market Value</th><th>Unrealized P&L</th><th>Return %</th><th>Stop</th><th>Target</th><th>Protection</th><th>Manifest</th><th>Lifecycle</th><th>Reconciliation</th><th>Classification</th><th>Learning Eligible</th></tr></thead>
                 <tbody>{rows_html}</tbody>
               </table>
             </div>
@@ -1240,7 +1282,7 @@ def _render_positions_view(ctx: dict[str, object]) -> None:
             f"""
             <div class="table-panel">
               <table>
-                <thead><tr><th>Pillar</th><th>Broker</th><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Market Value</th><th>Unrealized P&amp;L</th><th>Return %</th><th>Stop</th><th>Target</th><th>Protection</th><th>Manifest</th><th>Lifecycle</th><th>Reconciliation</th></tr></thead>
+                <thead><tr><th>Pillar</th><th>Broker</th><th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Market Value</th><th>Unrealized P&amp;L</th><th>Return %</th><th>Stop</th><th>Target</th><th>Protection</th><th>Manifest</th><th>Lifecycle</th><th>Reconciliation</th><th>Classification</th><th>Learning Eligible</th></tr></thead>
                 <tbody>{rows_html}</tbody>
               </table>
             </div>

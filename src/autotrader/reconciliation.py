@@ -173,7 +173,7 @@ def classify_unresolved_manifests(
             and recent_orders_snapshot_complete
         )
         if order is None:
-            if not recent_orders_snapshot_complete:
+            if not snapshot_complete:
                 output.append(
                     ManifestClassification(
                         manifest_id=manifest_id,
@@ -222,6 +222,25 @@ def classify_unresolved_manifests(
             continue
         status = str(order.status or "").lower()
         filled_qty = abs(order.filled_qty)
+        if not snapshot_complete and filled_qty <= 1e-12 and status not in {
+            "canceled",
+            "expired",
+            "rejected",
+        }:
+            output.append(
+                ManifestClassification(
+                    manifest_id=manifest_id,
+                    symbol=symbol,
+                    lifecycle_state="reconciliation_deferred",
+                    reconciliation_status="reconciliation_deferred",
+                    broker_order_id=broker_order_id,
+                    filled_quantity=None,
+                    broker_position_quantity=broker_position_quantity,
+                    resolution_reason="broker snapshot incomplete; reconciliation deferred",
+                    snapshot_complete=False,
+                )
+            )
+            continue
         if status in {"canceled", "expired", "rejected"} and filled_qty <= 1e-12:
             output.append(
                 ManifestClassification(

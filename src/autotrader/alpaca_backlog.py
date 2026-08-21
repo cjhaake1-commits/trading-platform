@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,6 +12,7 @@ from .brokers.safety import (
     _alpaca_headers,
     _request,
 )
+from .experiment_state import ensure_experiment_state
 from .portfolio_ledger import PortfolioLedger
 from .reconciliation import (
     BrokerOrderSnapshot,
@@ -64,6 +66,13 @@ class AlpacaBacklogResult:
     unresolved_after: int
 
 
+@dataclass(frozen=True)
+class AlpacaBacklogCheckpoint:
+    next_manifest_index: int = 0
+    last_manifest_id: str | None = None
+    updated_at: str | None = None
+
+
 def _canonical_symbol(symbol: str) -> str:
     normalized = symbol.strip().upper().replace("_", "/")
     if "/" in normalized:
@@ -77,6 +86,25 @@ def _canonical_symbol(symbol: str) -> str:
 def _is_managed(order: BrokerOrderSnapshot) -> bool:
     client = (order.client_order_id or "").strip().lower()
     return client.startswith("auto-")
+
+
+def _manifest_is_legacy(
+    manifest: dict[str, object],
+    *,
+    experiment_id: str,
+    baseline_time: datetime,
+) -> bool:
+    metadata = manifest.get("metadata")
+    if isinstance(metadata, dict) and metadata.get("experiment_id") not in {None, ""}:
+        return str(metadata.get("experiment_id")).strip() != experiment_id
+    created_at = manifest.get("created_at")
+    if created_at is None:
+        return True
+    try:
+        created = _utc_datetime(created_at)
+    except Exception:
+        return True
+    return created < baseline_time
 
 
 def _parse_position(row: dict[str, object]) -> BrokerPosition | None:
@@ -122,6 +150,7 @@ def fetch_alpaca_bulk_snapshot(
     *,
     request_fn: Callable[..., tuple[object, dict[str, str]]] = _request,
     budget_limit: int = 12,
+    page_limit: int = 500,
 ) -> AlpacaBulkSnapshot:
     key, secret, base = _alpaca_auth()
     budget = BrokerRequestBudget(limit=budget_limit)
@@ -148,7 +177,7 @@ def fetch_alpaca_bulk_snapshot(
     open_orders_complete = False
     recent_orders_complete = False
     try:
-        _consume_budget(budget)
+        _maybe_consume_budget(request_fn, budget)
         positions_payload, _ = request_fn(
             f"{base}/v2/positions",
             method="GET",
@@ -162,9 +191,9 @@ def fetch_alpaca_bulk_snapshot(
     else:
         positions_complete = True
     try:
-        _consume_budget(budget)
+        _maybe_consume_budget(request_fn, budget)
         open_orders_payload, _ = request_fn(
-            f"{base}/v2/orders?status=open&nested=true&limit=500",
+            f"{base}/v2/orders?status=open&nested=true&limit={page_limit}",
             method="GET",
             headers=_alpaca_headers(key, secret),
             budget=budget,
@@ -176,12 +205,13 @@ def fetch_alpaca_bulk_snapshot(
     else:
         open_orders_complete = True
     recent_query = ["status=all", "nested=true", "limit=500"]
+    recent_query[2] = f"limit={page_limit}"
     if window_start is not None:
         recent_query.append(f"after={_utc_iso(window_start)}")
     if window_end is not None:
         recent_query.append(f"until={_utc_iso(window_end)}")
     try:
-        _consume_budget(budget)
+        _maybe_consume_budget(request_fn, budget)
         recent_orders_payload, _ = request_fn(
             f"{base}/v2/orders?{'&'.join(recent_query)}",
             method="GET",
@@ -217,27 +247,97 @@ def fetch_alpaca_bulk_snapshot(
     )
 
 
+def load_backlog_checkpoint(path: str | Path) -> AlpacaBacklogCheckpoint:
+    resolved = Path(path)
+    if not resolved.exists():
+        return AlpacaBacklogCheckpoint()
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except Exception:
+        return AlpacaBacklogCheckpoint()
+    if not isinstance(payload, dict):
+        return AlpacaBacklogCheckpoint()
+    try:
+        return AlpacaBacklogCheckpoint(
+            next_manifest_index=max(0, int(payload.get("next_manifest_index") or 0)),
+            last_manifest_id=(
+                None
+                if payload.get("last_manifest_id") in {None, ""}
+                else str(payload.get("last_manifest_id"))
+            ),
+            updated_at=(
+                None
+                if payload.get("updated_at") in {None, ""}
+                else str(payload.get("updated_at"))
+            ),
+        )
+    except Exception:
+        return AlpacaBacklogCheckpoint()
+
+
+def save_backlog_checkpoint(
+    path: str | Path,
+    checkpoint: AlpacaBacklogCheckpoint,
+) -> None:
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(
+        json.dumps(
+            {
+                "next_manifest_index": checkpoint.next_manifest_index,
+                "last_manifest_id": checkpoint.last_manifest_id,
+                "updated_at": checkpoint.updated_at or datetime.now(UTC).isoformat(),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def reconcile_alpaca_equity_backlog(
     ledger_path: str | Path,
     *,
     apply_paper_cleanup: bool = False,
     request_fn: Callable[..., tuple[object, dict[str, str]]] = _request,
     budget_limit: int = 12,
+    checkpoint_path: str | Path | None = None,
 ) -> AlpacaBacklogResult:
     ledger = PortfolioLedger(ledger_path)
+    experiment = ensure_experiment_state()
+    ledger_dir = Path(ledger_path).resolve().parent
+    resolved_checkpoint_path = (
+        Path(checkpoint_path)
+        if checkpoint_path is not None
+        else ledger_dir / "alpaca_backlog_checkpoint.json"
+    )
+    try:
+        baseline_time = datetime.fromisoformat(
+            str(experiment["baseline_start_time"]).replace("Z", "+00:00")
+        ).astimezone(UTC)
+    except Exception:
+        baseline_time = datetime.now(UTC)
     key, secret, base = _alpaca_auth()
     unresolved = [
         manifest
         for manifest in ledger.unresolved_entry_manifests(broker="alpaca-paper")
-        if str(manifest.get("pillar") or "").lower() not in {"crypto", "forex", "international"}
+        if _manifest_is_legacy(
+            manifest,
+            experiment_id=experiment["experiment_id"],
+            baseline_time=baseline_time,
+        )
     ]
     snapshot = fetch_alpaca_bulk_snapshot(
         unresolved,
         request_fn=request_fn,
         budget_limit=budget_limit,
     )
+    checkpoint = load_backlog_checkpoint(resolved_checkpoint_path) if apply_paper_cleanup else AlpacaBacklogCheckpoint()
+    start_index = min(checkpoint.next_manifest_index, len(unresolved))
+    remaining_unresolved = unresolved[start_index:]
     classifications = classify_unresolved_manifests(
-        unresolved,
+        remaining_unresolved,
         snapshot.orders_by_id.values(),
         snapshot.positions,
         positions_snapshot_complete=snapshot.positions_snapshot_complete,
@@ -248,6 +348,7 @@ def reconcile_alpaca_equity_backlog(
     resolved = 0
     pending = 0
     manual = 0
+    deferred_count = 0
     cancelled_ids: list[str] = []
 
     grouped_orders: dict[str, list[BrokerOrderSnapshot]] = {}
@@ -277,10 +378,19 @@ def reconcile_alpaca_equity_backlog(
             except Exception:
                 manual += 1
                 continue
+            if apply_paper_cleanup:
+                save_backlog_checkpoint(
+                    resolved_checkpoint_path,
+                    AlpacaBacklogCheckpoint(
+                        next_manifest_index=start_index,
+                        last_manifest_id=order.order_id,
+                        updated_at=datetime.now(UTC).isoformat(),
+                    ),
+                )
 
     if apply_paper_cleanup and cancelled_ids:
         try:
-            _consume_budget(snapshot.budget)
+            _maybe_consume_budget(request_fn, snapshot.budget)
             refreshed_payload, _ = request_fn(
                 f"{base}/v2/orders?status=all&nested=true&limit=500",
                 method="GET",
@@ -324,16 +434,23 @@ def reconcile_alpaca_equity_backlog(
             resolved += 1
         elif classification.lifecycle_state in {"order_pending", "filled_position_pending"}:
             pending += 1
-        elif classification.lifecycle_state in {
-            "manual_review_required",
-            "reconciliation_deferred",
-        }:
+        elif classification.lifecycle_state == "reconciliation_deferred":
+            deferred_count += 1
+        elif classification.lifecycle_state == "manual_review_required":
             manual += 1
         else:
             resolved += 1
         if not apply_paper_cleanup:
             continue
         _persist_manifest_resolution(ledger, manifest, classification)
+        save_backlog_checkpoint(
+            resolved_checkpoint_path,
+            AlpacaBacklogCheckpoint(
+                next_manifest_index=start_index + len(classifications),
+                last_manifest_id=classification.manifest_id,
+                updated_at=datetime.now(UTC).isoformat(),
+            ),
+        )
 
     telemetry = {
         "broker_requests": snapshot.budget.requests,
@@ -344,9 +461,7 @@ def reconcile_alpaca_equity_backlog(
         "manifests_resolved": resolved,
         "manifests_pending": pending,
         "manifests_manual_review": manual,
-        "manifests_deferred": sum(
-            1 for item in classifications if item.lifecycle_state == "reconciliation_deferred"
-        ),
+        "manifests_deferred": deferred_count,
         "duplicate_orders_cancelled": len(cancelled_ids),
     }
     return AlpacaBacklogResult(
@@ -354,8 +469,8 @@ def reconcile_alpaca_equity_backlog(
         classifications=tuple(classifications),
         telemetry=telemetry,
         duplicate_orders_cancelled=tuple(cancelled_ids),
-        unresolved_before=len(unresolved),
-        unresolved_after=pending + manual,
+        unresolved_before=len(remaining_unresolved),
+        unresolved_after=pending + manual + deferred_count,
     )
 
 
@@ -451,3 +566,12 @@ def _consume_budget(budget: BrokerRequestBudget) -> None:
     except RuntimeError:
         budget.note_rate_limit(deferred=True)
         raise
+
+
+def _maybe_consume_budget(
+    request_fn: Callable[..., tuple[object, dict[str, str]]],
+    budget: BrokerRequestBudget,
+) -> None:
+    if request_fn is _request:
+        return
+    _consume_budget(budget)

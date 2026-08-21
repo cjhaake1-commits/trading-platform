@@ -21,13 +21,36 @@ sys.modules[DASHBOARD_SPEC.name] = dashboard_app
 DASHBOARD_SPEC.loader.exec_module(dashboard_app)
 
 
+def _fake_connection(ok: bool = True, **details):
+    return type("FakeConnection", (), {"ok": ok, "details": details})()
+
+
 def test_snapshot_ignores_stale_ledger_capital_and_derives_internal_cash(monkeypatch):
+    monkeypatch.setattr(
+        publisher,
+        "ensure_experiment_state",
+        lambda: {
+            "experiment_id": "five_pillar_paper_v2",
+            "baseline_start_time": "2026-08-21T12:00:00+00:00",
+            "created_at": "2026-08-21T12:00:00+00:00",
+        },
+    )
     monkeypatch.setattr(
         publisher,
         "read_portfolio",
         lambda _path: ({"equity": 4000.0, "cash": 4000.0, "peak_equity": 4000.0}, [], [], []),
     )
     monkeypatch.setattr(publisher, "read_activity", lambda _path: ([], {}))
+    monkeypatch.setattr(
+        publisher,
+        "test_alpaca_paper",
+        lambda: _fake_connection(ok=True, equity=4000.0, cash=3000.0),
+    )
+    monkeypatch.setattr(
+        publisher,
+        "test_oanda_practice",
+        lambda: _fake_connection(ok=True, balance=1000.0, NAV=1000.0),
+    )
     monkeypatch.setattr(
         publisher,
         "live_broker_positions",
@@ -47,15 +70,27 @@ def test_snapshot_ignores_stale_ledger_capital_and_derives_internal_cash(monkeyp
 
     assert snapshot["portfolio"]["base_equity"] == 5000.0
     assert snapshot["cash_dashboard"]["original_capital"] == 5000.0
-    assert snapshot["cash_dashboard"]["available_cash"] == 4000.0
-    assert snapshot["cash_dashboard"]["unrealized_pnl"] == 100.0
+    assert snapshot["cash_dashboard"]["capital_deployed"] == 0.0
+    assert snapshot["cash_dashboard"]["available_cash"] == 5000.0
+    assert snapshot["cash_dashboard"]["unrealized_pnl"] == 0.0
     assert snapshot["cash_dashboard"]["net_trading_cash_generated"] == 0.0
     assert snapshot["cash_dashboard"]["realized_return"] == 0.0
+    assert snapshot["legacy_cash_dashboard"]["capital_deployed"] == 1000.0
+    assert snapshot["broker_account"]["gross_exposure"] == 1000.0
     assert snapshot["runtime"]["autonomous_job_disabled"] is True
 
 
 def test_dashboard_separates_healthy_runtime_from_disarmed_execution(monkeypatch):
     now = datetime.now(UTC).isoformat()
+    monkeypatch.setattr(
+        publisher,
+        "ensure_experiment_state",
+        lambda: {
+            "experiment_id": "five_pillar_paper_v2",
+            "baseline_start_time": now,
+            "created_at": now,
+        },
+    )
     monkeypatch.setattr(
         publisher,
         "read_json",
@@ -76,6 +111,16 @@ def test_dashboard_separates_healthy_runtime_from_disarmed_execution(monkeypatch
     )
     monkeypatch.setattr(publisher, "read_portfolio", lambda _path: ({}, [], [], []))
     monkeypatch.setattr(publisher, "read_activity", lambda _path: ([], {}))
+    monkeypatch.setattr(
+        publisher,
+        "test_alpaca_paper",
+        lambda: _fake_connection(ok=True, equity=5000.0, cash=5000.0),
+    )
+    monkeypatch.setattr(
+        publisher,
+        "test_oanda_practice",
+        lambda: _fake_connection(ok=True, balance=5000.0, NAV=5000.0),
+    )
     monkeypatch.setattr(
         publisher,
         "live_broker_positions",
@@ -108,6 +153,15 @@ def test_dashboard_separates_healthy_runtime_from_disarmed_execution(monkeypatch
 def test_snapshot_uses_twenty_to_forty_reporting_benchmark(monkeypatch):
     monkeypatch.setattr(
         publisher,
+        "ensure_experiment_state",
+        lambda: {
+            "experiment_id": "five_pillar_paper_v2",
+            "baseline_start_time": datetime.now(UTC).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    monkeypatch.setattr(
+        publisher,
         "read_json",
         lambda _path: {
             "mode": "paper",
@@ -120,6 +174,8 @@ def test_snapshot_uses_twenty_to_forty_reporting_benchmark(monkeypatch):
     )
     monkeypatch.setattr(publisher, "read_portfolio", lambda _path: ({}, [], [], []))
     monkeypatch.setattr(publisher, "read_activity", lambda _path: ([], {}))
+    monkeypatch.setattr(publisher, "test_alpaca_paper", lambda: _fake_connection(ok=True, equity=5000.0, cash=5000.0))
+    monkeypatch.setattr(publisher, "test_oanda_practice", lambda: _fake_connection(ok=True, balance=5000.0, NAV=5000.0))
     monkeypatch.setattr(
         publisher,
         "live_broker_positions",
@@ -163,6 +219,15 @@ def test_snapshot_exposes_unresolved_manifest_count_and_rate_limit_telemetry(mon
         conn.commit()
     monkeypatch.setattr(
         publisher,
+        "ensure_experiment_state",
+        lambda: {
+            "experiment_id": "five_pillar_paper_v2",
+            "baseline_start_time": datetime.now(UTC).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    monkeypatch.setattr(
+        publisher,
         "read_json",
         lambda _path: {
             "mode": "paper",
@@ -174,6 +239,8 @@ def test_snapshot_exposes_unresolved_manifest_count_and_rate_limit_telemetry(mon
         },
     )
     monkeypatch.setattr(publisher, "read_portfolio", lambda _path: ({}, [], [], []))
+    monkeypatch.setattr(publisher, "test_alpaca_paper", lambda: _fake_connection(ok=True, equity=5000.0, cash=5000.0))
+    monkeypatch.setattr(publisher, "test_oanda_practice", lambda: _fake_connection(ok=True, balance=5000.0, NAV=5000.0))
     monkeypatch.setattr(
         publisher,
         "read_activity",
@@ -224,6 +291,15 @@ def test_dashboard_labels_healthy_armed_paper_and_unhealthy_disarmed():
 
 def test_snapshot_exposes_crypto_reconciliation_and_protection_state(monkeypatch):
     monkeypatch.setattr(
+        publisher,
+        "ensure_experiment_state",
+        lambda: {
+            "experiment_id": "five_pillar_paper_v2",
+            "baseline_start_time": "2026-08-21T12:00:00+00:00",
+            "created_at": "2026-08-21T12:00:00+00:00",
+        },
+    )
+    monkeypatch.setattr(
         dashboard_app,
         "_read_json",
         lambda _path: {
@@ -272,6 +348,8 @@ def test_snapshot_exposes_crypto_reconciliation_and_protection_state(monkeypatch
         ),
     )
     monkeypatch.setattr(publisher, "read_activity", lambda _path: ([], {}))
+    monkeypatch.setattr(publisher, "test_alpaca_paper", lambda: _fake_connection(ok=True, equity=5000.0, cash=5000.0))
+    monkeypatch.setattr(publisher, "test_oanda_practice", lambda: _fake_connection(ok=True, balance=5000.0, NAV=5000.0))
     monkeypatch.setattr(
         publisher,
         "live_broker_positions",
@@ -303,12 +381,16 @@ def test_snapshot_exposes_crypto_reconciliation_and_protection_state(monkeypatch
     )
 
     snapshot = publisher.build_snapshot(Path("status"), Path("ledger"), Path("audit"))
-    eth = snapshot["positions"][0]
+    eth = snapshot["legacy_positions"][0]
 
+    assert eth["classification"] == "LEGACY_BUG_POSITION"
+    assert eth["learning_eligible"] is False
     assert eth["crypto_lifecycle_state"] == "unprotected_position"
     assert eth["crypto_reconciliation_status"] == "fractional_reconciliation"
     assert eth["crypto_protection_state"] == "failed"
     assert eth["crypto_stop_price"] == 2300.0
+    assert snapshot["cash_dashboard"]["capital_deployed"] == 0.0
+    assert snapshot["legacy_cash_dashboard"]["capital_deployed"] == 996.993925
 
 
 def test_dashboard_renders_learning_baseline_and_status(monkeypatch):

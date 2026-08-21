@@ -7,10 +7,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from autotrader.brokers.alpaca_metals_paper import METALS_UNIVERSE
+from autotrader.brokers.connectivity import test_alpaca_paper, test_oanda_practice
 from autotrader.brokers.safety import alpaca_open_positions, oanda_open_positions
 from autotrader.capital_allocations import TOTAL_PAPER_CAPITAL
 from autotrader.cash_dashboard import aggregate_cash_dashboard
 from autotrader.coordinated_test import FivePillarTestConfig, five_pillar_performance
+from autotrader.experiment_state import ensure_experiment_state
 
 
 def _float(value, default: float = 0.0) -> float:
@@ -144,6 +146,82 @@ def _canonical_crypto_symbol(symbol: object) -> str:
     return raw
 
 
+def _parse_iso(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if observed.tzinfo is None:
+        return observed.replace(tzinfo=UTC)
+    return observed.astimezone(UTC)
+
+
+def _classify_position_for_experiment(
+    row: dict[str, object],
+    *,
+    experiment_start: datetime | None,
+) -> tuple[str, bool, str]:
+    opened_at = _parse_iso(row.get("opened_at"))
+    if experiment_start is None or opened_at is None:
+        return "LEGACY_BUG_POSITION", False, "open time predates or is missing from the controlled experiment baseline"
+    if opened_at < experiment_start:
+        return "LEGACY_BUG_POSITION", False, "opened before experiment baseline"
+    if opened_at >= experiment_start:
+        return "VALID_STRATEGY_POSITION", True, "opened during active controlled experiment"
+    return "UNRESOLVED", False, "unable to establish experiment provenance"
+
+
+def _serialize_position(
+    row: dict[str, object],
+    *,
+    experiment_start: datetime | None,
+    source: str,
+) -> dict[str, object]:
+    classification, learning_eligible, classification_reason = _classify_position_for_experiment(
+        row,
+        experiment_start=experiment_start,
+    )
+    output = dict(row)
+    output.update(
+        {
+            "source": source,
+            "classification": classification,
+            "classification_reason": classification_reason,
+            "learning_eligible": learning_eligible,
+            "learning_eligible_reason": (
+                "eligible controlled-experiment evidence" if learning_eligible else classification_reason
+            ),
+        }
+    )
+    return output
+
+
+def _aggregate_experiment_records(
+    rows: list[dict[str, object]],
+    *,
+    experiment_start: datetime | None,
+) -> list[dict[str, object]]:
+    eligible: list[dict[str, object]] = []
+    for row in rows:
+        occurred_at = _parse_iso(row.get("occurred_at") or row.get("closed_at") or row.get("opened_at"))
+        if experiment_start is not None and occurred_at is not None and occurred_at < experiment_start:
+            continue
+        metadata = row.get("metadata_json")
+        learning_eligible = False
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except Exception:
+                metadata = {}
+        if isinstance(metadata, dict):
+            learning_eligible = bool(metadata.get("learning_eligible"))
+        if learning_eligible:
+            eligible.append(row)
+    return eligible
+
+
 def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[dict[str, object]], dict[str, float]]:
     stops = ledger_stop_map(ledger_rows)
     positions: list[dict[str, object]] = []
@@ -158,7 +236,7 @@ def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[di
     try:
         raw_alpaca = alpaca_open_positions().details.get("positions", [])
     except Exception:
-        raw_alpaca = []
+        raw_alpaca = None
     if isinstance(raw_alpaca, list):
         for row in raw_alpaca:
             if not isinstance(row, dict):
@@ -197,7 +275,7 @@ def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[di
     try:
         raw_oanda = oanda_open_positions().details.get("positions", [])
     except Exception:
-        raw_oanda = []
+        raw_oanda = None
     if isinstance(raw_oanda, list):
         for row in raw_oanda:
             if not isinstance(row, dict):
@@ -233,11 +311,79 @@ def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[di
             metrics["gross_exposure"] += exposure
             metrics["oanda_exposure"] += exposure
 
+    if not positions and ledger_rows:
+        for row in ledger_rows:
+            symbol = str(row.get("symbol") or "")
+            asset_class = str(row.get("asset_class") or "").lower()
+            broker = str(row.get("broker") or "Ledger Snapshot") or "Ledger Snapshot"
+            if asset_class == "forex" or "/" in symbol:
+                pillar = "Forex"
+            elif symbol.upper() in METALS_UNIVERSE:
+                pillar = "Metals/Commodities"
+            else:
+                pillar = "Stocks/Crypto"
+            qty = _float(row.get("quantity"))
+            avg = _float(row.get("average_price"))
+            market_value = abs(qty * avg)
+            positions.append(
+                {
+                    "pillar": pillar,
+                    "broker": broker,
+                    "symbol": symbol,
+                    "asset_class": asset_class or "snapshot",
+                    "quantity": qty,
+                    "average_price": avg,
+                    "current_price": avg,
+                    "stop_price": _float(row.get("stop_price")) or None,
+                    "market_value": market_value,
+                    "unrealized_pnl": _float(row.get("realized_pnl")),
+                    "unrealized_pct": None,
+                    "risk_dollars": 0.0,
+                    "source": "ledger_snapshot",
+                }
+            )
+            metrics["unrealized_pnl"] += _float(row.get("realized_pnl"))
+            metrics["gross_exposure"] += market_value
+            if asset_class == "forex" or "/" in symbol:
+                metrics["oanda_exposure"] += market_value
+            else:
+                metrics["alpaca_exposure"] += market_value
+    elif ledger_rows and not any(str(row.get("pillar") or "").startswith("Forex") for row in positions):
+        for row in ledger_rows:
+            if str(row.get("asset_class") or "").lower() != "forex":
+                continue
+            symbol = str(row.get("symbol") or "").replace("_", "/")
+            qty = _float(row.get("quantity"))
+            avg = _float(row.get("average_price"))
+            exposure = abs(qty * avg)
+            positions.append(
+                {
+                    "pillar": "Forex",
+                    "broker": str(row.get("broker") or "Ledger Snapshot") or "Ledger Snapshot",
+                    "symbol": symbol,
+                    "asset_class": "forex",
+                    "quantity": qty,
+                    "average_price": avg,
+                    "current_price": avg,
+                    "stop_price": _float(row.get("stop_price")) or None,
+                    "market_value": exposure,
+                    "unrealized_pnl": _float(row.get("realized_pnl")),
+                    "unrealized_pct": None,
+                    "risk_dollars": 0.0,
+                    "source": "ledger_snapshot",
+                }
+            )
+            metrics["unrealized_pnl"] += _float(row.get("realized_pnl"))
+            metrics["gross_exposure"] += exposure
+            metrics["oanda_exposure"] += exposure
+
     return positions, metrics
 
 
 def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> dict[str, object]:
     status = read_json(status_path)
+    experiment_state = ensure_experiment_state()
+    experiment_start = _parse_iso(experiment_state.get("baseline_start_time"))
     portfolio_data = read_portfolio(ledger_path)
     if len(portfolio_data) == 4:
         state, ledger_positions, fills, pillar_trades = portfolio_data
@@ -246,6 +392,8 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
         state, ledger_positions, fills, pillar_trades, crypto_states = portfolio_data
     activity, latest_cycle = read_activity(audit_path)
     learning = read_learning()
+    alpaca_connection = test_alpaca_paper()
+    oanda_connection = test_oanda_practice()
     live_positions, broker_metrics = live_broker_positions(ledger_positions)
     crypto_by_symbol = {_canonical_crypto_symbol(row.get("symbol")): row for row in crypto_states}
     unresolved_manifests: list[dict[str, object]] = []
@@ -272,6 +420,29 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                 rows = []
             unresolved_manifests = [dict(row) for row in rows]
 
+    classified_positions = [
+        _serialize_position(row, experiment_start=experiment_start, source="broker")
+        for row in live_positions
+    ]
+    for position in classified_positions:
+        if str(position.get("broker")) == "Alpaca Paper" and str(position.get("symbol") or "").upper().endswith("USD"):
+            crypto = crypto_by_symbol.get(_canonical_crypto_symbol(position.get("symbol")), {})
+            if isinstance(crypto, dict):
+                position.update(
+                    {
+                        "crypto_lifecycle_state": crypto.get("lifecycle_state"),
+                        "crypto_reconciliation_status": crypto.get("reconciliation_status"),
+                        "crypto_reconciliation_difference": crypto.get("reconciliation_difference"),
+                        "crypto_reconciliation_tolerance": crypto.get("reconciliation_tolerance"),
+                        "crypto_protection_state": crypto.get("protection_state"),
+                        "crypto_protection_quantity": crypto.get("protection_quantity"),
+                        "crypto_stop_price": crypto.get("stop_price"),
+                    }
+                )
+    active_positions = [row for row in classified_positions if row.get("learning_eligible")]
+    legacy_positions = [row for row in classified_positions if not row.get("learning_eligible")]
+    active_records = _aggregate_experiment_records([*fills, *pillar_trades], experiment_start=experiment_start)
+
     jobs = status.get("jobs") if isinstance(status.get("jobs"), dict) else {}
     auto = jobs.get("autonomous-paper-trading") if isinstance(jobs, dict) else {}
     if not isinstance(auto, dict):
@@ -279,11 +450,11 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
 
     base_equity = TOTAL_PAPER_CAPITAL
     peak = max(_float(state.get("peak_equity"), base_equity), base_equity)
-    open_pnl = broker_metrics["unrealized_pnl"]
-    marked_equity = base_equity + open_pnl
-    drawdown = max((peak - marked_equity) / peak, 0.0) if peak > 0 else 0.0
+    broker_open_pnl = broker_metrics["unrealized_pnl"]
+    broker_marked_equity = base_equity + broker_open_pnl
+    drawdown = max((peak - broker_marked_equity) / peak, 0.0) if peak > 0 else 0.0
     gross_exposure = broker_metrics["gross_exposure"]
-    risk_open = sum(_float(row.get("risk_dollars")) for row in live_positions)
+    risk_open = sum(_float(row.get("risk_dollars")) for row in classified_positions)
     last_heartbeat = status.get("last_heartbeat_at")
     heartbeat_current = _heartbeat_is_current(last_heartbeat)
     health_job = jobs.get("health") if isinstance(jobs, dict) else {}
@@ -304,34 +475,45 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
 
     stretch_low = 0.20
     stretch_high = 0.40
-    mtm_return = (marked_equity - base_equity) / base_equity if base_equity > 0 else 0.0
-    realized_records = [*fills, *pillar_trades]
-    cash_preview = aggregate_cash_dashboard(
-        realized_records=realized_records,
-        positions=live_positions,
-        available_cash=0.0,
+    mtm_return = (broker_marked_equity - base_equity) / base_equity if base_equity > 0 else 0.0
+    active_cash_dashboard = aggregate_cash_dashboard(
+        realized_records=active_records,
+        positions=active_positions,
+        available_cash=max(TOTAL_PAPER_CAPITAL, 0.0),
         original_capital=TOTAL_PAPER_CAPITAL,
+        broker_reported_virtual_equity=_float((alpaca_connection.details or {}).get("equity"))
+        if alpaca_connection.ok
+        else None,
     )
-    internal_available_cash = max(
-        TOTAL_PAPER_CAPITAL
-        + cash_preview.net_trading_cash_generated
-        - cash_preview.capital_deployed
-        - cash_preview.protected_cash_reserve,
-        0.0,
-    )
-    cash_dashboard = aggregate_cash_dashboard(
-        realized_records=realized_records,
-        positions=live_positions,
-        available_cash=internal_available_cash,
+    broker_history_cash_dashboard = aggregate_cash_dashboard(
+        realized_records=[*fills, *pillar_trades],
+        positions=classified_positions,
+        available_cash=max(
+            (
+                (_float((alpaca_connection.details or {}).get("cash")) if alpaca_connection.ok else 0.0)
+                + (_float((oanda_connection.details or {}).get("balance")) if oanda_connection.ok else 0.0)
+                - gross_exposure
+            ),
+            0.0,
+        ),
         original_capital=TOTAL_PAPER_CAPITAL,
+        broker_reported_virtual_equity=(
+            _float((alpaca_connection.details or {}).get("equity")) if alpaca_connection.ok else None
+        ),
     )
     pillar_performance = five_pillar_performance(
-        completed_trades=realized_records,
-        positions=live_positions,
+        completed_trades=active_records,
+        positions=active_positions,
     )
-
     return {
         "published_at": datetime.now(UTC).isoformat(),
+        "experiment": {
+            "experiment_id": experiment_state.get("experiment_id", "five_pillar_paper_v2"),
+            "baseline_start_time": experiment_state.get("baseline_start_time"),
+            "created_at": experiment_state.get("created_at"),
+            "capital_baseline": TOTAL_PAPER_CAPITAL,
+            "pillar_cap": 1000.0,
+        },
         "runtime": {
             "mode": status.get("mode", "paper"),
             "healthy": healthy,
@@ -355,10 +537,10 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                 "deferred": int((latest_cycle.get("broker_deferred") or 0) or 0),
             },
         },
-        "portfolio": {
-            "base_equity": base_equity,
-            "marked_equity": marked_equity,
-            "open_unrealized_pnl": open_pnl,
+            "portfolio": {
+                "base_equity": base_equity,
+                "marked_equity": broker_marked_equity,
+                "open_unrealized_pnl": broker_open_pnl,
             "mtm_return_pct": mtm_return,
             "drawdown_pct": drawdown,
             "gross_exposure": gross_exposure,
@@ -366,6 +548,22 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "alpaca_exposure": broker_metrics["alpaca_exposure"],
             "metals_exposure": broker_metrics["metals_exposure"],
             "oanda_exposure": broker_metrics["oanda_exposure"],
+        },
+        "broker_account": {
+            "alpaca": alpaca_connection.details if alpaca_connection.ok else {},
+            "oanda": oanda_connection.details if oanda_connection.ok else {},
+            "equity_proxy": broker_marked_equity,
+            "cash_proxy": max(
+                (
+                    (_float((alpaca_connection.details or {}).get("cash")) if alpaca_connection.ok else 0.0)
+                    + (_float((oanda_connection.details or {}).get("balance")) if oanda_connection.ok else 0.0)
+                    - gross_exposure
+                ),
+                0.0,
+            ),
+            "gross_exposure": gross_exposure,
+            "unrealized_pnl": broker_open_pnl,
+            "history_note": "Broker paper account history; not the active strategy experiment.",
         },
         "targets": {
             "stretch_daily_low_pct": stretch_low,
@@ -382,45 +580,16 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "max_daily_loss_pct": 0.05,
             "max_peak_drawdown_pct": 0.15,
         },
-        "cash_dashboard": cash_dashboard.as_dict(),
+        "cash_dashboard": active_cash_dashboard.as_dict(),
+        "legacy_cash_dashboard": broker_history_cash_dashboard.as_dict(),
         "coordinated_test": FivePillarTestConfig().as_dict(),
         "pillar_performance": pillar_performance,
         "learning": learning,
         "fill_count": len(fills),
-        "positions": [
-            {
-                **position,
-                **(
-                    {
-                        "crypto_lifecycle_state": crypto_by_symbol.get(
-                            _canonical_crypto_symbol(position["symbol"]), {}
-                        ).get("lifecycle_state"),
-                        "crypto_reconciliation_status": crypto_by_symbol.get(
-                            _canonical_crypto_symbol(position["symbol"]), {}
-                        ).get("reconciliation_status"),
-                        "crypto_reconciliation_difference": crypto_by_symbol.get(
-                            _canonical_crypto_symbol(position["symbol"]), {}
-                        ).get("reconciliation_difference"),
-                        "crypto_reconciliation_tolerance": crypto_by_symbol.get(
-                            _canonical_crypto_symbol(position["symbol"]), {}
-                        ).get("reconciliation_tolerance"),
-                        "crypto_protection_state": crypto_by_symbol.get(
-                            _canonical_crypto_symbol(position["symbol"]), {}
-                        ).get("protection_state"),
-                        "crypto_protection_quantity": crypto_by_symbol.get(
-                            _canonical_crypto_symbol(position["symbol"]), {}
-                        ).get("protection_quantity"),
-                        "crypto_stop_price": crypto_by_symbol.get(
-                            _canonical_crypto_symbol(position["symbol"]), {}
-                        ).get("stop_price"),
-                    }
-                    if str(position.get("broker")) == "Alpaca Paper"
-                    and str(position.get("symbol") or "").upper().endswith("USD")
-                    else {}
-                ),
-            }
-            for position in live_positions
-        ],
+        "positions": classified_positions,
+        "broker_positions": classified_positions,
+        "active_positions": active_positions,
+        "legacy_positions": legacy_positions,
         "latest_cycle": latest_cycle,
         "activity": activity,
         "unresolved_manifests": unresolved_manifests,
