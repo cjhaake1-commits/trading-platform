@@ -62,6 +62,7 @@ def _secret(name: str) -> str:
     return str(value).strip()
 
 
+@st.cache_data(ttl=20)
 def fetch_live_broker_data() -> tuple[
     list[dict[str, object]], dict[str, float], dict[str, dict[str, object]], list[str]
 ]:
@@ -211,10 +212,35 @@ guardrails = data.get("guardrails") if isinstance(data.get("guardrails"), dict) 
 targets = data.get("targets") if isinstance(data.get("targets"), dict) else {}
 activity = data.get("activity") if isinstance(data.get("activity"), list) else []
 cycle = data.get("latest_cycle") if isinstance(data.get("latest_cycle"), dict) else {}
+unresolved_manifests = data.get("unresolved_manifests") if isinstance(data.get("unresolved_manifests"), list) else []
 base_equity = TOTAL_BASE_CAPITAL
 cash = data.get("cash_dashboard") if isinstance(data.get("cash_dashboard"), dict) else {}
 pillar_performance = data.get("pillar_performance") if isinstance(data.get("pillar_performance"), dict) else {}
 coordinated_test = data.get("coordinated_test") if isinstance(data.get("coordinated_test"), dict) else {}
+live_positions, live_metrics, live_pillar_status, live_errors = fetch_live_broker_data()
+authoritative_cash = dict(cash)
+broker_snapshot_fresh = bool(live_positions)
+if broker_snapshot_fresh:
+    authoritative_cash["capital_deployed"] = live_metrics.get(
+        "gross_exposure",
+        authoritative_cash.get("capital_deployed", 0.0),
+    )
+    authoritative_cash["unrealized_pnl"] = live_metrics.get(
+        "unrealized_pnl",
+        authoritative_cash.get("unrealized_pnl", 0.0),
+    )
+    authoritative_cash["total_portfolio_equity"] = (
+        _float(authoritative_cash.get("original_capital", TOTAL_BASE_CAPITAL))
+        + _float(authoritative_cash.get("net_trading_cash_generated", 0.0))
+        + _float(authoritative_cash.get("unrealized_pnl", 0.0))
+    )
+    authoritative_cash["available_cash"] = max(
+        _float(authoritative_cash.get("original_capital", TOTAL_BASE_CAPITAL))
+        + _float(authoritative_cash.get("net_trading_cash_generated", 0.0))
+        - _float(authoritative_cash.get("capital_deployed", 0.0))
+        - _float(authoritative_cash.get("protected_cash_reserve", 0.0)),
+        0.0,
+    )
 
 status_labels = runtime_status_labels(runtime)
 health_column, autonomous_column, live_column = st.columns(3)
@@ -231,21 +257,27 @@ elif runtime.get("execution_state") == "faulted":
 
 st.subheader("Cash and equity")
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Original funded/simulated capital", _money(cash.get("original_capital", TOTAL_BASE_CAPITAL)))
-c2.metric("Daily Net Trading Cash Generated", _money(cash.get("net_trading_cash_generated", 0.0)))
-c3.metric("Cumulative Net Trading Cash Generated", _money(cash.get("net_trading_cash_generated", 0.0)))
-c4.metric("Available Cash", _money(cash.get("available_cash", TOTAL_BASE_CAPITAL)))
+c1.metric("Original funded/simulated capital", _money(authoritative_cash.get("original_capital", TOTAL_BASE_CAPITAL)))
+c2.metric("Daily Net Trading Cash Generated", _money(authoritative_cash.get("net_trading_cash_generated", 0.0)))
+c3.metric("Cumulative Net Trading Cash Generated", _money(authoritative_cash.get("net_trading_cash_generated", 0.0)))
+c4.metric("Available Cash", _money(authoritative_cash.get("available_cash", TOTAL_BASE_CAPITAL)))
 c5, c6, c7, c8 = st.columns(4)
-c5.metric("Protected / Harvested Cash", _money(cash.get("protected_cash_reserve", 0.0)))
-c6.metric("Capital Deployed", _money(cash.get("capital_deployed", 0.0)))
-c7.metric("Unrealized P&L", _money(cash.get("unrealized_pnl", 0.0)))
-c8.metric("Total Strategy Equity", _money(cash.get("total_portfolio_equity", TOTAL_BASE_CAPITAL)))
-st.metric("Daily Realized Return", _pct(cash.get("daily_realized_return", cash.get("realized_return", 0.0))))
-st.metric("Daily Unrealized Return", _pct(cash.get("daily_unrealized_return", 0.0)))
-st.metric("Cumulative Realized Return", _pct(cash.get("cumulative_realized_return", cash.get("realized_return", 0.0))))
-st.metric("Distance to 20%", _pct(cash.get("benchmark_distance_to_20_pct", 0.0)))
-st.metric("Distance to 40%", _pct(cash.get("benchmark_distance_to_40_pct", 0.0)))
-st.metric("Generated Cash Ratio", _pct(cash.get("generated_cash_ratio", 0.0)))
+c5.metric("Protected / Harvested Cash", _money(authoritative_cash.get("protected_cash_reserve", 0.0)))
+c6.metric("Capital Deployed", _money(authoritative_cash.get("capital_deployed", 0.0)))
+c7.metric("Unrealized P&L", _money(authoritative_cash.get("unrealized_pnl", 0.0)))
+c8.metric("Total Strategy Equity", _money(authoritative_cash.get("total_portfolio_equity", TOTAL_BASE_CAPITAL)))
+st.metric(
+    "Daily Realized Return",
+    _pct(authoritative_cash.get("daily_realized_return", authoritative_cash.get("realized_return", 0.0))),
+)
+st.metric("Daily Unrealized Return", _pct(authoritative_cash.get("daily_unrealized_return", 0.0)))
+st.metric(
+    "Cumulative Realized Return",
+    _pct(authoritative_cash.get("cumulative_realized_return", authoritative_cash.get("realized_return", 0.0))),
+)
+st.metric("Distance to 20%", _pct(authoritative_cash.get("benchmark_distance_to_20_pct", 0.0)))
+st.metric("Distance to 40%", _pct(authoritative_cash.get("benchmark_distance_to_40_pct", 0.0)))
+st.metric("Generated Cash Ratio", _pct(authoritative_cash.get("generated_cash_ratio", 0.0)))
 st.caption(
     "20%-40% DAILY RETURN is a STRETCH BENCHMARK - REPORTING ONLY. "
     "$20-$305 DAILY REALIZED CASH is an OPERATING BENCHMARK - REPORTING ONLY. "
@@ -253,6 +285,17 @@ st.caption(
     "Unrealized gains do not count toward realized-cash success. "
     "Risk limits and $1,000 pillar caps cannot be raised to chase benchmarks. "
     "Live trading remains disabled."
+)
+st.caption(
+    "Dashboard freshness · runtime snapshot: "
+    f"{data.get('published_at') or 'stale/unknown'} · "
+    f"broker read: {'live' if broker_snapshot_fresh else 'unavailable'} · "
+    "learning snapshot: "
+    f"{((data.get('learning') or {}).get('model_state') or {}).get('last_evaluated_at') or 'stale/unknown'}"
+)
+st.caption(
+    f"Unresolved manifest count: {len(unresolved_manifests)} · "
+    f"Rate-limit telemetry: {(runtime.get('rate_limit_telemetry') or {})}"
 )
 
 st.subheader("Realized P&L and internal allocation by pillar")
@@ -423,7 +466,7 @@ live_panel()
 
 st.subheader("Stretch target vs guardrails")
 t1, t2, t3, t4 = st.columns(4)
-t1.metric("Stretch benchmark", "20–30% / day")
+t1.metric("Stretch benchmark", "20–40% / day")
 t2.metric("Risk / trade", _pct(guardrails.get("risk_per_trade_pct")))
 t3.metric("Daily loss stop", _pct(guardrails.get("max_daily_loss_pct")))
 t4.metric("Max drawdown", _pct(guardrails.get("max_peak_drawdown_pct")))

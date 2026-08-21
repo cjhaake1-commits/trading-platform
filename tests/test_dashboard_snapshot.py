@@ -1,4 +1,5 @@
 import importlib.util
+import sqlite3
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,6 +103,110 @@ def test_dashboard_separates_healthy_runtime_from_disarmed_execution(monkeypatch
         "autonomous_paper_trading": "DISARMED",
         "live_trading": "DISABLED",
     }
+
+
+def test_snapshot_uses_twenty_to_forty_reporting_benchmark(monkeypatch):
+    monkeypatch.setattr(
+        publisher,
+        "read_json",
+        lambda _path: {
+            "mode": "paper",
+            "healthy": True,
+            "autonomous_enabled": False,
+            "execution_state": "disarmed",
+            "last_heartbeat_at": datetime.now(UTC).isoformat(),
+            "jobs": {"health": {"disabled": False, "consecutive_failures": 0, "last_error": None}},
+        },
+    )
+    monkeypatch.setattr(publisher, "read_portfolio", lambda _path: ({}, [], [], []))
+    monkeypatch.setattr(publisher, "read_activity", lambda _path: ([], {}))
+    monkeypatch.setattr(
+        publisher,
+        "live_broker_positions",
+        lambda _rows: (
+            [],
+            {
+                "unrealized_pnl": 0.0,
+                "gross_exposure": 0.0,
+                "alpaca_exposure": 0.0,
+                "metals_exposure": 0.0,
+                "oanda_exposure": 0.0,
+            },
+        ),
+    )
+
+    snapshot = publisher.build_snapshot(Path("status"), Path("ledger"), Path("audit"))
+
+    assert snapshot["targets"]["stretch_daily_low_pct"] == 0.20
+    assert snapshot["targets"]["stretch_daily_high_pct"] == 0.40
+    assert "20%-40% DAILY RETURN" in snapshot["targets"]["note"]
+
+
+def test_snapshot_exposes_unresolved_manifest_count_and_rate_limit_telemetry(monkeypatch, tmp_path):
+    ledger_path = tmp_path / "portfolio.db"
+    with sqlite3.connect(ledger_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE entry_manifests (
+                manifest_id TEXT,
+                canonical_symbol TEXT,
+                broker_order_id TEXT,
+                lifecycle_state TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO entry_manifests VALUES (?, ?, ?, ?, ?)",
+            ("manifest-1", "MSTR", "order-1", "order_pending", "2026-08-21T00:00:00Z"),
+        )
+        conn.commit()
+    monkeypatch.setattr(
+        publisher,
+        "read_json",
+        lambda _path: {
+            "mode": "paper",
+            "healthy": True,
+            "autonomous_enabled": False,
+            "execution_state": "disarmed",
+            "last_heartbeat_at": datetime.now(UTC).isoformat(),
+            "jobs": {"health": {"disabled": False, "consecutive_failures": 0, "last_error": None}},
+        },
+    )
+    monkeypatch.setattr(publisher, "read_portfolio", lambda _path: ({}, [], [], []))
+    monkeypatch.setattr(
+        publisher,
+        "read_activity",
+        lambda _path: (
+            [],
+            {
+                "broker_requests": 3,
+                "broker_retries": 1,
+                "broker_rate_limited": 1,
+                "broker_deferred": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        publisher,
+        "live_broker_positions",
+        lambda _rows: (
+            [],
+            {
+                "unrealized_pnl": 0.0,
+                "gross_exposure": 0.0,
+                "alpaca_exposure": 0.0,
+                "metals_exposure": 0.0,
+                "oanda_exposure": 0.0,
+            },
+        ),
+    )
+
+    snapshot = publisher.build_snapshot(Path("status"), ledger_path, Path("audit"))
+
+    assert snapshot["runtime"]["unresolved_manifest_count"] == 1
+    assert snapshot["runtime"]["rate_limit_telemetry"]["requests"] == 3
+    assert snapshot["runtime"]["rate_limit_telemetry"]["rate_limited"] == 1
 
 
 def test_dashboard_labels_healthy_armed_paper_and_unhealthy_disarmed():

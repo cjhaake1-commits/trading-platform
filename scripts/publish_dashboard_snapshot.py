@@ -248,6 +248,29 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     learning = read_learning()
     live_positions, broker_metrics = live_broker_positions(ledger_positions)
     crypto_by_symbol = {_canonical_crypto_symbol(row.get("symbol")): row for row in crypto_states}
+    unresolved_manifests: list[dict[str, object]] = []
+    if ledger_path.exists():
+        with sqlite3.connect(ledger_path) as conn:
+            conn.row_factory = sqlite3.Row
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT manifest_id, canonical_symbol, broker_order_id, lifecycle_state, created_at
+                    FROM entry_manifests
+                    WHERE lifecycle_state IN (
+                        'approved_manifest',
+                        'order_submitted',
+                        'order_pending',
+                        'filled_position_pending',
+                        'reconciliation_pending',
+                        'protection_pending'
+                    )
+                    ORDER BY created_at, manifest_id
+                    """
+                ).fetchall()
+            except sqlite3.Error:
+                rows = []
+            unresolved_manifests = [dict(row) for row in rows]
 
     jobs = status.get("jobs") if isinstance(status.get("jobs"), dict) else {}
     auto = jobs.get("autonomous-paper-trading") if isinstance(jobs, dict) else {}
@@ -280,7 +303,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
     execution_state = "faulted" if not healthy else ("armed_paper" if autonomous_enabled else "disarmed")
 
     stretch_low = 0.20
-    stretch_high = 0.30
+    stretch_high = 0.40
     mtm_return = (marked_equity - base_equity) / base_equity if base_equity > 0 else 0.0
     realized_records = [*fills, *pillar_trades]
     cash_preview = aggregate_cash_dashboard(
@@ -324,6 +347,13 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "last_cycle_started_at": auto.get("last_started_at"),
             "last_cycle_finished_at": auto.get("last_finished_at"),
             "last_cycle_duration_ms": auto.get("last_duration_ms"),
+            "unresolved_manifest_count": len(unresolved_manifests),
+            "rate_limit_telemetry": {
+                "requests": int((latest_cycle.get("broker_requests") or 0) or 0),
+                "retries": int((latest_cycle.get("broker_retries") or 0) or 0),
+                "rate_limited": int((latest_cycle.get("broker_rate_limited") or 0) or 0),
+                "deferred": int((latest_cycle.get("broker_deferred") or 0) or 0),
+            },
         },
         "portfolio": {
             "base_equity": base_equity,
@@ -342,7 +372,10 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "stretch_daily_high_pct": stretch_high,
             "progress_to_low": mtm_return / stretch_low if stretch_low else 0.0,
             "progress_to_high": mtm_return / stretch_high if stretch_high else 0.0,
-            "note": "Stretch benchmark only; the trader does not force trades to hit it.",
+            "note": (
+                "Stretch benchmark only; the trader does not force trades to hit it. "
+                "20%-40% DAILY RETURN is reporting only."
+            ),
         },
         "guardrails": {
             "risk_per_trade_pct": 0.0125,
@@ -390,6 +423,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
         ],
         "latest_cycle": latest_cycle,
         "activity": activity,
+        "unresolved_manifests": unresolved_manifests,
     }
 
 

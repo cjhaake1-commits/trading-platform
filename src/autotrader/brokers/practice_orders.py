@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import random
+import time
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from urllib.error import HTTPError, URLError
@@ -21,20 +23,47 @@ class PracticeOrderResult:
 
 
 def _request_json(
-    url: str, *, method: str, headers: dict[str, str], body: dict[str, object] | None = None, timeout: float = 15.0
+    url: str,
+    *,
+    method: str,
+    headers: dict[str, str],
+    body: dict[str, object] | None = None,
+    timeout: float = 15.0,
+    retries: int = 3,
 ) -> tuple[object, dict[str, str]]:
     data = None if body is None else json.dumps(body).encode("utf-8")
-    request = Request(url, headers=headers, data=data, method=method)
+    last_error: RuntimeError | None = None
+    for attempt in range(retries + 1):
+        request = Request(url, headers=headers, data=data, method=method)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                raw = response.read().decode("utf-8")
+                payload: object = json.loads(raw) if raw else {}
+                return payload, {key: value for key, value in response.headers.items()}
+        except HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 429 and attempt < retries:
+                retry_after = _retry_after_seconds(exc.headers.get("Retry-After"))
+                delay = retry_after if retry_after is not None else min(2.0 ** attempt, 8.0)
+                delay += random.uniform(0.0, min(delay * 0.25, 0.25))
+                time.sleep(delay)
+                continue
+            last_error = RuntimeError(f"HTTP {exc.code}: {raw}")
+            break
+        except URLError as exc:
+            last_error = RuntimeError(f"Connection error: {exc.reason}")
+            break
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("broker request failed without response")
+
+
+def _retry_after_seconds(value: object) -> float | None:
     try:
-        with urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
-            payload: object = json.loads(raw) if raw else {}
-            return payload, {key: value for key, value in response.headers.items()}
-    except HTTPError as exc:
-        raw = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {exc.code}: {raw}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"Connection error: {exc.reason}") from exc
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return max(seconds, 0.0)
 
 
 def _alpaca_credentials() -> tuple[str, str, str]:
