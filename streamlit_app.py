@@ -1503,6 +1503,27 @@ def _render_execution_log_view(ctx: dict[str, object]) -> None:
         st.info("No execution log events were found in the current snapshot.")
 
 
+def _render_research_view(ctx: dict[str, object]) -> None:
+    """Show research candidates without allowing discovery to control execution."""
+    st.markdown("## RESEARCH & VALIDATION")
+    st.caption("External research remains isolated from broker execution until it passes the evidence-gated promotion policy.")
+    learning = ctx.get("learning") if isinstance(ctx.get("learning"), dict) else {}
+    model_state = learning.get("model_state") if isinstance(learning.get("model_state"), dict) else {}
+    stats = learning.get("stats") if isinstance(learning.get("stats"), dict) else {}
+    rows = [
+        {"Lane": "Baseline", "Model": model_state.get("baseline_version", "five_pillar_baseline_v1"), "Status": "CHAMPION", "Evidence": stats.get("manifest_evidence_count", 0), "Broker control": "NO"},
+        {"Lane": "Challenger", "Model": model_state.get("challenger_version", "challenger_candidate_v1"), "Status": "COLLECTING EVIDENCE", "Evidence": model_state.get("sample_size", 0), "Broker control": "NO"},
+        {"Lane": "ETF leaders", "Model": "research-only", "Status": "NOT INGESTED", "Evidence": 0, "Broker control": "NO"},
+        {"Lane": "Institutional / 13F", "Model": "research-only", "Status": "DELAYED SIGNAL", "Evidence": 0, "Broker control": "NO"},
+        {"Lane": "Academic / quant", "Model": "research-only", "Status": "REVIEW REQUIRED", "Evidence": 0, "Broker control": "NO"},
+        {"Lane": "GitHub candidates", "Model": "research-only", "Status": "LICENSE REVIEW REQUIRED", "Evidence": 0, "Broker control": "NO"},
+    ]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.markdown("### Promotion gate")
+    st.info("Promotion requires meaningful out-of-sample evidence, positive incremental results, bounded drawdown, and execution-quality limits. No research signal can submit an order directly.")
+    st.metric("LIVE DEPLOYMENT READINESS", "COLLECTING EVIDENCE")
+
+
 def render_dashboard() -> None:
     last_refreshed = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     st.session_state["dashboard_last_refreshed"] = last_refreshed
@@ -1543,7 +1564,7 @@ def render_dashboard() -> None:
         st.sidebar.caption(f"Auto refresh paused · Last refreshed: {last_refreshed}")
     selected_view = st.sidebar.radio(
         "Navigation",
-        ["OVERVIEW", "PILLARS", "POSITIONS", "TRADES", "LEARNING", "PERFORMANCE", "RISK & HEALTH", "EXECUTION LOG"],
+        ["OVERVIEW", "PILLARS", "POSITIONS", "TRADES", "LEARNING", "PERFORMANCE", "RESEARCH", "RISK & HEALTH", "EXECUTION LOG"],
         key="dashboard_navigation",
     )
     ctx = _build_dashboard_context()
@@ -1560,6 +1581,8 @@ def render_dashboard() -> None:
         _render_learning_view(ctx)
     elif selected_view == "PERFORMANCE":
         _render_performance_view(ctx)
+    elif selected_view == "RESEARCH":
+        _render_research_view(ctx)
     elif selected_view == "RISK & HEALTH":
         _render_risk_health_view(ctx)
     elif selected_view == "EXECUTION LOG":
