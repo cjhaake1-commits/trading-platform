@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
+import secrets
 import tempfile
 import threading
 import time
@@ -17,6 +19,7 @@ from autotrader.capital_allocations import INTERNATIONAL_SIM_CAPITAL
 SAXO_SIM_ENV = "sim"
 SAXO_SIM_BASE_URL = "https://gateway.saxobank.com/sim/openapi"
 SAXO_TOKEN_URL = "https://sim.logonvalidation.net/token"
+SAXO_AUTH_URL = "https://sim.logonvalidation.net/authorize"
 _TOKEN_LOCK = threading.RLock()
 
 
@@ -55,6 +58,29 @@ class SaxoTokenStore:
     def health(self) -> str:
         value = self.load()
         return "CONNECTED" if value.get("access_token") and float(value.get("expires_at", 0) or 0) > time.time() else "AUTH REQUIRED"
+
+
+def pkce_pair() -> tuple[str, str]:
+    verifier = secrets.token_urlsafe(64)
+    challenge = secrets.token_urlsafe(32)
+    challenge = hashlib.sha256(verifier.encode("ascii")).digest()
+    import base64
+
+    return verifier, base64.urlsafe_b64encode(challenge).rstrip(b"=").decode("ascii")
+
+
+def saxo_authorization_url(*, state: str, code_challenge: str) -> str:
+    values = {
+        "response_type": "code",
+        "client_id": os.getenv("SAXO_CLIENT_ID", "").strip(),
+        "redirect_uri": os.getenv("SAXO_REDIRECT_URI", "").strip(),
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    if not values["client_id"] or not values["redirect_uri"]:
+        raise SaxoConfigurationError("Saxo PKCE client ID and redirect URI are required")
+    return f"{SAXO_AUTH_URL}?{urlencode(values)}"
 
 
 class SaxoConfigurationError(ValueError):
@@ -255,20 +281,25 @@ class SaxoSimAdapter:
     def _refreshing(self) -> bool:
         return False
 
-    def seed_authorization_code(self, code: str, *, redirect_uri: str | None = None) -> None:
+    def seed_authorization_code(
+        self,
+        code: str,
+        *,
+        redirect_uri: str | None = None,
+        code_verifier: str | None = None,
+    ) -> None:
         if not code.strip():
             raise SaxoConfigurationError("Saxo authorization code is required")
         client_id = os.getenv("SAXO_CLIENT_ID", "").strip()
-        client_secret = os.getenv("SAXO_CLIENT_SECRET", "").strip()
-        if not client_id or not client_secret:
+        if not client_id or not code_verifier:
             raise SaxoConfigurationError("Saxo OAuth client configuration is required")
         payload = self._oauth_exchange(
             {
                 "grant_type": "authorization_code",
                 "code": code.strip(),
                 "client_id": client_id,
-                "client_secret": client_secret,
                 "redirect_uri": redirect_uri or os.getenv("SAXO_REDIRECT_URI", "").strip(),
+                "code_verifier": code_verifier,
             }
         )
         self._persist_tokens(payload)
