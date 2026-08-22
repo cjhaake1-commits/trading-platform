@@ -220,6 +220,7 @@ class SaxoSimAdapter:
         self.environment = normalized_environment
         self._access_token = selected_token
         self._refresh_callback = refresh_callback
+        self._auth_required = False
         self._get_json = get_json
         self._request_json = request_json
 
@@ -244,6 +245,8 @@ class SaxoSimAdapter:
     def token_health(self) -> str:
         if self._refreshing:
             return "REFRESHING"
+        if self._auth_required:
+            return "AUTH REQUIRED"
         if self._expires_at and self._expires_at <= time.time():
             return "AUTH REQUIRED"
         return "CONNECTED" if self._access_token else "AUTH REQUIRED"
@@ -321,6 +324,7 @@ class SaxoSimAdapter:
                             }
                         )
                         self._persist_tokens(payload)
+                        self._auth_required = False
                         return True
                     except (SaxoConfigurationError, OSError, RuntimeError):
                         return False
@@ -351,11 +355,15 @@ class SaxoSimAdapter:
             payload, _ = self._get_json(f"{self.base_url}{path}", headers, 10.0)
         except RuntimeError as exc:
             if "HTTP 401" not in str(exc) or not self._refresh_once():
+                if "HTTP 401" in str(exc):
+                    self._auth_required = True
                 raise self._safe_error(exc) from exc
             headers["Authorization"] = f"Bearer {self._access_token}"
             try:
                 payload, _ = self._get_json(f"{self.base_url}{path}", headers, 10.0)
             except RuntimeError as retry_exc:
+                if "HTTP 401" in str(retry_exc):
+                    self._auth_required = True
                 raise self._safe_error(retry_exc) from retry_exc
         return payload
 
