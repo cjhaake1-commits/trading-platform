@@ -1401,11 +1401,26 @@ def _render_learning_view(ctx: dict[str, object]) -> None:
 
 def _render_performance_view(ctx: dict[str, object]) -> None:
     st.markdown("<div class='section-title'>Performance</div>", unsafe_allow_html=True)
+    bucket = {}
+    db_path = Path("var/autotrader/research.db")
+    if db_path.exists():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute("SELECT * FROM cash_buckets ORDER BY updated_at DESC LIMIT 1").fetchone()
+                if row:
+                    bucket = {"liquid": row[6], "harvested": row[7], "redeployable": row[8], "theoretical": row[10]}
+        except sqlite3.Error:
+            bucket = {}
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Starting Capital", _money(ctx["original_capital"]))
     c2.metric("Current Equity", _money(ctx["total_equity"]))
     c3.metric("Realized Cash", _money(ctx["net_cash"]))
     c4.metric("Unrealized P&L", _money(ctx["unrealized"]))
+    c9, c10, c11, c12 = st.columns(4)
+    c9.metric("Liquid Cash", _money(bucket.get("liquid", ctx["available_cash"])))
+    c10.metric("Harvested Cash", _money(bucket.get("harvested", 0)))
+    c11.metric("Redeployable Cash", _money(bucket.get("redeployable", ctx["available_cash"])))
+    c12.metric("Theoretical Compounded Equity", _money(bucket.get("theoretical", ctx["total_equity"])))
     c5, c6, c7, c8 = st.columns(4)
     c5.metric("Daily Return", _pct(ctx["daily_realized"]))
     c6.metric("Cumulative Return", _pct(ctx["cumulative_realized"]))
@@ -1529,6 +1544,28 @@ def _render_research_view(ctx: dict[str, object]) -> None:
     st.metric("LIVE DEPLOYMENT READINESS", "COLLECTING EVIDENCE")
 
 
+def _render_daily_reports_view(ctx: dict[str, object]) -> None:
+    st.markdown("## DAILY REPORTS")
+    db_path = Path("var/autotrader/research.db")
+    reports = []
+    if db_path.exists():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                reports = [dict(row) for row in conn.execute("SELECT report_date, payload_json FROM daily_reports ORDER BY report_date DESC").fetchall()]
+        except sqlite3.Error:
+            reports = []
+    if not reports:
+        st.info("No daily report exists yet. The independent daily-report job will create one after its scheduled boundary.")
+        return
+    selected = st.selectbox("Report date", [row["report_date"] for row in reports])
+    payload = json.loads(next(row["payload_json"] for row in reports if row["report_date"] == selected))
+    cols = st.columns(5)
+    for col, (label, key) in zip(cols, (("Starting Equity", "starting_equity"), ("Ending Equity", "ending_equity"), ("Realized Cash", "realized_cash"), ("Daily Return", "daily_return"), ("Utilization", "capital_utilization"))):
+        col.metric(label, _pct(payload.get(key)) if "return" in key or "utilization" in key else _money(payload.get(key)))
+    st.dataframe([payload], use_container_width=True, hide_index=True)
+
+
 def render_dashboard() -> None:
     last_refreshed = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     st.session_state["dashboard_last_refreshed"] = last_refreshed
@@ -1569,7 +1606,7 @@ def render_dashboard() -> None:
         st.sidebar.caption(f"Auto refresh paused · Last refreshed: {last_refreshed}")
     selected_view = st.sidebar.radio(
         "Navigation",
-        ["OVERVIEW", "PILLARS", "POSITIONS", "TRADES", "LEARNING", "PERFORMANCE", "RESEARCH", "RISK & HEALTH", "EXECUTION LOG"],
+        ["OVERVIEW", "PILLARS", "POSITIONS", "TRADES", "LEARNING", "PERFORMANCE", "RESEARCH", "DAILY REPORTS", "RISK & HEALTH", "EXECUTION LOG"],
         key="dashboard_navigation",
     )
     ctx = _build_dashboard_context()
@@ -1588,6 +1625,8 @@ def render_dashboard() -> None:
         _render_performance_view(ctx)
     elif selected_view == "RESEARCH":
         _render_research_view(ctx)
+    elif selected_view == "DAILY REPORTS":
+        _render_daily_reports_view(ctx)
     elif selected_view == "RISK & HEALTH":
         _render_risk_health_view(ctx)
     elif selected_view == "EXECUTION LOG":

@@ -12,6 +12,7 @@ from .capital_allocations import TOTAL_PAPER_CAPITAL
 from .daily_learning import DailyLearningJob
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
 from .pillar_jobs import InternationalPaperTradingJob, MetalsPaperTradingJob
+from .research_jobs import DailyReportJob, ResearchRefreshJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
 
 AUTONOMOUS_ARM_ENV = "AUTONOMOUS_TRADING_ENABLED"
@@ -88,6 +89,8 @@ def main() -> None:
         jobs.append(MetalsPaperTradingJob())
         jobs.append(InternationalPaperTradingJob())
         jobs.append(DailyLearningJob(audit_db=args.audit_db))
+        jobs.append(ResearchRefreshJob())
+        jobs.append(DailyReportJob())
 
     runtime = AutonomousRuntime(
         jobs=jobs,

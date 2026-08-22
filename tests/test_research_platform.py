@@ -7,6 +7,7 @@ from autotrader.research_platform import (
     normalize_disclosure,
     performance_metrics,
 )
+from autotrader.research_jobs import DailyReportJob, ResearchRefreshJob
 
 
 def test_research_store_persists_records_and_forces_broker_control_off(tmp_path):
@@ -54,3 +55,12 @@ def test_regime_and_shadow_hedge_are_bounded():
     hedge = evaluate_shadow_hedge(overnight_direction=-0.02, gap_pct=0.06, volatility=0.03, portfolio_concentration=0.8)
     assert hedge["mode"] == "SHADOW_ONLY"
     assert 0 <= hedge["recommended_size"] <= 0.1
+
+
+def test_research_and_daily_jobs_are_independent_and_durable(tmp_path):
+    path = tmp_path / "research.db"
+    assert ResearchRefreshJob(str(path)).run(__import__("datetime").datetime.now(__import__("datetime").UTC)).ok
+    result = DailyReportJob(str(path)).run(__import__("datetime").datetime.now(__import__("datetime").UTC))
+    assert result.ok
+    with ResearchStore(path).connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM daily_reports").fetchone()[0] == 1

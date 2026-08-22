@@ -172,3 +172,15 @@ def evaluate_shadow_hedge(*, overnight_direction: float, gap_pct: float, volatil
     score = min(1.0, abs(gap_pct) * 8 + volatility * 4 + portfolio_concentration * 0.5)
     candidate = score >= 0.5
     return {"candidate": candidate, "instrument": "INDEX_FUTURE_RESEARCH", "mode": mode if mode in {"EXECUTABLE_SIM", "SHADOW_ONLY"} else "SHADOW_ONLY", "reason": "opening risk concentration" if candidate else "opening risk below threshold", "score": score, "recommended_size": round(score * 0.10, 6), "risk_before": portfolio_concentration, "risk_after": max(0.0, portfolio_concentration - score * 0.10), "simulated_result": None, "effectiveness": None}
+
+
+def apply_v2_exit(store: ResearchStore, *, experiment_id: str, trade_id: str, entry_value: float, exit_value: float, fees: float = 0.0, capital_deployed: float = 0.0, unrealized_pnl: float = 0.0) -> dict[str, float]:
+    """Idempotent-friendly cash calculation for a broker-confirmed v2 exit."""
+    gross = float(exit_value) - float(entry_value)
+    net = gross - float(fees)
+    store.put_cash(experiment_id, starting_capital=5000.0, capital_deployed=capital_deployed, gross_realized_profit=gross, fees_costs=fees, net_realized_cash=net, liquid_realized_cash=max(net, 0.0), redeployable_cash=max(net, 0.0), unrealized_pnl=unrealized_pnl)
+    return {"trade_id": trade_id, "gross_realized_profit": gross, "fees_costs": float(fees), "net_realized_cash": net}
+
+
+def build_daily_report(*, report_date: str, starting_equity: float, ending_equity: float, realized_cash: float, liquid_cash: float, redeployable_cash: float, harvested_cash: float, unrealized_pnl: float, trades: int, wins: int, expectancy: float, profit_factor: float | None, drawdown: float, capital_utilization: float, pillar_attribution: Mapping[str, float] | None = None, **extra: Any) -> dict[str, Any]:
+    return {"date": report_date, "starting_equity": starting_equity, "ending_equity": ending_equity, "realized_cash": realized_cash, "liquid_cash": liquid_cash, "redeployable_cash": redeployable_cash, "harvested_cash": harvested_cash, "unrealized_pnl": unrealized_pnl, "daily_return": (ending_equity / starting_equity - 1) if starting_equity else 0.0, "trades": trades, "win_rate": (wins / trades) if trades else 0.0, "expectancy": expectancy, "profit_factor": profit_factor, "drawdown": drawdown, "capital_utilization": capital_utilization, "pillar_attribution": dict(pillar_attribution or {}), **extra}
