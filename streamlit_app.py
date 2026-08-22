@@ -17,6 +17,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+
 def _load_autotrader_helpers():
     from autotrader.broker_environment import require_alpaca_paper_url, require_oanda_practice_url
     from autotrader.dashboard_health import runtime_status_labels
@@ -163,7 +164,10 @@ def _pillars_from_snapshot(snapshot: dict[str, object]) -> dict[str, dict[str, o
             continue
         pillar = str(row.get("pillar") or "")
         if pillar not in result:
-            if str(row.get("broker") or "").lower().startswith("alpaca") and str(row.get("symbol") or "").upper() in METALS_UNIVERSE:
+            if (
+                str(row.get("broker") or "").lower().startswith("alpaca")
+                and str(row.get("symbol") or "").upper() in METALS_UNIVERSE
+            ):
                 pillar = "Metals / Commodities"
             elif str(row.get("broker") or "").lower().startswith("alpaca"):
                 pillar = "US Stocks / ETFs" if not str(row.get("asset_class") or "").lower() == "crypto" else "Crypto"
@@ -246,29 +250,29 @@ def _build_live_positions(
 def _render_pillar_card(name: str, data: dict[str, object]) -> None:
     st.markdown(
         f"""
-        <div class="pillar pillar-{escape(str(data.get('accent') or 'blue'))}">
+        <div class="pillar pillar-{escape(str(data.get("accent") or "blue"))}">
           <div class="pillar-top">
             <div>
               <div class="pillar-name">{escape(name.upper())}</div>
-              <div class="pillar-sub">{escape(str(data.get('broker') or '—'))}</div>
+              <div class="pillar-sub">{escape(str(data.get("broker") or "—"))}</div>
             </div>
-            <div class="pill {escape(str(data.get('connection_class') or 'neutral'))}">{escape(str(data.get('connection') or 'DEFERRED'))}</div>
+            <div class="pill {escape(str(data.get("connection_class") or "neutral"))}">{escape(str(data.get("connection") or "DEFERRED"))}</div>
           </div>
-          <div class="pillar-state">{escape(str(data.get('state') or 'HOLDING CASH'))}</div>
+          <div class="pillar-state">{escape(str(data.get("state") or "HOLDING CASH"))}</div>
           <div class="pillar-grid">
-            <div><span>Cap</span><strong>{_money(data.get('cap'))}</strong></div>
-            <div><span>Deployed</span><strong>{_money(data.get('deployed'))}</strong></div>
-            <div><span>Available</span><strong>{_money(data.get('available'))}</strong></div>
-            <div><span>Realized P&amp;L</span><strong>{_money(data.get('realized_pnl'))}</strong></div>
-            <div><span>Unrealized P&amp;L</span><strong>{_money(data.get('unrealized_pnl'))}</strong></div>
-            <div><span>Positions</span><strong>{int(_float(data.get('positions')))}</strong></div>
-            <div><span>Trades</span><strong>{int(_float(data.get('completed_trades')))}</strong></div>
-            <div><span>Win Rate</span><strong>{escape(str(data.get('win_rate') or '—'))}</strong></div>
+            <div><span>Cap</span><strong>{_money(data.get("cap"))}</strong></div>
+            <div><span>Deployed</span><strong>{_money(data.get("deployed"))}</strong></div>
+            <div><span>Available</span><strong>{_money(data.get("available"))}</strong></div>
+            <div><span>Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
+            <div><span>Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
+            <div><span>Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
+            <div><span>Trades</span><strong>{int(_float(data.get("completed_trades")))}</strong></div>
+            <div><span>Win Rate</span><strong>{escape(str(data.get("win_rate") or "—"))}</strong></div>
           </div>
           <div class="pillar-foot">
-            <div><span>Scanner</span><strong>{escape(str(data.get('scanner') or 'DEFERRED'))}</strong></div>
-            <div><span>Last Scan</span><strong>{escape(str(data.get('last_scan') or 'DEFERRED'))}</strong></div>
-            <div><span>Last Decision</span><strong>{escape(str(data.get('last_decision') or 'DEFERRED'))}</strong></div>
+            <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DEFERRED"))}</strong></div>
+            <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "DEFERRED"))}</strong></div>
+            <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "DEFERRED"))}</strong></div>
           </div>
         </div>
         """,
@@ -281,7 +285,9 @@ def _secret_warning(name: str) -> str:
 
 
 @st.cache_data(ttl=20)
-def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float], dict[str, dict[str, object]], list[str]]:
+def fetch_live_broker_data() -> tuple[
+    list[dict[str, object]], dict[str, float], dict[str, dict[str, object]], list[str]
+]:
     positions: list[dict[str, object]] = []
     metrics = {
         "unrealized_pnl": 0.0,
@@ -303,9 +309,7 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
 
     alpaca_key = _secret("ALPACA_PAPER_API_KEY")
     alpaca_secret = _secret("ALPACA_PAPER_SECRET_KEY")
-    alpaca_base = require_alpaca_paper_url(
-        _secret("ALPACA_PAPER_BASE_URL") or "https://paper-api.alpaca.markets"
-    )
+    alpaca_base = require_alpaca_paper_url(_secret("ALPACA_PAPER_BASE_URL") or "https://paper-api.alpaca.markets")
     if alpaca_key and alpaca_secret:
         try:
             req = Request(
@@ -364,9 +368,7 @@ def fetch_live_broker_data() -> tuple[list[dict[str, object]], dict[str, float],
 
     oanda_token = _secret("OANDA_PRACTICE_TOKEN")
     oanda_account = _secret("OANDA_PRACTICE_ACCOUNT_ID")
-    oanda_base = require_oanda_practice_url(
-        _secret("OANDA_PRACTICE_BASE_URL") or "https://api-fxpractice.oanda.com"
-    )
+    oanda_base = require_oanda_practice_url(_secret("OANDA_PRACTICE_BASE_URL") or "https://api-fxpractice.oanda.com")
     if oanda_token and oanda_account:
         try:
             req = Request(
@@ -457,25 +459,25 @@ def _pillar_card(name: str, data: dict[str, object]) -> str:
       <div class="pillar-top">
         <div>
           <div class="pillar-name">{escape(name)}</div>
-          <div class="pillar-sub">{escape(str(data.get('broker') or '—'))}</div>
+          <div class="pillar-sub">{escape(str(data.get("broker") or "—"))}</div>
         </div>
-        <div class="pill {connection.lower().replace(' ', '-')}">{escape(connection)}</div>
+        <div class="pill {connection.lower().replace(" ", "-")}">{escape(connection)}</div>
       </div>
       <div class="pillar-state">{escape(status)}</div>
       <div class="pillar-grid">
-        <div><span>Cap</span><strong>{_money(data.get('cap'))}</strong></div>
-        <div><span>Deployed</span><strong>{_money(data.get('deployed'))}</strong></div>
-        <div><span>Available</span><strong>{_money(data.get('available'))}</strong></div>
-        <div><span>Realized P&L</span><strong>{_money(data.get('realized_pnl'))}</strong></div>
-        <div><span>Unrealized P&L</span><strong>{_money(data.get('unrealized_pnl'))}</strong></div>
-        <div><span>Positions</span><strong>{int(_float(data.get('positions')))}</strong></div>
-        <div><span>Trades</span><strong>{int(_float(data.get('completed_trades')))}</strong></div>
-        <div><span>Win Rate</span><strong>{escape(str(data.get('win_rate') or '—'))}</strong></div>
+        <div><span>Cap</span><strong>{_money(data.get("cap"))}</strong></div>
+        <div><span>Deployed</span><strong>{_money(data.get("deployed"))}</strong></div>
+        <div><span>Available</span><strong>{_money(data.get("available"))}</strong></div>
+        <div><span>Realized P&L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
+        <div><span>Unrealized P&L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
+        <div><span>Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
+        <div><span>Trades</span><strong>{int(_float(data.get("completed_trades")))}</strong></div>
+        <div><span>Win Rate</span><strong>{escape(str(data.get("win_rate") or "—"))}</strong></div>
       </div>
       <div class="pillar-foot">
         <div><span>Scanner</span><strong>{escape(scanner)}</strong></div>
-        <div><span>Last Scan</span><strong>{escape(str(data.get('last_scan') or 'DEFERRED'))}</strong></div>
-        <div><span>Last Decision</span><strong>{escape(str(data.get('last_decision') or 'DEFERRED'))}</strong></div>
+        <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "DEFERRED"))}</strong></div>
+        <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "DEFERRED"))}</strong></div>
       </div>
     </div>
     """
@@ -487,7 +489,11 @@ def _position_row(position: dict[str, object]) -> str:
     recon = str(position.get("crypto_reconciliation_status") or position.get("reconciliation_status") or "—")
     classification = str(position.get("classification") or "UNRESOLVED")
     learning_eligible = "YES" if position.get("learning_eligible") else "NO"
-    stop = position.get("crypto_stop_price") if position.get("crypto_stop_price") is not None else position.get("stop_price")
+    stop = (
+        position.get("crypto_stop_price")
+        if position.get("crypto_stop_price") is not None
+        else position.get("stop_price")
+    )
     return (
         "<tr>"
         f"<td>{escape(str(position.get('pillar') or '—'))}</td>"
@@ -549,9 +555,19 @@ def _build_dashboard_context() -> dict[str, object]:
     live_runtime = load_live_runtime_status()
     snapshot = load_snapshot()
     experiment = load_experiment_state()
-    runtime = live_runtime if live_runtime else (snapshot.get("runtime", {}) if isinstance(snapshot.get("runtime"), dict) else {})
+    runtime = (
+        live_runtime
+        if live_runtime
+        else (snapshot.get("runtime", {}) if isinstance(snapshot.get("runtime"), dict) else {})
+    )
     runtime_source = "LIVE VM" if live_runtime else ("PUBLISHED SNAPSHOT" if snapshot else "UNAVAILABLE")
-    runtime_source_age = _path_age_label(Path("var/autotrader/status.json")) if live_runtime else _age_label(runtime.get("last_heartbeat_at")) if runtime else "UNAVAILABLE"
+    runtime_source_age = (
+        _path_age_label(Path("var/autotrader/status.json"))
+        if live_runtime
+        else _age_label(runtime.get("last_heartbeat_at"))
+        if runtime
+        else "UNAVAILABLE"
+    )
     runtime_labels = runtime_status_labels(runtime if isinstance(runtime, dict) else {})
     learning = snapshot.get("learning") if isinstance(snapshot.get("learning"), dict) else {}
     live_positions, live_metrics, live_pillar_status, live_errors = fetch_live_broker_data()
@@ -561,9 +577,13 @@ def _build_dashboard_context() -> dict[str, object]:
     legacy_positions = snapshot.get("legacy_positions") if isinstance(snapshot.get("legacy_positions"), list) else []
     positions = _build_live_positions(active_positions, live_positions)
     unresolved = snapshot.get("unresolved_manifests") if isinstance(snapshot.get("unresolved_manifests"), list) else []
-    pillar_performance = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+    pillar_performance = (
+        snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+    )
     cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
-    legacy_cash = snapshot.get("legacy_cash_dashboard") if isinstance(snapshot.get("legacy_cash_dashboard"), dict) else {}
+    legacy_cash = (
+        snapshot.get("legacy_cash_dashboard") if isinstance(snapshot.get("legacy_cash_dashboard"), dict) else {}
+    )
     broker_account = snapshot.get("broker_account") if isinstance(snapshot.get("broker_account"), dict) else {}
     activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
     trades = snapshot.get("trades") if isinstance(snapshot.get("trades"), list) else []
@@ -598,11 +618,18 @@ def _build_dashboard_context() -> dict[str, object]:
     cycle_age = _age_label(last_finished)
     autonomous_state = "ARMED" if runtime.get("autonomous_enabled") else "DISARMED"
     live_state = "DISABLED" if runtime.get("live_trading_enabled") is False else "UNKNOWN"
-    five_state = "RUNNING" if runtime.get("healthy") and runtime.get("execution_state") == "armed_paper" else ("DEGRADED" if runtime.get("healthy") else "FAIL-CLOSED")
-    learning_engine_state = "ACTIVE" if not any(
-        isinstance(jobs.get(name), dict) and jobs.get(name, {}).get("disabled")
-        for name in ("daily-learning",)
-    ) else "DEGRADED"
+    five_state = (
+        "RUNNING"
+        if runtime.get("healthy") and runtime.get("execution_state") == "armed_paper"
+        else ("DEGRADED" if runtime.get("healthy") else "FAIL-CLOSED")
+    )
+    learning_engine_state = (
+        "ACTIVE"
+        if not any(
+            isinstance(jobs.get(name), dict) and jobs.get(name, {}).get("disabled") for name in ("daily-learning",)
+        )
+        else "DEGRADED"
+    )
     learning_model_state = str(learning.get("stats", {}).get("sample_status") or "COLLECTING EVIDENCE").upper()
     original_capital = _float(cash.get("original_capital"), TOTAL_BASE_CAPITAL)
     deployed = _float(cash.get("capital_deployed"))
@@ -678,7 +705,7 @@ def _render_overview(ctx: dict[str, object]) -> None:
     st.markdown("<div class='section-title'>Overview</div>", unsafe_allow_html=True)
     st.markdown(
         f"""
-        <div class="small-note">Runtime source: <strong>{escape(str(ctx['runtime_source']))}</strong> · freshness: <strong>{escape(str(ctx['runtime_source_age']))}</strong></div>
+        <div class="small-note">Runtime source: <strong>{escape(str(ctx["runtime_source"]))}</strong> · freshness: <strong>{escape(str(ctx["runtime_source_age"]))}</strong></div>
         <div class="small-note">The active experiment only counts <strong>five_pillar_paper_v2</strong> evidence; legacy history remains visible but isolated.</div>
         """,
         unsafe_allow_html=True,
@@ -710,7 +737,9 @@ def _render_overview(ctx: dict[str, object]) -> None:
     util_pct = (ctx["deployed"] / ctx["original_capital"] * 100.0) if ctx["original_capital"] else 0.0
     util_cols[0].metric("Capital Utilization", f"{_money(ctx['deployed'])} / {_money(ctx['original_capital'])}")
     util_cols[1].metric("Utilization %", f"{util_pct:.1f}%")
-    util_cols[2].metric("Capital Reserved", _money(max(ctx["original_capital"] - ctx["deployed"] - ctx["available_cash"], 0.0)))
+    util_cols[2].metric(
+        "Capital Reserved", _money(max(ctx["original_capital"] - ctx["deployed"] - ctx["available_cash"], 0.0))
+    )
     util_cols[3].metric("Capital Blocked", _money(_float(runtime.get("unresolved_manifest_count"), 0.0)))
     cols = st.columns(4)
     cols[0].metric("Daily Net Trading Cash", _money(ctx["net_cash"]))
@@ -749,7 +778,11 @@ def _render_overview(ctx: dict[str, object]) -> None:
         reason = "HOLDING CASH" if deployed <= 0 else "DEPLOYED"
         if name == "International" and any("Saxo SIM HTTP 401" in str(err) for err in ctx.get("live_errors") or []):
             reason = "AUTH REQUIRED"
-        elif name == "Forex" and any("position already open" in str(row.get("reason")) for row in ctx.get("activity", []) if isinstance(row, dict)):
+        elif name == "Forex" and any(
+            "position already open" in str(row.get("reason"))
+            for row in ctx.get("activity", [])
+            if isinstance(row, dict)
+        ):
             reason = "SAME-SYMBOL CONFLICT"
         pillar_util_rows.append(
             f"<tr><td>{escape(name)}</td><td>{_money(deployed)}</td><td>{_money(cap)}</td><td>{_pct(deployed / cap if cap else 0.0)}</td><td>{_money(available)}</td><td>{escape(reason)}</td></tr>"
@@ -760,7 +793,9 @@ def _render_overview(ctx: dict[str, object]) -> None:
           <table>
             <thead><tr><th>Pillar</th><th>Deployed</th><th>Cap</th><th>Utilization</th><th>Available</th><th>Idle Capital Reason</th></tr></thead>
             <tbody>
-        """ + "".join(pillar_util_rows) + """
+        """
+        + "".join(pillar_util_rows)
+        + """
             </tbody>
           </table>
         </div>
@@ -795,7 +830,7 @@ def _render_overview(ctx: dict[str, object]) -> None:
     st.markdown(
         f"""
         <div class="panel" style="padding:1rem">
-          <div class="small-note">Engine: <strong>{escape(str(ctx['learning_engine_state']))}</strong> · Model state: <strong>{escape(str(ctx['learning_model_state']))}</strong></div>
+          <div class="small-note">Engine: <strong>{escape(str(ctx["learning_engine_state"]))}</strong> · Model state: <strong>{escape(str(ctx["learning_model_state"]))}</strong></div>
           <div class="small-note">Current bounded parameters: <code>{escape(json.dumps(learning_params, sort_keys=True))}</code></div>
         </div>
         """,
@@ -827,19 +862,32 @@ def _render_overview(ctx: dict[str, object]) -> None:
             unsafe_allow_html=True,
         )
 
+
 def _render_dashboard_legacy() -> None:
     live_runtime = load_live_runtime_status()
     snapshot = load_snapshot()
-    runtime = live_runtime if live_runtime else (snapshot.get("runtime", {}) if isinstance(snapshot.get("runtime"), dict) else {})
+    runtime = (
+        live_runtime
+        if live_runtime
+        else (snapshot.get("runtime", {}) if isinstance(snapshot.get("runtime"), dict) else {})
+    )
     runtime_source = "LIVE VM" if live_runtime else ("PUBLISHED SNAPSHOT" if snapshot else "UNAVAILABLE")
-    runtime_source_age = _path_age_label(Path("var/autotrader/status.json")) if live_runtime else _age_label(runtime.get("last_heartbeat_at")) if runtime else "UNAVAILABLE"
+    runtime_source_age = (
+        _path_age_label(Path("var/autotrader/status.json"))
+        if live_runtime
+        else _age_label(runtime.get("last_heartbeat_at"))
+        if runtime
+        else "UNAVAILABLE"
+    )
     runtime_labels = runtime_status_labels(runtime if isinstance(runtime, dict) else {})
     learning = snapshot.get("learning") if isinstance(snapshot.get("learning"), dict) else {}
     live_positions, live_metrics, live_pillar_status, live_errors = fetch_live_broker_data()
     snapshot_positions = snapshot.get("positions") if isinstance(snapshot.get("positions"), list) else []
     positions = _build_live_positions(snapshot_positions, live_positions)
     unresolved = snapshot.get("unresolved_manifests") if isinstance(snapshot.get("unresolved_manifests"), list) else []
-    pillar_performance = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+    pillar_performance = (
+        snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+    )
     cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
 
     jobs = runtime.get("jobs") if isinstance(runtime.get("jobs"), dict) else {}
@@ -872,11 +920,18 @@ def _render_dashboard_legacy() -> None:
     cycle_age = _age_label(last_finished)
     autonomous_state = "ARMED" if runtime.get("autonomous_enabled") else "DISARMED"
     live_state = "DISABLED" if runtime.get("live_trading_enabled") is False else "UNKNOWN"
-    five_state = "RUNNING" if runtime.get("healthy") and runtime.get("execution_state") == "armed_paper" else ("DEGRADED" if runtime.get("healthy") else "FAIL-CLOSED")
-    learning_engine_state = "ACTIVE" if not any(
-        isinstance(jobs.get(name), dict) and jobs.get(name, {}).get("disabled")
-        for name in ("daily-learning",)
-    ) else "DEGRADED"
+    five_state = (
+        "RUNNING"
+        if runtime.get("healthy") and runtime.get("execution_state") == "armed_paper"
+        else ("DEGRADED" if runtime.get("healthy") else "FAIL-CLOSED")
+    )
+    learning_engine_state = (
+        "ACTIVE"
+        if not any(
+            isinstance(jobs.get(name), dict) and jobs.get(name, {}).get("disabled") for name in ("daily-learning",)
+        )
+        else "DEGRADED"
+    )
     learning_model_state = str(learning.get("stats", {}).get("sample_status") or "COLLECTING EVIDENCE").upper()
 
     original_capital = _float(cash.get("original_capital"), TOTAL_BASE_CAPITAL)
@@ -980,14 +1035,14 @@ def _render_dashboard_legacy() -> None:
         f"""
         <div class="small-note">Runtime source: <strong>{escape(runtime_source)}</strong> · freshness: <strong>{escape(runtime_source_age)}</strong></div>
         <div class="status-grid">
-          <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {'status-healthy' if runtime_labels['runtime_health'] == 'Healthy' else 'status-faulted'}">{escape(runtime_labels['runtime_health'])}</div></div>
-          <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {'status-armed' if autonomous_state == 'ARMED' else 'status-disarmed'}">{escape(autonomous_state)}</div></div>
+          <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {"status-healthy" if runtime_labels["runtime_health"] == "Healthy" else "status-faulted"}">{escape(runtime_labels["runtime_health"])}</div></div>
+          <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {"status-armed" if autonomous_state == "ARMED" else "status-disarmed"}">{escape(autonomous_state)}</div></div>
           <div class="status-card"><div class="status-label">LIVE TRADING</div><div class="status-value status-disabled">{escape(live_state)}</div></div>
           <div class="status-card"><div class="status-label">FIVE-PILLAR STATUS</div><div class="status-value">{escape(five_state)}</div></div>
           <div class="status-card"><div class="status-label">LEARNING ENGINE</div><div class="status-value">{escape(learning_engine_state)}</div></div>
           <div class="status-card"><div class="status-label">LAST HEARTBEAT</div><div class="status-value">{escape(heartbeat_age)}</div></div>
           <div class="status-card"><div class="status-label">LAST CYCLE</div><div class="status-value">{escape(cycle_age)}</div></div>
-          <div class="status-card"><div class="status-label">CURRENT UTC TIME</div><div class="status-value">{escape(datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S'))} UTC</div></div>
+          <div class="status-card"><div class="status-label">CURRENT UTC TIME</div><div class="status-value">{escape(datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))} UTC</div></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1022,7 +1077,11 @@ def _render_dashboard_legacy() -> None:
         positions_count = int(live_state.get("positions", 0) or 0)
         connected = bool(live_state.get("connected"))
         connection = "CONNECTED" if connected or not job.get("disabled") else "DEFERRED"
-        connection_class = "good" if connection == "CONNECTED" and not job.get("last_error") else ("warn" if job.get("last_error") else "neutral")
+        connection_class = (
+            "good"
+            if connection == "CONNECTED" and not job.get("last_error")
+            else ("warn" if job.get("last_error") else "neutral")
+        )
         state = "TRADING" if positions_count else ("SCANNING" if not job.get("disabled") else "DEGRADED")
         if name == "International" and not positions_count and not job.get("disabled"):
             state = "SCANNING"
@@ -1032,8 +1091,20 @@ def _render_dashboard_legacy() -> None:
                 "broker": broker,
                 "accent": accent,
                 "cap": PILLAR_BASE_CAPITAL,
-                "deployed": _float(live_state.get("gross_exposure", 0.0) if name != "Forex" else live_metrics.get("oanda_exposure", 0.0)),
-                "available": max(PILLAR_BASE_CAPITAL - _float(live_state.get("gross_exposure", 0.0) if name != "Forex" else live_metrics.get("oanda_exposure", 0.0)), 0.0),
+                "deployed": _float(
+                    live_state.get("gross_exposure", 0.0)
+                    if name != "Forex"
+                    else live_metrics.get("oanda_exposure", 0.0)
+                ),
+                "available": max(
+                    PILLAR_BASE_CAPITAL
+                    - _float(
+                        live_state.get("gross_exposure", 0.0)
+                        if name != "Forex"
+                        else live_metrics.get("oanda_exposure", 0.0)
+                    ),
+                    0.0,
+                ),
                 "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
                 "unrealized_pnl": _float(live_state.get("unrealized_pnl", 0.0)),
                 "positions": positions_count,
@@ -1044,7 +1115,9 @@ def _render_dashboard_legacy() -> None:
                 "last_decision": job.get("last_finished_at") or runtime.get("last_heartbeat_at"),
                 "connection": connection,
                 "connection_class": connection_class,
-                "scanner": "ACTIVE" if not job.get("disabled") and not job.get("last_error") else ("DISABLED" if job.get("disabled") else "DEGRADED"),
+                "scanner": "ACTIVE"
+                if not job.get("disabled") and not job.get("last_error")
+                else ("DISABLED" if job.get("disabled") else "DEGRADED"),
                 "state": state,
             }
         )
@@ -1229,21 +1302,24 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
     st.caption("CHRIS HAAKE CAPITAL SYSTEMS")
     st.markdown(
         f"""
-        <div class="small-note">Runtime source: <strong>{escape(str(live_runtime))}</strong> · freshness: <strong>{escape(str(ctx['runtime_source_age']))}</strong></div>
+        <div class="small-note">Runtime source: <strong>{escape(str(live_runtime))}</strong> · freshness: <strong>{escape(str(ctx["runtime_source_age"]))}</strong></div>
         <div class="status-grid">
-          <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {'status-healthy' if runtime_labels['runtime_health'] == 'Healthy' else 'status-faulted'}">{escape(runtime_labels['runtime_health'])}</div></div>
-          <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {'status-armed' if ctx['autonomous_state'] == 'ARMED' else 'status-disarmed'}">{escape(str(ctx['autonomous_state']))}</div></div>
-          <div class="status-card"><div class="status-label">LIVE TRADING</div><div class="status-value status-disabled">{escape(str(ctx['live_state']))}</div></div>
-          <div class="status-card"><div class="status-label">FIVE-PILLAR STATUS</div><div class="status-value">{escape(str(ctx['five_state']))}</div></div>
-          <div class="status-card"><div class="status-label">LEARNING ENGINE</div><div class="status-value">{escape(str(ctx['learning_engine_state']))}</div></div>
-          <div class="status-card"><div class="status-label">LAST HEARTBEAT</div><div class="status-value">{escape(str(ctx['heartbeat_age']))}</div></div>
-          <div class="status-card"><div class="status-label">LAST CYCLE</div><div class="status-value">{escape(str(ctx['cycle_age']))}</div></div>
-          <div class="status-card"><div class="status-label">CURRENT UTC TIME</div><div class="status-value">{escape(datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S'))} UTC</div></div>
+          <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {"status-healthy" if runtime_labels["runtime_health"] == "Healthy" else "status-faulted"}">{escape(runtime_labels["runtime_health"])}</div></div>
+          <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {"status-armed" if ctx["autonomous_state"] == "ARMED" else "status-disarmed"}">{escape(str(ctx["autonomous_state"]))}</div></div>
+          <div class="status-card"><div class="status-label">LIVE TRADING</div><div class="status-value status-disabled">{escape(str(ctx["live_state"]))}</div></div>
+          <div class="status-card"><div class="status-label">FIVE-PILLAR STATUS</div><div class="status-value">{escape(str(ctx["five_state"]))}</div></div>
+          <div class="status-card"><div class="status-label">LEARNING ENGINE</div><div class="status-value">{escape(str(ctx["learning_engine_state"]))}</div></div>
+          <div class="status-card"><div class="status-label">LAST HEARTBEAT</div><div class="status-value">{escape(str(ctx["heartbeat_age"]))}</div></div>
+          <div class="status-card"><div class="status-label">LAST CYCLE</div><div class="status-value">{escape(str(ctx["cycle_age"]))}</div></div>
+          <div class="status-card"><div class="status-label">CURRENT UTC TIME</div><div class="status-value">{escape(datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"))} UTC</div></div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown("<div class='small-note'>Current view: <strong>{}</strong></div>".format(escape(selected_view)), unsafe_allow_html=True)
+    st.markdown(
+        "<div class='small-note'>Current view: <strong>{}</strong></div>".format(escape(selected_view)),
+        unsafe_allow_html=True,
+    )
     if runtime.get("safety_configuration_valid") is False:
         st.warning("Safety configuration is invalid; execution remains fail-closed.")
     if ctx["live_errors"]:
@@ -1272,7 +1348,9 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
         positions_count = int(broker_state.get("positions", 0) or 0)
         connected = bool(broker_state.get("connected"))
         connection = "CONNECTED" if connected else ("ERROR" if job.get("last_error") else "DEFERRED")
-        connection_class = "good" if connected and not job.get("last_error") else ("warn" if job.get("last_error") else "neutral")
+        connection_class = (
+            "good" if connected and not job.get("last_error") else ("warn" if job.get("last_error") else "neutral")
+        )
         current_state = broker_state.get("state") or ("TRADING" if positions_count else "SCANNING")
         if not connected and job.get("disabled"):
             current_state = "DEGRADED"
@@ -1282,7 +1360,11 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "broker": broker,
                 "accent": accent,
                 "cap": PILLAR_BASE_CAPITAL,
-                "deployed": _float(broker_state.get("gross_exposure", 0.0) if name != "Forex" else ctx["live_metrics"].get("oanda_exposure", 0.0)),
+                "deployed": _float(
+                    broker_state.get("gross_exposure", 0.0)
+                    if name != "Forex"
+                    else ctx["live_metrics"].get("oanda_exposure", 0.0)
+                ),
                 "available": max(
                     PILLAR_BASE_CAPITAL
                     - _float(
@@ -1302,7 +1384,9 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "last_decision": job.get("last_finished_at") or runtime.get("last_heartbeat_at"),
                 "connection": connection,
                 "connection_class": connection_class,
-                "scanner": "ACTIVE" if not job.get("disabled") and not job.get("last_error") else ("DISABLED" if job.get("disabled") else "DEGRADED"),
+                "scanner": "ACTIVE"
+                if not job.get("disabled") and not job.get("last_error")
+                else ("DISABLED" if job.get("disabled") else "DEGRADED"),
                 "state": current_state,
             }
         )
@@ -1387,7 +1471,10 @@ def _render_learning_view(ctx: dict[str, object]) -> None:
     m1.metric("Sample Size", str(learning_stats.get("completed_trades") or 0))
     m2.metric("Trades Evaluated", str(learning_stats.get("completed_trades") or 0))
     m3.metric("Promotion Eligibility", str(learning_meta.get("promotion_eligibility") or "COLLECTING EVIDENCE"))
-    m4.metric("Last Evaluation", str(learning_meta.get("last_evaluation_at") or ctx["runtime"].get("last_heartbeat_at") or "—"))
+    m4.metric(
+        "Last Evaluation",
+        str(learning_meta.get("last_evaluation_at") or ctx["runtime"].get("last_heartbeat_at") or "—"),
+    )
     st.markdown(
         f"""
         <div class="panel" style="padding:1rem">
@@ -1411,7 +1498,12 @@ def _render_performance_view(ctx: dict[str, object]) -> None:
                 if row:
                     bucket = {"liquid": row[6], "harvested": row[7], "redeployable": row[8], "theoretical": row[10]}
                 conn.row_factory = sqlite3.Row
-                daily_reports = [dict(r) for r in conn.execute("SELECT payload_json FROM daily_reports ORDER BY report_date DESC LIMIT 30").fetchall()]
+                daily_reports = [
+                    dict(r)
+                    for r in conn.execute(
+                        "SELECT payload_json FROM daily_reports ORDER BY report_date DESC LIMIT 30"
+                    ).fetchall()
+                ]
         except sqlite3.Error:
             bucket = {}
     c1, c2, c3, c4 = st.columns(4)
@@ -1447,7 +1539,7 @@ def _render_performance_view(ctx: dict[str, object]) -> None:
           <div class="status-value">20%–40% Daily Return</div>
           <div class="small-note">Current realized return: {escape(_pct(ctx["daily_realized"]))} · current unrealized return: {escape(_pct(ctx["daily_unrealized"]))}</div>
           <div class="small-note">Distance to 20%: {escape(_pct(ctx["dist_low"]))} · Distance to 40%: {escape(_pct(ctx["dist_high"]))}</div>
-          <div class="progress"><div style="width:{max(0.0, min(100.0, abs(ctx['daily_realized']) / 0.40 * 100.0)):.1f}%"></div></div>
+          <div class="progress"><div style="width:{max(0.0, min(100.0, abs(ctx["daily_realized"]) / 0.40 * 100.0)):.1f}%"></div></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1473,7 +1565,9 @@ def _render_performance_view(ctx: dict[str, object]) -> None:
 
 def _render_risk_health_view(ctx: dict[str, object]) -> None:
     st.markdown("<div class='section-title'>Risk & Health</div>", unsafe_allow_html=True)
-    backlog = ctx["snapshot"].get("runtime", {}).get("backlog_progress") if isinstance(ctx.get("snapshot"), dict) else {}
+    backlog = (
+        ctx["snapshot"].get("runtime", {}).get("backlog_progress") if isinstance(ctx.get("snapshot"), dict) else {}
+    )
     backlog = backlog if isinstance(backlog, dict) else {}
     r1, r2, r3, r4 = st.columns(4)
     r1.metric("Strategy Baseline", _money(TOTAL_BASE_CAPITAL))
@@ -1487,9 +1581,9 @@ def _render_risk_health_view(ctx: dict[str, object]) -> None:
     b4.metric("Active v2 Unresolved", str(int(_float(backlog.get("active_experiment_unresolved"), 0.0))))
     st.markdown(
         f"""
-        <div class="small-note">Oldest unresolved: <strong>{escape(str(backlog.get('oldest_unresolved_timestamp') or 'UNAVAILABLE'))}</strong> · newest unresolved: <strong>{escape(str(backlog.get('newest_unresolved_timestamp') or 'UNAVAILABLE'))}</strong></div>
-        <div class="small-note">Current history window: <strong>{escape(str((backlog.get('current_history_window') or {}).get('start') or 'UNAVAILABLE'))}</strong> → <strong>{escape(str((backlog.get('current_history_window') or {}).get('end') or 'UNAVAILABLE'))}</strong></div>
-        <div class="small-note">Cooldown until: <strong>{escape(str(backlog.get('cooldown_until') or 'UNAVAILABLE'))}</strong> · Last successful reconciliation: <strong>{escape(str(backlog.get('last_successful_reconciliation') or 'UNAVAILABLE'))}</strong></div>
+        <div class="small-note">Oldest unresolved: <strong>{escape(str(backlog.get("oldest_unresolved_timestamp") or "UNAVAILABLE"))}</strong> · newest unresolved: <strong>{escape(str(backlog.get("newest_unresolved_timestamp") or "UNAVAILABLE"))}</strong></div>
+        <div class="small-note">Current history window: <strong>{escape(str((backlog.get("current_history_window") or {}).get("start") or "UNAVAILABLE"))}</strong> → <strong>{escape(str((backlog.get("current_history_window") or {}).get("end") or "UNAVAILABLE"))}</strong></div>
+        <div class="small-note">Cooldown until: <strong>{escape(str(backlog.get("cooldown_until") or "UNAVAILABLE"))}</strong> · Last successful reconciliation: <strong>{escape(str(backlog.get("last_successful_reconciliation") or "UNAVAILABLE"))}</strong></div>
         """,
         unsafe_allow_html=True,
     )
@@ -1542,17 +1636,21 @@ def _render_execution_log_view(ctx: dict[str, object]) -> None:
 def _render_research_view(ctx: dict[str, object]) -> None:
     """Show research candidates without allowing discovery to control execution."""
     st.markdown("## RESEARCH & VALIDATION")
-    st.caption("External research remains isolated from broker execution until it passes the evidence-gated promotion policy.")
-    learning = ctx.get("learning") if isinstance(ctx.get("learning"), dict) else {}
-    model_state = learning.get("model_state") if isinstance(learning.get("model_state"), dict) else {}
-    stats = learning.get("stats") if isinstance(learning.get("stats"), dict) else {}
+    st.caption(
+        "External research remains isolated from broker execution until it passes the evidence-gated promotion policy."
+    )
     db_path = Path("var/autotrader/research.db")
     rows = []
     if db_path.exists():
         try:
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                rows = [dict(row) for row in conn.execute("SELECT lane, source, as_of_date, freshness, instrument, signal_type, confidence, backtest_status, walk_forward_status, paper_shadow_status, promotion_status, model_weight, broker_control FROM research_records ORDER BY retrieved_at DESC LIMIT 100").fetchall()]
+                rows = [
+                    dict(row)
+                    for row in conn.execute(
+                        "SELECT lane, source, as_of_date, freshness, instrument, signal_type, confidence, backtest_status, walk_forward_status, paper_shadow_status, promotion_status, model_weight, broker_control FROM research_records ORDER BY retrieved_at DESC LIMIT 100"
+                    ).fetchall()
+                ]
         except sqlite3.Error:
             rows = []
     if rows:
@@ -1563,14 +1661,21 @@ def _render_research_view(ctx: dict[str, object]) -> None:
         try:
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                providers = [dict(row) for row in conn.execute("SELECT lane,status,last_success,last_attempt,next_refresh,records_ingested,last_error FROM provider_status ORDER BY lane").fetchall()]
+                providers = [
+                    dict(row)
+                    for row in conn.execute(
+                        "SELECT lane,status,last_success,last_attempt,next_refresh,records_ingested,last_error FROM provider_status ORDER BY lane"
+                    ).fetchall()
+                ]
             if providers:
                 st.markdown("### Provider health")
                 st.dataframe(providers, use_container_width=True, hide_index=True)
         except sqlite3.Error:
             st.warning("Provider health is unavailable.")
     st.markdown("### Promotion gate")
-    st.info("Promotion requires meaningful out-of-sample evidence, positive incremental results, bounded drawdown, and execution-quality limits. No research signal can submit an order directly.")
+    st.info(
+        "Promotion requires meaningful out-of-sample evidence, positive incremental results, bounded drawdown, and execution-quality limits. No research signal can submit an order directly."
+    )
     st.metric("LIVE DEPLOYMENT READINESS", "COLLECTING EVIDENCE")
 
 
@@ -1582,17 +1687,36 @@ def _render_daily_reports_view(ctx: dict[str, object]) -> None:
         try:
             with sqlite3.connect(db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                reports = [dict(row) for row in conn.execute("SELECT report_date, payload_json FROM daily_reports ORDER BY report_date DESC").fetchall()]
+                reports = [
+                    dict(row)
+                    for row in conn.execute(
+                        "SELECT report_date, payload_json FROM daily_reports ORDER BY report_date DESC"
+                    ).fetchall()
+                ]
         except sqlite3.Error:
             reports = []
     if not reports:
-        st.info("No daily report exists yet. The independent daily-report job will create one after its scheduled boundary.")
+        st.info(
+            "No daily report exists yet. The independent daily-report job will create one after its scheduled boundary."
+        )
         return
     selected = st.selectbox("Report date", [row["report_date"] for row in reports])
     payload = json.loads(next(row["payload_json"] for row in reports if row["report_date"] == selected))
     cols = st.columns(5)
-    for col, (label, key) in zip(cols, (("Starting Equity", "starting_equity"), ("Ending Equity", "ending_equity"), ("Realized Cash", "realized_cash"), ("Daily Return", "daily_return"), ("Utilization", "capital_utilization"))):
-        col.metric(label, _pct(payload.get(key)) if "return" in key or "utilization" in key else _money(payload.get(key)))
+    for col, (label, key) in zip(
+        cols,
+        (
+            ("Starting Equity", "starting_equity"),
+            ("Ending Equity", "ending_equity"),
+            ("Realized Cash", "realized_cash"),
+            ("Daily Return", "daily_return"),
+            ("Utilization", "capital_utilization"),
+        ),
+        strict=True,
+    ):
+        col.metric(
+            label, _pct(payload.get(key)) if "return" in key or "utilization" in key else _money(payload.get(key))
+        )
     st.dataframe([payload], use_container_width=True, hide_index=True)
 
 
@@ -1620,7 +1744,8 @@ def render_dashboard() -> None:
         index=["30 seconds", "60 seconds", "120 seconds"].index(
             str(st.session_state.get("dashboard_refresh_interval", "60 seconds"))
         )
-        if str(st.session_state.get("dashboard_refresh_interval", "60 seconds")) in {"30 seconds", "60 seconds", "120 seconds"}
+        if str(st.session_state.get("dashboard_refresh_interval", "60 seconds"))
+        in {"30 seconds", "60 seconds", "120 seconds"}
         else 1,
         horizontal=False,
         key="dashboard_refresh_interval_widget",
@@ -1636,7 +1761,18 @@ def render_dashboard() -> None:
         st.sidebar.caption(f"Auto refresh paused · Last refreshed: {last_refreshed}")
     selected_view = st.sidebar.radio(
         "Navigation",
-        ["OVERVIEW", "PILLARS", "POSITIONS", "TRADES", "LEARNING", "PERFORMANCE", "RESEARCH", "DAILY REPORTS", "RISK & HEALTH", "EXECUTION LOG"],
+        [
+            "OVERVIEW",
+            "PILLARS",
+            "POSITIONS",
+            "TRADES",
+            "LEARNING",
+            "PERFORMANCE",
+            "RESEARCH",
+            "DAILY REPORTS",
+            "RISK & HEALTH",
+            "EXECUTION LOG",
+        ],
         key="dashboard_navigation",
     )
     ctx = _build_dashboard_context()

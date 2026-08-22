@@ -75,12 +75,18 @@ def _sync_portfolio_to_broker_truth(
             stop_price = existing.stop_price
         else:
             stop_price = _manifest_stop_for_symbol(ledger, broker_position.symbol)
+        # Broker-only positions may be legacy or externally managed. Persist
+        # them as pre-experiment positions so same-symbol collision protection
+        # remains active without allowing legacy exposure to consume v2 capital
+        # or block unrelated pillars. No synthetic protection is created here;
+        # the absence of a broker-confirmed stop remains visible to health/UI.
+        legacy_opened_at = datetime(1970, 1, 1, tzinfo=UTC)
         if stop_price is None:
-            continue
+            stop_price = 0.0
         opened_at = (
             existing.opened_at
             if existing is not None and existing.opened_at is not None
-            else datetime.now(UTC)
+            else legacy_opened_at
         )
         from .models import AssetClass, Position
 

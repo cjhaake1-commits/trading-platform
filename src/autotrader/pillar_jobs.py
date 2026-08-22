@@ -125,7 +125,11 @@ class InternationalPaperTradingJob:
     def run(self, now: datetime) -> JobResult:
         now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
         if self.adapter is None or self.service is None:
-            return JobResult(True, "International cycle deferred", {"reason": "saxo sim credentials unavailable"})
+            return JobResult(
+                True,
+                "International AUTH REQUIRED",
+                {"state": "AUTH REQUIRED", "error": "Saxo SIM credentials unavailable"},
+            )
         try:
             instruments = self.adapter.search_instruments(
                 self.search_keywords,
@@ -133,7 +137,14 @@ class InternationalPaperTradingJob:
                 top=self.search_top,
             )
         except Exception as exc:
-            return JobResult(True, "International cycle deferred", {"error": str(exc)})
+            error = str(exc)
+            if "401" in error or "unauthorized" in error.lower():
+                return JobResult(
+                    True,
+                    "International AUTH REQUIRED",
+                    {"state": "AUTH REQUIRED", "error": "Saxo SIM authentication rejected the read-only probe"},
+                )
+            return JobResult(True, "International DATA UNAVAILABLE", {"state": "DATA UNAVAILABLE", "error": error})
         if not instruments:
             return JobResult(True, "International cycle found no instruments", {})
         histories: dict[Instrument, list[MarketBar]] = {}

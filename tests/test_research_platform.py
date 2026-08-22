@@ -1,3 +1,4 @@
+from autotrader.research_jobs import DailyReportJob, ResearchRefreshJob
 from autotrader.research_platform import (
     ResearchStore,
     classify_readiness,
@@ -7,13 +8,20 @@ from autotrader.research_platform import (
     normalize_disclosure,
     performance_metrics,
 )
-from autotrader.research_jobs import DailyReportJob, ResearchRefreshJob
 from autotrader.short_safety import evaluate_paper_short
 
 
 def test_research_store_persists_records_and_forces_broker_control_off(tmp_path):
     store = ResearchStore(tmp_path / "research.db")
-    store.put_research({"research_id": "etf-1", "lane": "etf", "source": "fixture", "metadata_json": {"return_1m": 0.02}, "promotion_status": "REVIEW"})
+    store.put_research(
+        {
+            "research_id": "etf-1",
+            "lane": "etf",
+            "source": "fixture",
+            "metadata_json": {"return_1m": 0.02},
+            "promotion_status": "REVIEW",
+        }
+    )
     row = store.research("etf")[0]
     assert row["research_id"] == "etf-1"
     assert row["broker_control"] == 0
@@ -29,13 +37,49 @@ def test_cash_bucket_compounding_never_changes_authorized_start(tmp_path):
 
 
 def test_readiness_requires_meaningful_evidence():
-    assert classify_readiness(paper_days=10, completed_trades=2, expectancy=1, profit_factor=2, drawdown=0.01, execution_failures=0, reconciliation_failures=0, model_stability=True, broker_reliability=True) == "COLLECTING_EVIDENCE"
-    assert classify_readiness(paper_days=40, completed_trades=120, expectancy=1, profit_factor=1.2, drawdown=0.05, execution_failures=0, reconciliation_failures=0, model_stability=True, broker_reliability=True) == "PAPER_VALIDATED"
+    assert (
+        classify_readiness(
+            paper_days=10,
+            completed_trades=2,
+            expectancy=1,
+            profit_factor=2,
+            drawdown=0.01,
+            execution_failures=0,
+            reconciliation_failures=0,
+            model_stability=True,
+            broker_reliability=True,
+        )
+        == "COLLECTING_EVIDENCE"
+    )
+    assert (
+        classify_readiness(
+            paper_days=40,
+            completed_trades=120,
+            expectancy=1,
+            profit_factor=1.2,
+            drawdown=0.05,
+            execution_failures=0,
+            reconciliation_failures=0,
+            model_stability=True,
+            broker_reliability=True,
+        )
+        == "PAPER_VALIDATED"
+    )
 
 
 def test_compounding_is_bounded_and_evidence_gated():
-    assert compounding_decision(expectancy=10, drawdown=0.01, volatility=0.01, sample_size=2, capital_efficiency=1, confidence=1) == "RETAIN"
-    assert compounding_decision(expectancy=10, drawdown=0.01, volatility=0.01, sample_size=40, capital_efficiency=1, confidence=1) == "REDEPLOY"
+    assert (
+        compounding_decision(
+            expectancy=10, drawdown=0.01, volatility=0.01, sample_size=2, capital_efficiency=1, confidence=1
+        )
+        == "RETAIN"
+    )
+    assert (
+        compounding_decision(
+            expectancy=10, drawdown=0.01, volatility=0.01, sample_size=40, capital_efficiency=1, confidence=1
+        )
+        == "REDEPLOY"
+    )
 
 
 def test_etf_metrics_are_deterministic_and_require_history():
@@ -46,7 +90,13 @@ def test_etf_metrics_are_deterministic_and_require_history():
 
 
 def test_disclosures_are_delayed_research_only():
-    record = normalize_disclosure(lane="politician", source="fixture", source_url="https://example.test", as_of_date="2026-01-01", payload={"asset": "ETF", "delay_days": 30})
+    record = normalize_disclosure(
+        lane="politician",
+        source="fixture",
+        source_url="https://example.test",
+        as_of_date="2026-01-01",
+        payload={"asset": "ETF", "delay_days": 30},
+    )
     assert record["freshness"] == "DELAYED"
     assert record["broker_control"] == 0
 
@@ -69,9 +119,30 @@ def test_research_and_daily_jobs_are_independent_and_durable(tmp_path):
 
 def test_feature_attribution_is_durable_and_short_gates_fail_closed(tmp_path):
     store = ResearchStore(tmp_path / "research.db")
-    store.put_attribution(observation_id="o1", feature_name="momentum", feature_value=0.4, feature_source="fixture", feature_freshness="FRESH", feature_weight=0.5, regime="trending", model="baseline", decision="SHORT")
+    store.put_attribution(
+        observation_id="o1",
+        feature_name="momentum",
+        feature_value=0.4,
+        feature_source="fixture",
+        feature_freshness="FRESH",
+        feature_weight=0.5,
+        regime="trending",
+        model="baseline",
+        decision="SHORT",
+    )
     with store.connection() as conn:
         assert conn.execute("SELECT COUNT(*) FROM feature_attribution").fetchone()[0] == 1
-    result = evaluate_paper_short(environment="PAPER", shortable=False, borrow_available=False, liquidity_ok=True, spread_ok=True, session_open=True, same_symbol_conflict=False, available_capital=1000, required_capital=100, risk_approved=True)
+    result = evaluate_paper_short(
+        environment="PAPER",
+        shortable=False,
+        borrow_available=False,
+        liquidity_ok=True,
+        spread_ok=True,
+        session_open=True,
+        same_symbol_conflict=False,
+        available_capital=1000,
+        required_capital=100,
+        risk_approved=True,
+    )
     assert not result.allowed
     assert "shortable" in result.reason
