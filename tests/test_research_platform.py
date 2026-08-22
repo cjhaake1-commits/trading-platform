@@ -8,6 +8,7 @@ from autotrader.research_platform import (
     performance_metrics,
 )
 from autotrader.research_jobs import DailyReportJob, ResearchRefreshJob
+from autotrader.short_safety import evaluate_paper_short
 
 
 def test_research_store_persists_records_and_forces_broker_control_off(tmp_path):
@@ -64,3 +65,13 @@ def test_research_and_daily_jobs_are_independent_and_durable(tmp_path):
     assert result.ok
     with ResearchStore(path).connection() as conn:
         assert conn.execute("SELECT COUNT(*) FROM daily_reports").fetchone()[0] == 1
+
+
+def test_feature_attribution_is_durable_and_short_gates_fail_closed(tmp_path):
+    store = ResearchStore(tmp_path / "research.db")
+    store.put_attribution(observation_id="o1", feature_name="momentum", feature_value=0.4, feature_source="fixture", feature_freshness="FRESH", feature_weight=0.5, regime="trending", model="baseline", decision="SHORT")
+    with store.connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM feature_attribution").fetchone()[0] == 1
+    result = evaluate_paper_short(environment="PAPER", shortable=False, borrow_available=False, liquidity_ok=True, spread_ok=True, session_open=True, same_symbol_conflict=False, available_capital=1000, required_capital=100, risk_approved=True)
+    assert not result.allowed
+    assert "shortable" in result.reason

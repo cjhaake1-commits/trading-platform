@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS provider_status (
  lane TEXT PRIMARY KEY, status TEXT NOT NULL, last_success TEXT, last_attempt TEXT NOT NULL,
  next_refresh TEXT, records_ingested INTEGER NOT NULL DEFAULT 0, records_updated INTEGER NOT NULL DEFAULT 0,
  records_skipped INTEGER NOT NULL DEFAULT 0, last_error TEXT);
+CREATE TABLE IF NOT EXISTS feature_attribution (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL, feature_name TEXT NOT NULL,
+ feature_value REAL, feature_source TEXT, feature_freshness TEXT, feature_weight REAL,
+ regime TEXT, model TEXT, decision TEXT, outcome TEXT, realized_contribution REAL,
+ confidence REAL, recorded_at TEXT NOT NULL);
 """
 
 
@@ -124,6 +129,10 @@ class ResearchStore:
     def provider_status(self) -> list[dict[str, Any]]:
         with self.connection() as conn:
             return [dict(row) for row in conn.execute("SELECT * FROM provider_status ORDER BY lane").fetchall()]
+
+    def put_attribution(self, *, observation_id: str, feature_name: str, feature_value: float, feature_source: str, feature_freshness: str, feature_weight: float, regime: str, model: str, decision: str, outcome: str | None = None, realized_contribution: float | None = None, confidence: float = 0.0) -> None:
+        with self.connection() as conn:
+            conn.execute("INSERT INTO feature_attribution(observation_id,feature_name,feature_value,feature_source,feature_freshness,feature_weight,regime,model,decision,outcome,realized_contribution,confidence,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (observation_id, feature_name, feature_value, feature_source, feature_freshness, feature_weight, regime, model, decision, outcome, realized_contribution, confidence, utc_now()))
 
 
 def classify_readiness(*, paper_days: int, completed_trades: int, expectancy: float, profit_factor: float | None, drawdown: float, execution_failures: int, reconciliation_failures: int, model_stability: bool, broker_reliability: bool) -> str:
