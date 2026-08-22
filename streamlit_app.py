@@ -316,6 +316,7 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DATA UNAVAILABLE"))}</strong></div>
             <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "UNAVAILABLE"))}</strong></div>
             <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "UNAVAILABLE"))}</strong></div>
+            <div><span>Blocker</span><strong>{escape(str(data.get("blocker") or "NONE"))}</strong></div>
           </div>
         </div>
         """,
