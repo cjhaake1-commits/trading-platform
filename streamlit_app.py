@@ -1402,6 +1402,7 @@ def _render_learning_view(ctx: dict[str, object]) -> None:
 def _render_performance_view(ctx: dict[str, object]) -> None:
     st.markdown("<div class='section-title'>Performance</div>", unsafe_allow_html=True)
     bucket = {}
+    daily_reports = []
     db_path = Path("var/autotrader/research.db")
     if db_path.exists():
         try:
@@ -1409,6 +1410,8 @@ def _render_performance_view(ctx: dict[str, object]) -> None:
                 row = conn.execute("SELECT * FROM cash_buckets ORDER BY updated_at DESC LIMIT 1").fetchone()
                 if row:
                     bucket = {"liquid": row[6], "harvested": row[7], "redeployable": row[8], "theoretical": row[10]}
+                conn.row_factory = sqlite3.Row
+                daily_reports = [dict(r) for r in conn.execute("SELECT payload_json FROM daily_reports ORDER BY report_date DESC LIMIT 30").fetchall()]
         except sqlite3.Error:
             bucket = {}
     c1, c2, c3, c4 = st.columns(4)
@@ -1449,6 +1452,23 @@ def _render_performance_view(ctx: dict[str, object]) -> None:
         """,
         unsafe_allow_html=True,
     )
+    report_values = []
+    for row in daily_reports:
+        try:
+            payload = json.loads(row["payload_json"])
+            report_values.append(float(payload.get("realized_cash", 0.0)))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    actual = report_values[0] if report_values else float(ctx["net_cash"])
+    avg7 = sum(report_values[:7]) / len(report_values[:7]) if report_values[:7] else actual
+    avg30 = sum(report_values) / len(report_values) if report_values else actual
+    st.markdown("### Benchmark evidence · reporting only")
+    b1, b2, b3, b4, b5 = st.columns(5)
+    b1.metric("Actual realized cash", _money(actual))
+    b2.metric("Operating target", "$20–$305")
+    b3.metric("7-day average", _money(avg7))
+    b4.metric("30-day average", _money(avg30))
+    b5.metric("Distance to $20", _money(20.0 - actual))
 
 
 def _render_risk_health_view(ctx: dict[str, object]) -> None:
