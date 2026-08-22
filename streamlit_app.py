@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from datetime import UTC, datetime
 from html import escape
@@ -1510,15 +1511,19 @@ def _render_research_view(ctx: dict[str, object]) -> None:
     learning = ctx.get("learning") if isinstance(ctx.get("learning"), dict) else {}
     model_state = learning.get("model_state") if isinstance(learning.get("model_state"), dict) else {}
     stats = learning.get("stats") if isinstance(learning.get("stats"), dict) else {}
-    rows = [
-        {"Lane": "Baseline", "Model": model_state.get("baseline_version", "five_pillar_baseline_v1"), "Status": "CHAMPION", "Evidence": stats.get("manifest_evidence_count", 0), "Broker control": "NO"},
-        {"Lane": "Challenger", "Model": model_state.get("challenger_version", "challenger_candidate_v1"), "Status": "COLLECTING EVIDENCE", "Evidence": model_state.get("sample_size", 0), "Broker control": "NO"},
-        {"Lane": "ETF leaders", "Model": "research-only", "Status": "NOT INGESTED", "Evidence": 0, "Broker control": "NO"},
-        {"Lane": "Institutional / 13F", "Model": "research-only", "Status": "DELAYED SIGNAL", "Evidence": 0, "Broker control": "NO"},
-        {"Lane": "Academic / quant", "Model": "research-only", "Status": "REVIEW REQUIRED", "Evidence": 0, "Broker control": "NO"},
-        {"Lane": "GitHub candidates", "Model": "research-only", "Status": "LICENSE REVIEW REQUIRED", "Evidence": 0, "Broker control": "NO"},
-    ]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    db_path = Path("var/autotrader/research.db")
+    rows = []
+    if db_path.exists():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = [dict(row) for row in conn.execute("SELECT lane, source, as_of_date, freshness, instrument, signal_type, confidence, backtest_status, walk_forward_status, paper_shadow_status, promotion_status, model_weight, broker_control FROM research_records ORDER BY retrieved_at DESC LIMIT 100").fetchall()]
+        except sqlite3.Error:
+            rows = []
+    if rows:
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("No records ingested yet.")
     st.markdown("### Promotion gate")
     st.info("Promotion requires meaningful out-of-sample evidence, positive incremental results, bounded drawdown, and execution-quality limits. No research signal can submit an order directly.")
     st.metric("LIVE DEPLOYMENT READINESS", "COLLECTING EVIDENCE")

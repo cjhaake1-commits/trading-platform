@@ -1,4 +1,12 @@
-from autotrader.research_platform import ResearchStore, classify_readiness, compounding_decision
+from autotrader.research_platform import (
+    ResearchStore,
+    classify_readiness,
+    classify_regime,
+    compounding_decision,
+    evaluate_shadow_hedge,
+    normalize_disclosure,
+    performance_metrics,
+)
 
 
 def test_research_store_persists_records_and_forces_broker_control_off(tmp_path):
@@ -26,3 +34,23 @@ def test_readiness_requires_meaningful_evidence():
 def test_compounding_is_bounded_and_evidence_gated():
     assert compounding_decision(expectancy=10, drawdown=0.01, volatility=0.01, sample_size=2, capital_efficiency=1, confidence=1) == "RETAIN"
     assert compounding_decision(expectancy=10, drawdown=0.01, volatility=0.01, sample_size=40, capital_efficiency=1, confidence=1) == "REDEPLOY"
+
+
+def test_etf_metrics_are_deterministic_and_require_history():
+    metrics = performance_metrics([100 + i for i in range(300)])
+    assert metrics["return_1m"] is not None
+    assert metrics["max_drawdown"] == 0
+    assert performance_metrics([100])["return_1m"] is None
+
+
+def test_disclosures_are_delayed_research_only():
+    record = normalize_disclosure(lane="politician", source="fixture", source_url="https://example.test", as_of_date="2026-01-01", payload={"asset": "ETF", "delay_days": 30})
+    assert record["freshness"] == "DELAYED"
+    assert record["broker_control"] == 0
+
+
+def test_regime_and_shadow_hedge_are_bounded():
+    assert classify_regime(return_pct=0.05, volatility=0.02, trend_strength=0.8) == "risk_on"
+    hedge = evaluate_shadow_hedge(overnight_direction=-0.02, gap_pct=0.06, volatility=0.03, portfolio_concentration=0.8)
+    assert hedge["mode"] == "SHADOW_ONLY"
+    assert 0 <= hedge["recommended_size"] <= 0.1

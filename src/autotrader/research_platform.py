@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Mapping
+from math import sqrt
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS research_records (
@@ -126,3 +127,48 @@ def compounding_decision(*, expectancy: float, drawdown: float, volatility: floa
     if expectancy > 0 and capital_efficiency > 0 and volatility < 0.05:
         return "REDEPLOY"
     return "HARVEST"
+
+
+def performance_metrics(closes: list[float], *, periods_per_year: int = 252) -> dict[str, float | None]:
+    """Calculate deterministic research metrics from an ordered close series."""
+    if len(closes) < 2 or any(value <= 0 for value in closes):
+        return {"return_1m": None, "return_3m": None, "return_6m": None, "return_1y": None, "return_3y": None, "return_5y": None, "volatility": None, "max_drawdown": None, "risk_adjusted_return": None, "trend_persistence": None}
+    def ret(days: int) -> float | None:
+        return closes[-1] / closes[-days - 1] - 1 if len(closes) > days else None
+    returns = [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))]
+    mean_return = sum(returns) / len(returns)
+    variance = sum((value - mean_return) ** 2 for value in returns) / len(returns)
+    volatility = sqrt(variance) * sqrt(periods_per_year)
+    peak = closes[0]
+    drawdowns = []
+    for value in closes:
+        peak = max(peak, value)
+        drawdowns.append(value / peak - 1)
+    persistence = sum(1 for value in returns if value > 0) / len(returns)
+    return {"return_1m": ret(21), "return_3m": ret(63), "return_6m": ret(126), "return_1y": ret(252), "return_3y": ret(756), "return_5y": ret(1260), "volatility": volatility, "max_drawdown": min(drawdowns), "risk_adjusted_return": (mean_return / volatility * sqrt(periods_per_year)) if volatility else None, "trend_persistence": persistence}
+
+
+def normalize_disclosure(*, lane: str, source: str, source_url: str, as_of_date: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize delayed public disclosures into research-only records."""
+    research_id = f"{lane}:{source}:{as_of_date}:{payload.get('symbol') or payload.get('asset') or payload.get('title') or 'record'}"
+    return {"research_id": research_id, "lane": lane, "source": source, "source_url": source_url, "source_type": "public_disclosure", "as_of_date": as_of_date, "freshness": "DELAYED", "instrument": payload.get("symbol") or payload.get("asset"), "signal_type": payload.get("signal_type", "structural"), "signal_value": payload.get("signal_value"), "confidence": float(payload.get("confidence", 0.0) or 0.0), "metadata_json": dict(payload), "backtest_status": payload.get("backtest_status", "NOT_STARTED"), "walk_forward_status": payload.get("walk_forward_status", "NOT_STARTED"), "paper_shadow_status": payload.get("paper_shadow_status", "NOT_STARTED"), "promotion_status": payload.get("promotion_status", "RESEARCH"), "model_weight": 0.0, "broker_control": 0}
+
+
+def classify_regime(*, return_pct: float, volatility: float, trend_strength: float, gap_pct: float = 0.0, liquidity_score: float = 1.0) -> str:
+    if liquidity_score < 0.25:
+        return "liquidity_constrained"
+    if abs(gap_pct) >= 0.04:
+        return "event_gap"
+    if volatility >= 0.04:
+        return "high_volatility"
+    if volatility <= 0.01:
+        return "low_volatility"
+    if trend_strength >= 0.6:
+        return "risk_on" if return_pct >= 0 else "risk_off"
+    return "trending" if abs(return_pct) >= 0.02 else "mean_reverting"
+
+
+def evaluate_shadow_hedge(*, overnight_direction: float, gap_pct: float, volatility: float, portfolio_concentration: float, mode: str = "SHADOW_ONLY") -> dict[str, Any]:
+    score = min(1.0, abs(gap_pct) * 8 + volatility * 4 + portfolio_concentration * 0.5)
+    candidate = score >= 0.5
+    return {"candidate": candidate, "instrument": "INDEX_FUTURE_RESEARCH", "mode": mode if mode in {"EXECUTABLE_SIM", "SHADOW_ONLY"} else "SHADOW_ONLY", "reason": "opening risk concentration" if candidate else "opening risk below threshold", "score": score, "recommended_size": round(score * 0.10, 6), "risk_before": portfolio_concentration, "risk_after": max(0.0, portfolio_concentration - score * 0.10), "simulated_result": None, "effectiveness": None}
