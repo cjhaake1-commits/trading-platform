@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from datetime import UTC, datetime
@@ -45,6 +46,48 @@ PILLARS = (
     ("International", "Saxo SIM", "teal"),
 )
 METALS_UNIVERSE = {"GLD", "IAU", "SGOL", "SLV", "SIVR", "GDX", "GDXJ", "SIL"}
+PILLAR_JOB_MAP = {
+    "US Stocks / ETFs": "autonomous-paper-trading",
+    "Crypto": "autonomous-paper-trading",
+    "Forex": "oanda-fx-paper-trading",
+    "Metals / Commodities": "alpaca-metals-paper-trading",
+    "International": "saxo-international-paper-trading",
+}
+
+
+def _derive_pillar_state(
+    name: str,
+    job: dict[str, object],
+    broker_state: dict[str, object],
+    activity: list[object],
+) -> tuple[str, str, str]:
+    """Derive operator truth from live runtime evidence, never stale defaults."""
+    if job.get("last_error"):
+        return "ERROR", "ERROR", str(job.get("last_error"))
+    recent = [
+        row for row in activity
+        if isinstance(row, dict) and name.lower().split()[0] in str(row.get("message", "")).lower()
+    ]
+    recent_message = str(recent[0].get("message", "")) if recent else ""
+    if "AUTH REQUIRED" in recent_message:
+        return "AUTH REQUIRED", "AUTH REQUIRED", recent_message
+    if broker_state.get("connected"):
+        state = str(broker_state.get("state") or "")
+        allowed = {"TRADING", "SCANNING", "HOLDING CASH", "MARKET CLOSED", "RATE LIMITED", "RECONCILING", "RISK BLOCKED", "SHADOW ONLY"}
+        if state in allowed:
+            return state, "CONNECTED", recent_message or state
+        if int(broker_state.get("positions", 0) or 0) > 0:
+            return "TRADING", "CONNECTED", recent_message or "Position open"
+        return "SCANNING", "CONNECTED", recent_message or "Evaluating candidates"
+    if "MARKET CLOSED" in recent_message:
+        return "MARKET CLOSED", "CONNECTED", recent_message
+    if "SHADOW ONLY" in recent_message:
+        return "SHADOW ONLY", "SHADOW ONLY", recent_message
+    if job.get("disabled"):
+        return "ERROR", "ERROR", "Runtime job disabled"
+    if job.get("last_finished_at") or job.get("last_started_at"):
+        return "SCANNING", "CONNECTED", recent_message or "Runtime cycle observed"
+    return "DATA UNAVAILABLE", "DATA UNAVAILABLE", "No live broker/runtime evidence"
 
 
 def _money(value) -> str:
@@ -63,13 +106,13 @@ def _pct(value) -> str:
 
 def _age_label(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
-        return "DEFERRED"
+        return "UNAVAILABLE"
     try:
         observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return "DEFERRED"
+        return "UNAVAILABLE"
     if observed.tzinfo is None:
-        return "DEFERRED"
+        return "UNAVAILABLE"
     age = datetime.now(UTC) - observed.astimezone(UTC)
     if age.total_seconds() < 0:
         return "LIVE"
@@ -90,7 +133,7 @@ def _secret(name: str) -> str:
         value = st.secrets.get(name, "")
     except Exception:
         value = ""
-    return str(value).strip()
+    return str(value or os.getenv(name, "")).strip()
 
 
 def _safe_json(path: Path) -> dict[str, object]:
@@ -150,11 +193,11 @@ def _pillars_from_snapshot(snapshot: dict[str, object]) -> dict[str, dict[str, o
             "completed_trades": 0,
             "win_rate": None,
             "expectancy": None,
-            "last_scan": "DEFERRED",
-            "last_decision": "DEFERRED",
-            "connection": "DEFERRED",
-            "scanner": "DEFERRED",
-            "status": "HOLDING CASH",
+            "last_scan": "UNAVAILABLE",
+            "last_decision": "UNAVAILABLE",
+            "connection": "DATA UNAVAILABLE",
+            "scanner": "DATA UNAVAILABLE",
+            "status": "DATA UNAVAILABLE",
         }
         for name, broker, accent in PILLARS
     }
@@ -256,7 +299,7 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
               <div class="pillar-name">{escape(name.upper())}</div>
               <div class="pillar-sub">{escape(str(data.get("broker") or "—"))}</div>
             </div>
-            <div class="pill {escape(str(data.get("connection_class") or "neutral"))}">{escape(str(data.get("connection") or "DEFERRED"))}</div>
+          <div class="pill {escape(str(data.get("connection_class") or "neutral"))}">{escape(str(data.get("connection") or "DATA UNAVAILABLE"))}</div>
           </div>
           <div class="pillar-state">{escape(str(data.get("state") or "HOLDING CASH"))}</div>
           <div class="pillar-grid">
@@ -270,9 +313,9 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Win Rate</span><strong>{escape(str(data.get("win_rate") or "—"))}</strong></div>
           </div>
           <div class="pillar-foot">
-            <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DEFERRED"))}</strong></div>
-            <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "DEFERRED"))}</strong></div>
-            <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "DEFERRED"))}</strong></div>
+            <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DATA UNAVAILABLE"))}</strong></div>
+            <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "UNAVAILABLE"))}</strong></div>
+            <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "UNAVAILABLE"))}</strong></div>
           </div>
         </div>
         """,
@@ -299,11 +342,11 @@ def fetch_live_broker_data() -> tuple[
         "alpaca_exposure": 0.0,
     }
     pillar_status = {
-        "US Stocks / ETFs": {"connected": False, "positions": 0, "state": "DEFERRED", "unrealized_pnl": 0.0},
-        "Crypto": {"connected": False, "positions": 0, "state": "DEFERRED", "unrealized_pnl": 0.0},
-        "Metals / Commodities": {"connected": False, "positions": 0, "state": "DEFERRED", "unrealized_pnl": 0.0},
-        "Forex": {"connected": False, "positions": 0, "state": "DEFERRED", "unrealized_pnl": 0.0},
-        "International": {"connected": False, "positions": 0, "state": "DEFERRED", "unrealized_pnl": 0.0},
+        "US Stocks / ETFs": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
+        "Crypto": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
+        "Metals / Commodities": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
+        "Forex": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
+        "International": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
     }
     errors: list[str] = []
 
@@ -451,9 +494,9 @@ def _status_badge(label: str, value: str, kind: str = "neutral") -> str:
 
 def _pillar_card(name: str, data: dict[str, object]) -> str:
     color = str(data.get("accent") or "blue")
-    connection = str(data.get("connection") or "DEFERRED")
+    connection = str(data.get("connection") or "DATA UNAVAILABLE")
     status = str(data.get("status") or "HOLDING CASH")
-    scanner = str(data.get("scanner") or "DEFERRED")
+    scanner = str(data.get("scanner") or "DATA UNAVAILABLE")
     return f"""
     <div class="pillar pillar-{color}">
       <div class="pillar-top">
@@ -476,8 +519,8 @@ def _pillar_card(name: str, data: dict[str, object]) -> str:
       </div>
       <div class="pillar-foot">
         <div><span>Scanner</span><strong>{escape(scanner)}</strong></div>
-        <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "DEFERRED"))}</strong></div>
-        <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "DEFERRED"))}</strong></div>
+        <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "UNAVAILABLE"))}</strong></div>
+        <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "UNAVAILABLE"))}</strong></div>
       </div>
     </div>
     """
@@ -581,6 +624,7 @@ def _build_dashboard_context() -> dict[str, object]:
         snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     )
     cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
+    activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
     legacy_cash = (
         snapshot.get("legacy_cash_dashboard") if isinstance(snapshot.get("legacy_cash_dashboard"), dict) else {}
     )
@@ -889,6 +933,7 @@ def _render_dashboard_legacy() -> None:
         snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     )
     cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
+    activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
 
     jobs = runtime.get("jobs") if isinstance(runtime.get("jobs"), dict) else {}
     pillar_job_map = {
@@ -961,6 +1006,8 @@ def _render_dashboard_legacy() -> None:
         [data-testid="stSidebar"] .stRadio{margin-top:.75rem;}
         [data-testid="stSidebar"] .stRadio [role="radiogroup"]{gap:.15rem;}
         [data-testid="stSidebar"] .stRadio label{padding:.55rem .7rem;border-radius:12px;border:1px solid transparent;color:var(--text);background:rgba(255,255,255,.02);font-size:.9rem;line-height:1.25;}
+        [data-testid="stSidebar"] .stRadio label,[data-testid="stSidebar"] .stRadio label p,[data-testid="stSidebar"] .stRadio label span{color:#c8d6ef !important;opacity:1 !important;}
+        [data-testid="stSidebar"] .stRadio label:has(input:checked),[data-testid="stSidebar"] .stRadio label:has(input:checked) p,[data-testid="stSidebar"] .stRadio label:has(input:checked) span{color:#ffffff !important;}
         [data-testid="stSidebar"] .stRadio label:hover{border-color:rgba(215,181,109,.35);background:rgba(215,181,109,.06);}
         [data-testid="stSidebar"] .stRadio label[data-checked="true"],[data-testid="stSidebar"] .stRadio label:has(input:checked){border-color:rgba(215,181,109,.85);background:rgba(215,181,109,.12);box-shadow:0 0 0 1px rgba(215,181,109,.25) inset;}
         [data-testid="stSidebar"] .stRadio label p{color:inherit;font-weight:600;}
@@ -1069,22 +1116,16 @@ def _render_dashboard_legacy() -> None:
     st.markdown("<div class='section-title'>Five Pillars</div>", unsafe_allow_html=True)
     pillar_view = []
     for name, broker, accent in PILLARS:
-        job_name = pillar_job_map[name]
+        job_name = PILLAR_JOB_MAP[name]
         job = jobs.get(job_name) if isinstance(jobs, dict) else {}
         job = job if isinstance(job, dict) else {}
         live_state = live_pillar_status.get(name) if isinstance(live_pillar_status, dict) else {}
         live_state = live_state if isinstance(live_state, dict) else {}
         positions_count = int(live_state.get("positions", 0) or 0)
-        connected = bool(live_state.get("connected"))
-        connection = "CONNECTED" if connected or not job.get("disabled") else "DEFERRED"
-        connection_class = (
-            "good"
-            if connection == "CONNECTED" and not job.get("last_error")
-            else ("warn" if job.get("last_error") else "neutral")
+        state, connection, blocker = _derive_pillar_state(
+            name, job, live_state, activity
         )
-        state = "TRADING" if positions_count else ("SCANNING" if not job.get("disabled") else "DEGRADED")
-        if name == "International" and not positions_count and not job.get("disabled"):
-            state = "SCANNING"
+        connection_class = "good" if connection == "CONNECTED" else ("warn" if connection in {"AUTH REQUIRED", "ERROR"} else "neutral")
         pillar_view.append(
             {
                 "name": name,
@@ -1119,6 +1160,7 @@ def _render_dashboard_legacy() -> None:
                 if not job.get("disabled") and not job.get("last_error")
                 else ("DISABLED" if job.get("disabled") else "DEGRADED"),
                 "state": state,
+                "blocker": blocker,
             }
         )
 
@@ -1332,28 +1374,16 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
     pillar_performance = ctx["pillar_performance"] if isinstance(ctx["pillar_performance"], dict) else {}
     jobs = ctx["jobs"] if isinstance(ctx["jobs"], dict) else {}
     runtime = ctx["runtime"] if isinstance(ctx["runtime"], dict) else {}
-    pillar_job_map = {
-        "US Stocks / ETFs": "autonomous-paper-trading",
-        "Crypto": "autonomous-paper-trading",
-        "Forex": "oanda-fx-paper-trading",
-        "Metals / Commodities": "alpaca-metals-paper-trading",
-        "International": "saxo-international-paper-trading",
-    }
+    activity = ctx["activity"] if isinstance(ctx["activity"], list) else []
     for name, broker, accent in PILLARS:
-        job_name = pillar_job_map[name]
+        job_name = PILLAR_JOB_MAP[name]
         job = jobs.get(job_name) if isinstance(jobs, dict) else {}
         job = job if isinstance(job, dict) else {}
         broker_state = live_pillar_status.get(name) if isinstance(live_pillar_status, dict) else {}
         broker_state = broker_state if isinstance(broker_state, dict) else {}
         positions_count = int(broker_state.get("positions", 0) or 0)
-        connected = bool(broker_state.get("connected"))
-        connection = "CONNECTED" if connected else ("ERROR" if job.get("last_error") else "DEFERRED")
-        connection_class = (
-            "good" if connected and not job.get("last_error") else ("warn" if job.get("last_error") else "neutral")
-        )
-        current_state = broker_state.get("state") or ("TRADING" if positions_count else "SCANNING")
-        if not connected and job.get("disabled"):
-            current_state = "DEGRADED"
+        current_state, connection, blocker = _derive_pillar_state(name, job, broker_state, activity)
+        connection_class = "good" if connection == "CONNECTED" else ("warn" if connection in {"AUTH REQUIRED", "ERROR"} else "neutral")
         pillar_rows.append(
             {
                 "name": name,
@@ -1388,6 +1418,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 if not job.get("disabled") and not job.get("last_error")
                 else ("DISABLED" if job.get("disabled") else "DEGRADED"),
                 "state": current_state,
+                "blocker": blocker,
             }
         )
     st.markdown("<div class='section-title'>Five Pillars</div>", unsafe_allow_html=True)
