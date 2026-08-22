@@ -174,14 +174,20 @@ def _classify_position_for_experiment(
     *,
     experiment_start: datetime | None,
 ) -> tuple[str, bool, str]:
+    metadata = row.get("metadata_json")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except (TypeError, ValueError):
+            metadata = {}
+    if isinstance(metadata, dict):
+        experiment_id = str(metadata.get("experiment_id") or "").strip()
+        if experiment_id == "five_pillar_paper_v2" or metadata.get("learning_eligible") is True:
+            return "VALID_STRATEGY_POSITION", True, "durable v2 experiment provenance"
     opened_at = _parse_iso(row.get("opened_at"))
-    if experiment_start is None or opened_at is None:
-        return "LEGACY_BUG_POSITION", False, "open time predates or is missing from the controlled experiment baseline"
-    if opened_at < experiment_start:
-        return "LEGACY_BUG_POSITION", False, "opened before experiment baseline"
-    if opened_at >= experiment_start:
-        return "VALID_STRATEGY_POSITION", True, "opened during active controlled experiment"
-    return "UNRESOLVED", False, "unable to establish experiment provenance"
+    if experiment_start is not None and opened_at is not None and opened_at < experiment_start:
+        return "LEGACY", False, "opened before experiment baseline"
+    return "UNKNOWN", False, "durable experiment provenance is missing"
 
 
 def _serialize_position(

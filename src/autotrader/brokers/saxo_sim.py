@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import tempfile
+import threading
+import time
 from dataclasses import dataclass
 from typing import Callable
 from urllib.error import HTTPError, URLError
@@ -12,6 +16,45 @@ from autotrader.capital_allocations import INTERNATIONAL_SIM_CAPITAL
 
 SAXO_SIM_ENV = "sim"
 SAXO_SIM_BASE_URL = "https://gateway.saxobank.com/sim/openapi"
+SAXO_TOKEN_URL = "https://sim.logonvalidation.net/token"
+_TOKEN_LOCK = threading.RLock()
+
+
+class SaxoTokenStore:
+    """Small, filesystem-backed SIM OAuth store; never part of the repository."""
+
+    def __init__(self, path: str | None = None) -> None:
+        self.path = path or os.getenv(
+            "SAXO_TOKEN_STORE",
+            os.path.expanduser("~/.local/share/trading-platform/saxo-sim-tokens.json"),
+        )
+
+    def load(self) -> dict[str, object]:
+        try:
+            with open(self.path, encoding="utf-8") as handle:
+                value = json.load(handle)
+            return value if isinstance(value, dict) else {}
+        except (FileNotFoundError, OSError, ValueError):
+            return {}
+
+    def save(self, value: dict[str, object]) -> None:
+        directory = os.path.dirname(self.path) or "."
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".saxo-token-", dir=directory)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(value, handle, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def health(self) -> str:
+        value = self.load()
+        return "CONNECTED" if value.get("access_token") and float(value.get("expires_at", 0) or 0) > time.time() else "AUTH REQUIRED"
 
 
 class SaxoConfigurationError(ValueError):
@@ -155,18 +198,28 @@ class SaxoSimAdapter:
         self,
         *,
         environment: str,
-        access_token: str,
+        access_token: str = "",
+        token_store: SaxoTokenStore | None = None,
+        refresh_callback: Callable[[], dict[str, object]] | None = None,
         get_json: JsonGetter = _get_json,
         request_json: JsonRequester = _request_json,
     ) -> None:
         normalized_environment = environment.strip().lower()
         if normalized_environment != SAXO_SIM_ENV:
             raise SaxoConfigurationError("Saxo adapter is locked to SAXO_ENV=sim")
-        if not access_token.strip():
-            raise SaxoConfigurationError("Missing SAXO_ACCESS_TOKEN")
+        self._token_store = token_store or SaxoTokenStore()
+        stored = self._token_store.load()
+        # A managed token store is authoritative over a stale environment token.
+        managed_token = str(stored.get("access_token") or "").strip()
+        self._refresh_token = str(stored.get("refresh_token") or "").strip()
+        self._expires_at = float(stored.get("expires_at", 0) or 0)
+        selected_token = managed_token or access_token.strip()
+        if not selected_token:
+            raise SaxoConfigurationError("Missing SAXO_ACCESS_TOKEN or managed Saxo SIM OAuth token")
 
         self.environment = normalized_environment
-        self._access_token = access_token.strip()
+        self._access_token = selected_token
+        self._refresh_callback = refresh_callback
         self._get_json = get_json
         self._request_json = request_json
 
@@ -177,12 +230,102 @@ class SaxoSimAdapter:
         get_json: JsonGetter = _get_json,
         request_json: JsonRequester = _request_json,
     ) -> SaxoSimAdapter:
+        store = SaxoTokenStore()
+        stored = store.load()
         return cls(
             environment=os.getenv("SAXO_ENV", ""),
-            access_token=os.getenv("SAXO_ACCESS_TOKEN", ""),
+            access_token=str(stored.get("access_token") or os.getenv("SAXO_ACCESS_TOKEN", "")),
+            token_store=store,
             get_json=get_json,
             request_json=request_json,
         )
+
+    @property
+    def token_health(self) -> str:
+        if self._refreshing:
+            return "REFRESHING"
+        if self._expires_at and self._expires_at <= time.time():
+            return "AUTH REQUIRED"
+        return "CONNECTED" if self._access_token else "AUTH REQUIRED"
+
+    @property
+    def _refreshing(self) -> bool:
+        return False
+
+    def seed_authorization_code(self, code: str, *, redirect_uri: str | None = None) -> None:
+        if not code.strip():
+            raise SaxoConfigurationError("Saxo authorization code is required")
+        client_id = os.getenv("SAXO_CLIENT_ID", "").strip()
+        client_secret = os.getenv("SAXO_CLIENT_SECRET", "").strip()
+        if not client_id or not client_secret:
+            raise SaxoConfigurationError("Saxo OAuth client configuration is required")
+        payload = self._oauth_exchange(
+            {
+                "grant_type": "authorization_code",
+                "code": code.strip(),
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri or os.getenv("SAXO_REDIRECT_URI", "").strip(),
+            }
+        )
+        self._persist_tokens(payload)
+
+    def _oauth_exchange(self, form: dict[str, str]) -> dict[str, object]:
+        request = Request(
+            os.getenv("SAXO_TOKEN_URL", SAXO_TOKEN_URL),
+            data=urlencode({key: value for key, value in form.items() if value}).encode(),
+            headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=15.0) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (HTTPError, URLError, ValueError, OSError) as exc:
+            raise SaxoConfigurationError("Saxo OAuth authorization failed") from exc
+        if not isinstance(payload, dict) or not payload.get("access_token"):
+            raise SaxoConfigurationError("Saxo OAuth response did not contain an access token")
+        return payload
+
+    def _persist_tokens(self, payload: dict[str, object]) -> None:
+        access = str(payload.get("access_token") or "").strip()
+        refresh = str(payload.get("refresh_token") or self._refresh_token).strip()
+        if not access:
+            raise SaxoConfigurationError("Saxo OAuth response did not contain an access token")
+        expires = float(payload.get("expires_in", 1800) or 1800)
+        record = {"access_token": access, "refresh_token": refresh, "expires_at": time.time() + max(expires, 60)}
+        self._token_store.save(record)
+        self._access_token, self._refresh_token, self._expires_at = access, refresh, float(record["expires_at"])
+
+    def _refresh_once(self) -> bool:
+        with _TOKEN_LOCK:
+            lock_path = f"{self._token_store.path}.lock"
+            os.makedirs(os.path.dirname(lock_path) or ".", mode=0o700, exist_ok=True)
+            with open(lock_path, "a+", encoding="utf-8") as lock_handle:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    current = self._token_store.load()
+                    if current.get("access_token") and current.get("access_token") != self._access_token:
+                        self._access_token = str(current["access_token"])
+                        self._refresh_token = str(current.get("refresh_token") or "")
+                        self._expires_at = float(current.get("expires_at", 0) or 0)
+                        return True
+                    if not self._refresh_token:
+                        return False
+                    try:
+                        payload = self._refresh_callback() if self._refresh_callback else self._oauth_exchange(
+                            {
+                                "grant_type": "refresh_token",
+                                "refresh_token": self._refresh_token,
+                                "client_id": os.getenv("SAXO_CLIENT_ID", "").strip(),
+                                "client_secret": os.getenv("SAXO_CLIENT_SECRET", "").strip(),
+                            }
+                        )
+                        self._persist_tokens(payload)
+                        return True
+                    except (SaxoConfigurationError, OSError, RuntimeError):
+                        return False
+                finally:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
     @property
     def base_url(self) -> str:
@@ -207,7 +350,13 @@ class SaxoSimAdapter:
         try:
             payload, _ = self._get_json(f"{self.base_url}{path}", headers, 10.0)
         except RuntimeError as exc:
-            raise self._safe_error(exc) from exc
+            if "HTTP 401" not in str(exc) or not self._refresh_once():
+                raise self._safe_error(exc) from exc
+            headers["Authorization"] = f"Bearer {self._access_token}"
+            try:
+                payload, _ = self._get_json(f"{self.base_url}{path}", headers, 10.0)
+            except RuntimeError as retry_exc:
+                raise self._safe_error(retry_exc) from retry_exc
         return payload
 
     def search_instruments(

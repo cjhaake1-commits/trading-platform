@@ -1,3 +1,6 @@
+import json
+import time
+
 import pytest
 
 from autotrader.brokers.saxo_sim import (
@@ -8,6 +11,7 @@ from autotrader.brokers.saxo_sim import (
     SaxoInstrumentSummary,
     SaxoReadOnlyError,
     SaxoSimAdapter,
+    SaxoTokenStore,
 )
 
 
@@ -188,3 +192,46 @@ def test_saxo_read_boundary_rejects_unapproved_resources():
     adapter = SaxoSimAdapter(environment="sim", access_token="test-token")
     with pytest.raises(SaxoReadOnlyError, match="read-only"):
         adapter._read("/trade/v2/orders")
+
+
+def test_oauth_store_rotates_refresh_token_and_retries_401(tmp_path):
+    store = SaxoTokenStore(str(tmp_path / "saxo.json"))
+    store.save({"access_token": "old", "refresh_token": "refresh-1", "expires_at": time.time() + 600})
+    calls = []
+
+    def fake_get(url, headers, timeout):
+        calls.append(headers["Authorization"])
+        if len(calls) == 1:
+            raise RuntimeError("Saxo SIM HTTP 401: unauthorized")
+        return {"ClientId": "safe"}, {}
+
+    adapter = SaxoSimAdapter(
+        environment="sim",
+        token_store=store,
+        refresh_callback=lambda: {"access_token": "new", "refresh_token": "refresh-2", "expires_in": 600},
+        get_json=fake_get,
+    )
+    assert adapter._read("/port/v1/clients/me") == {"ClientId": "safe"}
+    assert calls == ["Bearer old", "Bearer new"]
+    saved = json.loads((tmp_path / "saxo.json").read_text())
+    assert saved["access_token"] == "new"
+    assert saved["refresh_token"] == "refresh-2"
+    assert "new" not in str(adapter.token_health)
+
+
+def test_failed_oauth_refresh_leaves_sanitized_auth_error(tmp_path):
+    store = SaxoTokenStore(str(tmp_path / "saxo.json"))
+    store.save({"access_token": "old", "refresh_token": "refresh-1", "expires_at": time.time() + 600})
+
+    def fake_get(url, headers, timeout):
+        raise RuntimeError("Saxo SIM HTTP 401: old-secret-not-reported")
+
+    adapter = SaxoSimAdapter(
+        environment="sim",
+        token_store=store,
+        refresh_callback=lambda: (_ for _ in ()).throw(RuntimeError("refresh failed")),
+        get_json=fake_get,
+    )
+    with pytest.raises(RuntimeError, match="HTTP 401") as error:
+        adapter._read("/port/v1/clients/me")
+    assert "old-secret" not in str(error.value)

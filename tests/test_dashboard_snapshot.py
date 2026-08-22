@@ -383,7 +383,7 @@ def test_snapshot_exposes_crypto_reconciliation_and_protection_state(monkeypatch
     snapshot = publisher.build_snapshot(Path("status"), Path("ledger"), Path("audit"))
     eth = snapshot["legacy_positions"][0]
 
-    assert eth["classification"] == "LEGACY_BUG_POSITION"
+    assert eth["classification"] == "UNKNOWN"
     assert eth["learning_eligible"] is False
     assert eth["crypto_lifecycle_state"] == "unprotected_position"
     assert eth["crypto_reconciliation_status"] == "fractional_reconciliation"

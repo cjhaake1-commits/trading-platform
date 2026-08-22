@@ -205,6 +205,8 @@ def _pillars_from_snapshot(snapshot: dict[str, object]) -> dict[str, dict[str, o
     for row in positions:
         if not isinstance(row, dict):
             continue
+        if str(row.get("classification") or "").upper() not in {"VALID_STRATEGY_POSITION", "ACTIVE V2"}:
+            continue
         pillar = str(row.get("pillar") or "")
         if pillar not in result:
             if (
@@ -236,6 +238,7 @@ def _pillars_from_snapshot(snapshot: dict[str, object]) -> dict[str, dict[str, o
         metrics["last_decision"] = perf.get("last_decision") or metrics["last_decision"]
         metrics["connection"] = perf.get("connection_status") or metrics["connection"]
         metrics["scanner"] = perf.get("scanner_status") or metrics["scanner"]
+        metrics["deployed"] = min(max(metrics["deployed"], 0.0), PILLAR_BASE_CAPITAL)
         metrics["available"] = max(PILLAR_BASE_CAPITAL - metrics["deployed"], 0.0)
         if metrics["positions"] == 0 and metrics["status"] == "HOLDING CASH":
             metrics["status"] = "FLAT"
@@ -459,13 +462,16 @@ def fetch_live_broker_data() -> tuple[
         errors.append("OANDA Streamlit secrets are not configured")
 
     saxo_env = _secret("SAXO_ENV")
-    saxo_token = _secret("SAXO_ACCESS_TOKEN")
-    saxo_base = _secret("SAXO_BASE_URL")
-    if saxo_env and saxo_token and saxo_base:
-        try:
-            from autotrader.brokers.saxo_sim import SaxoConfigurationError, SaxoSimAdapter
+    saxo_base = _secret("SAXO_BASE_URL") or "https://gateway.saxobank.com/sim/openapi"
+    try:
+        from autotrader.brokers.saxo_sim import SaxoConfigurationError, SaxoSimAdapter
 
-            summary = SaxoSimAdapter.from_env().account_summary()
+        managed_saxo = SaxoSimAdapter.from_env()
+    except SaxoConfigurationError:
+        managed_saxo = None
+    if saxo_env and saxo_base and managed_saxo is not None:
+        try:
+            summary = managed_saxo.account_summary()
             pillar_status["International"]["connected"] = True
             pillar_status["International"]["positions"] = 0
             pillar_status["International"]["state"] = "CONNECTED / SCANNING"
@@ -484,7 +490,7 @@ def fetch_live_broker_data() -> tuple[
                 errors.append(f"International live read failed: {exc}")
     else:
         pillar_status["International"]["state"] = "AUTH REQUIRED"
-        errors.append("International Saxo SIM secrets are not configured")
+        errors.append("International Saxo SIM OAuth state is not configured")
 
     return positions, metrics, pillar_status, errors
 
