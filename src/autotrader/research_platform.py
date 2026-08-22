@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS daily_reports (
  report_date TEXT PRIMARY KEY, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS readiness (
  experiment_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS provider_status (
+ lane TEXT PRIMARY KEY, status TEXT NOT NULL, last_success TEXT, last_attempt TEXT NOT NULL,
+ next_refresh TEXT, records_ingested INTEGER NOT NULL DEFAULT 0, records_updated INTEGER NOT NULL DEFAULT 0,
+ records_skipped INTEGER NOT NULL DEFAULT 0, last_error TEXT);
 """
 
 
@@ -111,6 +115,15 @@ class ResearchStore:
     def put_readiness(self, experiment_id: str, payload: Mapping[str, Any]) -> None:
         with self.connection() as conn:
             conn.execute("INSERT OR REPLACE INTO readiness VALUES (?,?,?)", (experiment_id, _json(payload), utc_now()))
+
+    def put_provider_status(self, lane: str, *, status: str, records_ingested: int = 0, last_error: str | None = None, next_refresh: str | None = None) -> None:
+        now = utc_now()
+        with self.connection() as conn:
+            conn.execute("INSERT OR REPLACE INTO provider_status(lane,status,last_success,last_attempt,next_refresh,records_ingested,last_error) VALUES(?,?,?,?,?,?,?)", (lane, status, now if status == "CONNECTED" else None, now, next_refresh, records_ingested, last_error))
+
+    def provider_status(self) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            return [dict(row) for row in conn.execute("SELECT * FROM provider_status ORDER BY lane").fetchall()]
 
 
 def classify_readiness(*, paper_days: int, completed_trades: int, expectancy: float, profit_factor: float | None, drawdown: float, execution_failures: int, reconciliation_failures: int, model_stability: bool, broker_reliability: bool) -> str:

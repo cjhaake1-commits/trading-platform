@@ -1539,6 +1539,16 @@ def _render_research_view(ctx: dict[str, object]) -> None:
         st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         st.info("No records ingested yet.")
+    if db_path.exists():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                providers = [dict(row) for row in conn.execute("SELECT lane,status,last_success,last_attempt,next_refresh,records_ingested,last_error FROM provider_status ORDER BY lane").fetchall()]
+            if providers:
+                st.markdown("### Provider health")
+                st.dataframe(providers, use_container_width=True, hide_index=True)
+        except sqlite3.Error:
+            st.warning("Provider health is unavailable.")
     st.markdown("### Promotion gate")
     st.info("Promotion requires meaningful out-of-sample evidence, positive incremental results, bounded drawdown, and execution-quality limits. No research signal can submit an order directly.")
     st.metric("LIVE DEPLOYMENT READINESS", "COLLECTING EVIDENCE")

@@ -17,6 +17,8 @@ class ResearchRefreshJob:
     def run(self, now: datetime) -> JobResult:
         store = ResearchStore(self.path)
         counts = {lane: len(store.research(lane)) for lane in ("etf", "institutional", "politician", "academic", "github")}
+        for lane, count in counts.items():
+            store.put_provider_status(lane, status="CONNECTED" if count else "UNAVAILABLE", records_ingested=count, last_error=None if count else "No records ingested")
         return JobResult(True, "Research refresh completed", {"lanes": counts, "refreshed_at": now.isoformat(), "broker_control": False})
 
 
