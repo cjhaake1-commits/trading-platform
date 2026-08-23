@@ -430,7 +430,8 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                         'reconciliation_pending',
                         'protection_pending',
                         'reconciliation_deferred',
-                        'manual_review_required'
+                        'manual_review_required',
+                        'active'
                     )
                     ORDER BY created_at, manifest_id
                 """
@@ -444,7 +445,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                         'approved_manifest', 'order_submitted', 'order_pending',
                         'filled_position_pending', 'reconciliation_pending',
                         'protection_pending', 'reconciliation_deferred',
-                        'manual_review_required'
+                        'manual_review_required', 'active'
                     )
                     ORDER BY created_at, manifest_id
                     """
