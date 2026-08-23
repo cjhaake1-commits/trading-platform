@@ -15,8 +15,9 @@ def cycle() -> dict[str, object]:
     config = KalshiConfig.from_env()
     result: dict[str, object] = {"engine": engine, "observed_at": datetime.now(UTC).isoformat(),
                                  "orders": 0, "fills": 0, "decision": "HOLD_CASH",
-                                 "execution_enabled": False, "broker_control": False}
-    if config.environment != "demo" or config.trading_enabled or config.paper_capital != 0:
+                                 "execution_enabled": config.demo_trading_enabled, "broker_control": False}
+    if (config.environment != "demo" or config.trading_enabled or not config.demo_trading_enabled
+            or config.paper_capital <= 0):
         result["decision"] = "FAIL_CLOSED"
         return result
     client = KalshiReadOnlyClient(config)
@@ -29,7 +30,10 @@ def cycle() -> dict[str, object]:
                            "orders": len(client.orders_read_only(limit="100").get("orders", [])),
                            "fills": len(client.fills(limit="100").get("fills", []))})
         else:
-            result.update({"state": "EXTERNAL_BLOCK", "reason": "Perps/Margin Demo API is not documented/configured"})
+            enabled = client.perps_enabled()
+            markets = client.perps_markets(limit="100")
+            result.update({"state": "SCANNING" if enabled.get("enabled", True) else "EXTERNAL_BLOCK",
+                           "margin_enabled": enabled, "instruments": len(markets.get("markets", []))})
     except Exception as exc:
         result.update({"state": "API_DEGRADED", "error": type(exc).__name__})
     return result

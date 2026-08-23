@@ -31,8 +31,6 @@ class KalshiAuthReference:
 
     def sign(self, method: str, path: str, *, timestamp_ms: int | None = None) -> dict[str, str]:
         self.require_credentials()
-        if method.upper() != "GET":
-            raise ValueError("Kalshi transport permits GET only")
         timestamp = str(timestamp_ms if timestamp_ms is not None else int(time.time() * 1000))
         clean_path = urlparse(path).path.split("?")[0]
         if not clean_path.startswith("/"):

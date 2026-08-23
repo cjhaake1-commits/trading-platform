@@ -78,5 +78,16 @@ class KalshiResearchStore:
                 (record["id"], record["event_id"], record["snapshot_label"], record["captured_at"],
                  json.dumps(record.get("payload", {}), sort_keys=True, default=str),
                  record.get("family", "predictions"), record["retrieved_at"],
-                 record.get("normalization_version", "kalshi-foundation-v2"), 0, 0),
+                record.get("normalization_version", "kalshi-foundation-v2"), 0, 0),
             )
+
+    def previous_market_observation(self, instrument: str) -> dict[str, Any] | None:
+        with sqlite3.connect(self.path) as conn:
+            row = conn.execute(
+                "SELECT payload_json,retrieved_at FROM kalshi_observations "
+                "WHERE family='predictions' AND observation_type='market' AND instrument=? "
+                "ORDER BY retrieved_at DESC LIMIT 1", (instrument,)
+            ).fetchone()
+        if not row:
+            return None
+        return {"payload": json.loads(row[0]), "retrieved_at": row[1]}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import UTC, datetime
+from math import isfinite
 from pathlib import Path
 
 from autotrader.public_research import normalize_public_observation
@@ -32,6 +33,15 @@ def cycle() -> dict[str, object]:
                     instrument=str(payload.get("ticker") or payload.get("symbol") or "") or None,
                     observed_at=str(payload.get("timestamp") or payload.get("as_of") or "") or None)
                 store.put_research(observation.as_research_record())
+                for key, value in payload.items():
+                    try:
+                        numeric = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if isfinite(numeric):
+                        store.put_feature(name=f"{lane}.{key}", value=numeric, source=observation.source,
+                                          experiment_id="global_research", symbol=observation.instrument or "global",
+                                          pillar=observation.pillar, freshness=observation.freshness)
                 saved += 1
         store.put_provider_status(lane, status=fetched.status, records_ingested=saved, last_error=fetched.error)
         results["lanes"][lane] = {"status": fetched.status, "records": saved, "error": fetched.error}

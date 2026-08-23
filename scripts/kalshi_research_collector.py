@@ -23,7 +23,7 @@ def collect() -> dict[str, object]:
     store = KalshiResearchStore(db)
     learning = ResearchStore(os.getenv("KALSHI_LEARNING_DB", "var/research.db"))
     now = datetime.now(UTC).isoformat()
-    result: dict[str, object] = {"retrieved_at": now, "predictions": 0, "perps": "NOT_DOCUMENTED", "errors": []}
+    result: dict[str, object] = {"retrieved_at": now, "predictions": 0, "perps": 0, "errors": []}
     try:
         events = client.events(limit="100")
         markets = client.markets(limit="100")
@@ -33,6 +33,7 @@ def collect() -> dict[str, object]:
                 record = {"family":"predictions", "observation_type":key[:-1], "payload":item,
                           "retrieved_at":now, "provider_generated_at":item.get("updated_time"),
                           "endpoint":endpoint, "instrument":ticker, "quality":"FRESH"}
+                previous = store.previous_market_observation(str(ticker or "")) if key == "markets" else None
                 store.put_observation({"id":observation_id("predictions", endpoint, item), **record})
                 if key == "markets":
                     bid = item.get("yes_bid_dollars")
@@ -42,8 +43,21 @@ def collect() -> dict[str, object]:
                         mid = (float(bid) + float(ask)) / 2
                         features["kalshi.implied_probability"] = mid
                         features["kalshi.spread"] = float(ask) - float(bid)
+                        if previous and isinstance(previous.get("payload"), dict):
+                            old = previous["payload"]
+                            old_bid, old_ask = old.get("yes_bid_dollars"), old.get("yes_ask_dollars")
+                            if old_bid is not None and old_ask is not None:
+                                old_mid = (float(old_bid) + float(old_ask)) / 2
+                                change = mid - old_mid
+                                features["kalshi.probability_change"] = change
+                                features["kalshi.velocity"] = change
+                                features["kalshi.spread_change"] = features["kalshi.spread"] - (float(old_ask) - float(old_bid))
                     if item.get("volume_fp") is not None:
                         features["kalshi.volume"] = float(item["volume_fp"])
+                        if previous and isinstance(previous.get("payload"), dict) and previous["payload"].get("volume_fp") is not None:
+                            features["kalshi.volume_change"] = float(item["volume_fp"]) - float(previous["payload"]["volume_fp"])
+                    if item.get("liquidity_dollars") is not None:
+                        features["kalshi.liquidity"] = float(item["liquidity_dollars"])
                     for name, value in features.items():
                         learning.put_feature(name=name, value=value, source="kalshi", experiment_id="kalshi_research",
                                              symbol=str(ticker or "unknown"), pillar="research", freshness="FRESH")
@@ -61,6 +75,19 @@ def collect() -> dict[str, object]:
                 body = getter()
                 store.put_observation({"id":observation_id("predictions", endpoint, body), "family":"predictions",
                     "observation_type":"authenticated", "payload":body, "retrieved_at":now, "endpoint":endpoint, "quality":"FRESH"})
+            except Exception as exc:
+                result["errors"].append(f"{endpoint}:{type(exc).__name__}")
+        for endpoint, getter, key in (("margin/enabled", client.perps_enabled, "enabled"),
+                                      ("margin/markets", lambda: client.perps_markets(limit="100"), "markets"),
+                                      ("margin/balance", client.perps_balance, "balance"),
+                                      ("margin/risk", client.perps_risk, "risk"),
+                                      ("margin/fee_tiers", client.perps_fee_tiers, "fees")):
+            try:
+                body = getter()
+                store.put_observation({"id":observation_id("perps", endpoint, body), "family":"perps",
+                    "observation_type":key, "payload":body, "retrieved_at":now, "endpoint":endpoint, "quality":"FRESH"})
+                if key == "markets":
+                    result["perps"] = len(body.get("markets", [])) if isinstance(body, dict) else 0
             except Exception as exc:
                 result["errors"].append(f"{endpoint}:{type(exc).__name__}")
     except Exception as exc:

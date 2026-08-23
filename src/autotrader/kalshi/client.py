@@ -99,7 +99,19 @@ class KalshiReadOnlyClient:
     def orders_read_only(self, **params): return self._get("portfolio/orders", params, authenticated=True)
 
     def perps(self, path: str, **params):
-        """Call an explicitly configured Perps/Margin path; never Predictions markets."""
-        if not path or path == "markets":
-            raise ValueError("generic Predictions /markets is not a Perps probe")
+        """Call a documented Perps/Margin path, never the Predictions API."""
+        if not path:
+            raise ValueError("Perps/Margin path is required")
         return self._get(path, params, authenticated=True, family="perps")
+
+    def perps_enabled(self): return self.perps("enabled")
+    def perps_markets(self, **params): return self.perps("markets", **params)
+    def perps_market(self, ticker: str): return self.perps(f"markets/{ticker}")
+    def perps_orderbook(self, ticker: str): return self.perps(f"markets/{ticker}/orderbook")
+    def perps_balance(self): return self.perps("portfolio/balance")
+    def perps_risk(self): return self.perps("risk")
+    def perps_positions(self, **params): return self.perps("portfolio/positions", **params)
+    def perps_fills(self, **params): return self.perps("portfolio/fills", **params)
+    def perps_funding_rate(self, **params): return self.perps("funding/rate", **params)
+    def perps_funding_history(self, **params): return self.perps("funding/rates/historical", **params)
+    def perps_fee_tiers(self): return self.perps("fees/tiers")

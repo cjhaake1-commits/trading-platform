@@ -21,10 +21,8 @@ class KalshiConfig:
     base_url: str = "https://external-api.demo.kalshi.co/trade-api/v2"
     predictions_rest_url: str = "https://external-api.demo.kalshi.co/trade-api/v2"
     predictions_websocket_url: str = "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2"
-    # Perps/Margin is intentionally unset until Kalshi publishes a documented
-    # Demo surface. Never route this family to the Predictions API.
-    perps_rest_url: str | None = None
-    perps_websocket_url: str | None = None
+    perps_rest_url: str = "https://external-api.demo.kalshi.co/trade-api/v2/margin/"
+    perps_websocket_url: str = "wss://external-api-margin-ws.demo.kalshi.co/trade-api/ws/v2/margin"
     fix_url: str = "fix-demo://kalshi-disabled"
 
     @classmethod
@@ -36,8 +34,8 @@ class KalshiConfig:
             api_key_id=os.getenv("KALSHI_API_KEY_ID") or None,
             private_key_path=os.getenv("KALSHI_PRIVATE_KEY_PATH") or None,
             paper_capital=float(os.getenv("KALSHI_PAPER_CAPITAL", "0") or 0),
-            perps_rest_url=os.getenv("KALSHI_PERPS_REST_URL") or None,
-            perps_websocket_url=os.getenv("KALSHI_PERPS_WEBSOCKET_URL") or None,
+            perps_rest_url=os.getenv("KALSHI_PERPS_REST_URL") or cls().perps_rest_url,
+            perps_websocket_url=os.getenv("KALSHI_PERPS_WEBSOCKET_URL") or cls().perps_websocket_url,
         )
 
     @property
@@ -54,3 +52,7 @@ class KalshiConfig:
     @property
     def research_enabled(self) -> bool:
         return _flag("KALSHI_RESEARCH_ENABLED")
+
+    @property
+    def demo_trading_enabled(self) -> bool:
+        return _flag("KALSHI_DEMO_TRADING_ENABLED") and self.environment == "demo" and not _flag("KALSHI_LIVE_TRADING_ENABLED") and not _flag("LIVE_TRADING_ENABLED")

@@ -9,22 +9,27 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from autotrader.capital_allocations import SIX_PILLAR_BASE_CAPITAL, SIX_PILLARS
+from autotrader.session_state import session_state
 
 
 def cycle() -> dict[str, object]:
     db_path = Path(os.getenv("KALSHI_RESEARCH_DB", "var/kalshi/research.db"))
     observations = 0
+    candidate_sources: dict[str, int] = {pillar: 0 for pillar in SIX_PILLARS}
     if db_path.exists():
         with sqlite3.connect(db_path) as conn:
             observations = int(conn.execute("SELECT COUNT(*) FROM kalshi_observations").fetchone()[0])
+            candidate_sources["kalshi"] = int(conn.execute("SELECT COUNT(*) FROM kalshi_observations WHERE family='predictions' AND observation_type='market'").fetchone()[0])
     payload = {
         "recorded_at": datetime.now(UTC).isoformat(),
         "pillars": list(SIX_PILLARS),
         "base_capital": SIX_PILLAR_BASE_CAPITAL,
         "kalshi_observations": observations,
+        "candidate_sources": candidate_sources,
         "best_opportunity": None,
         "best_hedge": None,
         "cash_decision": "HOLD_CASH",
+        "sessions": {name: session_state(name).__dict__ for name in ("Stocks / ETFs", "Crypto", "Forex", "Metals / Commodities", "International", "Kalshi")},
         "broker_control": False,
         "execution_enabled": False,
     }

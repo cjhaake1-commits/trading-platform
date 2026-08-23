@@ -1829,23 +1829,27 @@ def _render_research_view(ctx: dict[str, object]) -> None:
     kalshi_db = Path(os.getenv("KALSHI_RESEARCH_DB", "var/kalshi/research.db"))
     kalshi_counts = {"predictions": 0, "perps": 0}
     kalshi_last = "UNKNOWN"
+    perps_enabled = None
     if kalshi_db.exists():
         try:
             with sqlite3.connect(kalshi_db) as conn:
                 kalshi_counts = dict(conn.execute("SELECT family, COUNT(*) FROM kalshi_observations GROUP BY family").fetchall())
                 row = conn.execute("SELECT MAX(retrieved_at) FROM kalshi_observations").fetchone()
                 kalshi_last = row[0] or kalshi_last
+                enabled_row = conn.execute("SELECT payload_json FROM kalshi_observations WHERE family='perps' AND observation_type='enabled' ORDER BY retrieved_at DESC LIMIT 1").fetchone()
+                if enabled_row:
+                    perps_enabled = bool(json.loads(enabled_row[0]).get("enabled"))
         except sqlite3.Error:
             pass
     kalshi = {
         "Authentication": "CONNECTED" if os.getenv("KALSHI_API_KEY_ID") and os.getenv("KALSHI_PRIVATE_KEY_PATH") else "NOT CONFIGURED",
         "Predictions REST": "CONNECTED",
         "Predictions WebSocket": "NOT ACTIVE",
-        "Perps REST": "DEGRADED · NOT DOCUMENTED",
+        "Perps REST": "EXTERNAL BLOCK" if perps_enabled is False else ("CONNECTED" if kalshi_counts.get("perps", 0) else "DEGRADED"),
         "Perps WebSocket": "NOT ACTIVE",
         "Records ingested": str(sum(kalshi_counts.values())),
         "Prediction markets tracked": str(kalshi_counts.get("predictions", 0)),
-        "Perps instruments tracked": "0",
+        "Perps instruments tracked": str(kalshi_counts.get("perps", 0)),
         "Research features": "RESEARCH ONLY",
         "Shadow learning samples": "0",
         "Last successful update": kalshi_last,
