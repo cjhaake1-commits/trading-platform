@@ -448,25 +448,25 @@ def reconcile_alpaca_equity_backlog(
         for position in snapshot.positions
         if abs(position.quantity) > 1e-12
     }
-    for symbol, orders in grouped_orders.items():
-        managed = [order for order in orders if _is_managed(order)]
-        if len(managed) <= 1 or symbol in position_symbols:
-            continue
-        for order in managed:
-            if not apply_paper_cleanup:
+    if not snapshot.deferred:
+        for symbol, orders in grouped_orders.items():
+            managed = [order for order in orders if _is_managed(order)]
+            if len(managed) <= 1 or symbol in position_symbols:
                 continue
-            try:
-                _, _ = request_fn(
-                    f"{base}/v2/orders/{order.order_id}",
-                    method="DELETE",
-                    headers=_alpaca_headers(key, secret),
-                    budget=snapshot.budget,
-                )
-                cancelled_ids.append(order.order_id)
-            except Exception:
-                manual += 1
-                continue
-            if apply_paper_cleanup:
+            for order in managed:
+                if not apply_paper_cleanup:
+                    continue
+                try:
+                    _, _ = request_fn(
+                        f"{base}/v2/orders/{order.order_id}",
+                        method="DELETE",
+                        headers=_alpaca_headers(key, secret),
+                        budget=snapshot.budget,
+                    )
+                    cancelled_ids.append(order.order_id)
+                except Exception:
+                    manual += 1
+                    continue
                 save_backlog_checkpoint(
                     resolved_checkpoint_path,
                     AlpacaBacklogCheckpoint(
@@ -476,7 +476,7 @@ def reconcile_alpaca_equity_backlog(
                     ),
                 )
 
-    if apply_paper_cleanup and cancelled_ids:
+    if apply_paper_cleanup and cancelled_ids and not snapshot.deferred:
         try:
             _maybe_consume_budget(request_fn, snapshot.budget)
             refreshed_payload, _ = request_fn(
