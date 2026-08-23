@@ -18,11 +18,11 @@ class KalshiConfig:
     api_key_id: str | None = None
     private_key_path: str | None = None
     paper_capital: float = 0.0
-    base_url: str = "https://demo-api.kalshi.co/trade-api/v2"
-    predictions_rest_url: str = "https://demo-api.kalshi.co/trade-api/v2"
-    predictions_websocket_url: str = "wss://demo-api.kalshi.co/trade-api/ws/v2"
-    perps_rest_url: str = "https://demo-api.kalshi.co/trade-api/v2"
-    perps_websocket_url: str = "wss://demo-api.kalshi.co/trade-api/ws/v2"
+    base_url: str = "https://external-api.demo.kalshi.co/trade-api/v2"
+    predictions_rest_url: str = "https://external-api.demo.kalshi.co/trade-api/v2"
+    predictions_websocket_url: str = "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2"
+    perps_rest_url: str = "https://external-api.demo.kalshi.co/trade-api/v2"
+    perps_websocket_url: str = "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2"
     fix_url: str = "fix-demo://kalshi-disabled"
 
     @classmethod
@@ -46,3 +46,7 @@ class KalshiConfig:
     @property
     def broker_control(self) -> bool:
         return False
+
+    @property
+    def research_enabled(self) -> bool:
+        return _flag("KALSHI_RESEARCH_ENABLED")

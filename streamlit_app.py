@@ -1789,15 +1789,21 @@ def _render_research_view(ctx: dict[str, object]) -> None:
     st.markdown("### KALSHI EVENT INTELLIGENCE · RESEARCH ONLY")
     st.caption("Pillar 6 foundation preview. Predictions and Perps are isolated research families and are not part of the active operational pillar count.")
     kalshi = {
-        "Foundation": "READY",
-        "Feature flag": "DISABLED",
-        "Predictions": "RESEARCH ONLY",
-        "Perps": "RESEARCH ONLY",
-        "Active capital": "$0.00",
-        "Execution": "DISABLED",
-        "Broker control": "FALSE",
-        "Exchange/shard state": "UNAVAILABLE",
+        "Authentication": "CONNECTED" if os.getenv("KALSHI_API_KEY_ID") and os.getenv("KALSHI_PRIVATE_KEY_PATH") else "NOT CONFIGURED",
+        "Predictions REST": "FOUNDATION READY",
+        "Predictions WebSocket": "FOUNDATION READY",
+        "Perps REST": "FOUNDATION READY",
+        "Perps WebSocket": "FOUNDATION READY",
+        "Records ingested": "0 (opt-in)",
+        "Prediction markets tracked": "0",
+        "Perps instruments tracked": "0",
+        "Research features": "0",
+        "Shadow learning samples": "0",
+        "Last successful update": "UNKNOWN",
         "Data freshness": "UNKNOWN",
+        "ACTIVE CAPITAL": "$0",
+        "EXECUTION": "DISABLED",
+        "BROKER CONTROL": "FALSE",
     }
     st.dataframe([kalshi], use_container_width=True, hide_index=True)
     st.markdown("### Promotion gate")

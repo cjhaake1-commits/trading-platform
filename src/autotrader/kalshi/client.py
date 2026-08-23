@@ -7,6 +7,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from .auth import KalshiAuthReference
 from .config import KalshiConfig
 
 
@@ -32,20 +33,31 @@ class KalshiReadOnlyClient:
         self.timeout = timeout
         self.max_retries = max(0, min(max_retries, 2))
         self.telemetry = KalshiTelemetry()
+        self.auth = KalshiAuthReference.from_config(self.config)
 
-    def _get(self, path: str, params: dict[str, str] | None = None) -> dict[str, Any]:
+    def _url(self, path: str, family: str = "predictions") -> str:
+        base = self.config.predictions_rest_url if family == "predictions" else self.config.perps_rest_url
+        parsed = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(base)
+        if parsed.hostname not in {"external-api.demo.kalshi.co", "demo-api.kalshi.co"}:
+            raise ValueError("Kalshi client rejects non-Demo URL")
+        return base.rstrip("/") + "/" + path.lstrip("/")
+
+    def _get(self, path: str, params: dict[str, str] | None = None, *, authenticated: bool = False, family: str = "predictions") -> dict[str, Any]:
         query = ""
         if params:
             from urllib.parse import urlencode
             query = "?" + urlencode({k: v for k, v in params.items() if v is not None})
         endpoint = path + query
-        url = self.config.base_url.rstrip("/") + "/" + path.lstrip("/") + query
+        url = self._url(path, family) + query
+        headers = {"Accept": "application/json"}
+        if authenticated:
+            headers.update(self.auth.sign("GET", __import__("urllib.parse", fromlist=["urlparse"]).urlparse(url).path))
         for attempt in range(self.max_retries + 1):
             started = time.monotonic()
             self.telemetry.requests += 1
             self.telemetry.last_endpoint = endpoint
             try:
-                with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=self.timeout) as response:
+                with urlopen(Request(url, method="GET", headers=headers), timeout=self.timeout) as response:
                     body = json.loads(response.read().decode("utf-8"))
                     self.telemetry.successes += 1
                     self.telemetry.last_status = response.status
@@ -71,3 +83,17 @@ class KalshiReadOnlyClient:
     def market(self, ticker: str) -> dict[str, Any]: return self._get(f"markets/{ticker}")
     def orderbook(self, ticker: str, **params: str) -> dict[str, Any]: return self._get(f"markets/{ticker}/orderbook", params)
     def series(self, ticker: str) -> dict[str, Any]: return self._get(f"series/{ticker}")
+
+    def request(self, path: str, *, params: dict[str, str] | None = None, authenticated: bool = False, family: str = "predictions") -> dict[str, Any]:
+        return self._get(path, params, authenticated=authenticated, family=family)
+
+    def exchange_status(self): return self._get("exchange/status")
+    def exchange_schedule(self): return self._get("exchange/schedule")
+    def fee_changes(self, **params): return self._get("series/fee_changes", params)
+    def positions(self, **params): return self._get("portfolio/positions", params, authenticated=True)
+    def balance(self): return self._get("portfolio/balance", authenticated=True)
+    def fills(self, **params): return self._get("portfolio/fills", params, authenticated=True)
+    def orders_read_only(self, **params): return self._get("portfolio/orders", params, authenticated=True)
+
+    def perps(self, path: str = "markets", **params):
+        return self._get(path, params, authenticated=True, family="perps")
