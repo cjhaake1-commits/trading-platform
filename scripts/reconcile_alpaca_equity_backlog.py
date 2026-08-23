@@ -40,6 +40,11 @@ def main() -> None:
         args.ledger,
         apply_paper_cleanup=args.apply_paper_cleanup,
         scope="active_v2" if args.active_v2 else "legacy",
+        checkpoint_path=(
+            "var/autotrader/alpaca_active_v2_checkpoint.json"
+            if args.active_v2
+            else None
+        ),
         budget_limit=args.budget_limit,
     )
     print(
