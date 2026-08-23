@@ -27,7 +27,9 @@ def _utc_iso(value: datetime | str) -> str:
         value = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
-    return value.astimezone(UTC).isoformat()
+    # Alpaca's trading API requires a literal UTC ``Z`` suffix for order
+    # history filters; an ISO ``+00:00`` offset is rejected as invalid.
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @dataclass(frozen=True)
@@ -438,6 +440,7 @@ def reconcile_alpaca_equity_backlog(
     manual = 0
     deferred_count = 0
     cancelled_ids: list[str] = []
+    cleanup_rate_limited = False
 
     grouped_orders: dict[str, list[BrokerOrderSnapshot]] = {}
     for order in snapshot.open_orders:
@@ -464,7 +467,11 @@ def reconcile_alpaca_equity_backlog(
                         budget=snapshot.budget,
                     )
                     cancelled_ids.append(order.order_id)
-                except Exception:
+                except Exception as exc:
+                    if "HTTP 429" in str(exc):
+                        snapshot.budget.note_rate_limit(deferred=True)
+                        cleanup_rate_limited = True
+                        break
                     manual += 1
                     continue
                 save_backlog_checkpoint(
@@ -475,43 +482,8 @@ def reconcile_alpaca_equity_backlog(
                         updated_at=datetime.now(UTC).isoformat(),
                     ),
                 )
-
-    if apply_paper_cleanup and cancelled_ids and not snapshot.deferred:
-        try:
-            _maybe_consume_budget(request_fn, snapshot.budget)
-            refreshed_payload, _ = request_fn(
-                f"{base}/v2/orders?status=all&nested=true&limit=500",
-                method="GET",
-                headers=_alpaca_headers(key, secret),
-                budget=snapshot.budget,
-            )
-        except RuntimeError:
-            snapshot.budget.note_rate_limit(deferred=True)
-            refreshed_payload = []
-        recent_orders = tuple(
-            _parse_order(row) for row in refreshed_payload if isinstance(row, dict)
-        )
-        recent_orders = tuple(row for row in recent_orders if row is not None)
-        snapshot = AlpacaBulkSnapshot(
-            snapshot.positions,
-            snapshot.open_orders,
-            recent_orders,
-            snapshot.budget,
-            snapshot.window_start,
-            snapshot.window_end,
-            snapshot.positions_snapshot_complete,
-            snapshot.open_orders_snapshot_complete,
-            True,
-            snapshot.deferred,
-        )
-        classifications = classify_unresolved_manifests(
-            unresolved,
-            snapshot.orders_by_id.values(),
-            snapshot.positions,
-            positions_snapshot_complete=snapshot.positions_snapshot_complete,
-            open_orders_snapshot_complete=snapshot.open_orders_snapshot_complete,
-            recent_orders_snapshot_complete=snapshot.recent_orders_snapshot_complete,
-        )
+            if cleanup_rate_limited:
+                break
 
     for classification in classifications:
         manifest = ledger.load_entry_manifest(classification.manifest_id)

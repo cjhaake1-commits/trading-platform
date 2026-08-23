@@ -86,6 +86,9 @@ def test_bulk_snapshot_reuses_one_positions_open_and_recent_pull(monkeypatch):
     assert len(calls) == 3
     assert snapshot.budget.requests == 3
     assert "o1" in snapshot.orders_by_id
+    recent_url = next(url for url in calls if "status=all" in url)
+    assert "after=2026-08-20T00:55:00Z" in recent_url
+    assert "until=2026-08-22T01:00:00Z" in recent_url
 
 
 def test_terminal_zero_fill_cleanup_can_be_applied(monkeypatch, tmp_path):
