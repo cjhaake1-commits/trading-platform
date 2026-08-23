@@ -239,7 +239,7 @@ class SaxoSimAdapter:
         managed_token = str(stored.get("access_token") or "").strip()
         self._refresh_token = str(stored.get("refresh_token") or "").strip()
         self._expires_at = float(stored.get("expires_at", 0) or 0)
-        selected_token = managed_token or access_token.strip()
+        selected_token = access_token.strip() or managed_token
         if not selected_token:
             raise SaxoConfigurationError("Missing SAXO_ACCESS_TOKEN or managed Saxo SIM OAuth token")
 
@@ -259,9 +259,11 @@ class SaxoSimAdapter:
     ) -> SaxoSimAdapter:
         store = SaxoTokenStore()
         stored = store.load()
+        if not str(stored.get("access_token") or "").strip():
+            raise SaxoConfigurationError("Missing managed Saxo SIM OAuth token")
         return cls(
             environment=os.getenv("SAXO_ENV", ""),
-            access_token=str(stored.get("access_token") or os.getenv("SAXO_ACCESS_TOKEN", "")),
+            access_token=str(stored.get("access_token") or ""),
             token_store=store,
             get_json=get_json,
             request_json=request_json,

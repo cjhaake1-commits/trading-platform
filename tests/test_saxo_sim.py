@@ -20,11 +20,21 @@ def test_sim_only_safety_lock():
         SaxoSimAdapter(environment="live", access_token="secret")
 
 
-def test_missing_token_handling(monkeypatch):
+def test_missing_token_handling(monkeypatch, tmp_path):
     monkeypatch.setenv("SAXO_ENV", "sim")
     monkeypatch.delenv("SAXO_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("SAXO_TOKEN_STORE", str(tmp_path / "missing.json"))
 
-    with pytest.raises(SaxoConfigurationError, match="Missing SAXO_ACCESS_TOKEN"):
+    with pytest.raises(SaxoConfigurationError, match="Missing managed Saxo SIM OAuth token"):
+        SaxoSimAdapter.from_env()
+
+
+def test_from_env_ignores_static_access_token_without_managed_store(monkeypatch, tmp_path):
+    monkeypatch.setenv("SAXO_ENV", "sim")
+    monkeypatch.setenv("SAXO_ACCESS_TOKEN", "stale-static-token")
+    monkeypatch.setenv("SAXO_TOKEN_STORE", str(tmp_path / "missing.json"))
+
+    with pytest.raises(SaxoConfigurationError, match="Missing managed Saxo SIM OAuth token"):
         SaxoSimAdapter.from_env()
 
 
