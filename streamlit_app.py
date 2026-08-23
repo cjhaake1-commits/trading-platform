@@ -914,7 +914,24 @@ def _render_overview(ctx: dict[str, object]) -> None:
     e2.metric("Broker Requests", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("requests"), 0.0))))
     e3.metric("Retries", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("retries"), 0.0))))
     e4.metric("429 Events", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("rate_limited"), 0.0))))
-    active_lifecycle = {"open": 0, "filled": 0, "reconciling": active_v2_unresolved, "terminal": 0}
+    baseline = str(experiment.get("baseline_start_time") or "")
+    active_rows = [
+        row for row in unresolved
+        if not baseline or str(row.get("created_at") or "") >= baseline
+    ]
+    lifecycle_counts = {}
+    for row in active_rows:
+        state = str(row.get("lifecycle_state") or "").lower()
+        lifecycle_counts[state] = lifecycle_counts.get(state, 0) + 1
+    open_states = {"approved_manifest", "order_submitted", "order_pending", "active"}
+    filled_states = {"filled", "filled_position_pending", "reconciled_active"}
+    deferred_states = {"reconciliation_deferred", "reconciliation_pending", "protection_pending"}
+    active_lifecycle = {
+        "open": sum(lifecycle_counts.get(state, 0) for state in open_states),
+        "filled": sum(lifecycle_counts.get(state, 0) for state in filled_states),
+        "reconciling": sum(lifecycle_counts.get(state, 0) for state in deferred_states),
+        "terminal": 0,
+    }
     st.markdown(
         f"""
         <div class='panel' style='padding:1rem'>
@@ -923,8 +940,8 @@ def _render_overview(ctx: dict[str, object]) -> None:
             <div class='status-card'><div class='status-label'>ACTIVE</div><div class='status-value'>{active_v2_unresolved}</div></div>
             <div class='status-card'><div class='status-label'>OPEN</div><div class='status-value'>{active_lifecycle['open']}</div></div>
             <div class='status-card'><div class='status-label'>FILLED</div><div class='status-value'>{active_lifecycle['filled']}</div></div>
-            <div class='status-card'><div class='status-label'>RECONCILING</div><div class='status-value'>RECONCILING</div></div>
-            <div class='status-card'><div class='status-label'>DEFERRED</div><div class='status-value'>{int(_float(backlog.get('active_experiment_unresolved'), 0.0))}</div></div>
+            <div class='status-card'><div class='status-label'>RECONCILING</div><div class='status-value'>{active_lifecycle['reconciling']}</div></div>
+            <div class='status-card'><div class='status-label'>DEFERRED</div><div class='status-value'>{active_lifecycle['reconciling']}</div></div>
             <div class='status-card'><div class='status-label'>TERMINAL</div><div class='status-value'>{active_lifecycle['terminal']}</div></div>
           </div>
         </div>
