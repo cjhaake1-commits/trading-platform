@@ -283,6 +283,7 @@ def load_learned_parameters(path: str | Path) -> dict[str, float]:
 @dataclass
 class RealizedOutcomeLearner:
     ledger_path: str = "var/autotrader/portfolio.db"
+    experiment_baseline_start: str | None = None
     audit_path: str = "var/autotrader/audit.db"
     stats_path: str = "var/autotrader/learning/performance_stats.json"
     parameters_path: str = "var/autotrader/learning/learned_parameters.json"
@@ -362,6 +363,12 @@ class RealizedOutcomeLearner:
                     normalized["audit_message"] = row["message"]
                     normalized["occurred_at"] = row["created_at"]
                     evidence.append(normalized)
+        if self.experiment_baseline_start:
+            baseline = self.experiment_baseline_start.replace("Z", "+00:00")
+            evidence = [
+                item for item in evidence
+                if str(item.get("occurred_at") or "") >= baseline
+            ]
         return evidence
 
     def propose_challenger(self, baseline: dict[str, float], *, sample_size: int) -> dict[str, float]:
@@ -667,7 +674,14 @@ class RealizedOutcomeLearner:
                     )
                 except sqlite3.Error:
                     continue
-        return [dict(row) for row in [*rows, *pillar_rows]]
+        records = [dict(row) for row in [*rows, *pillar_rows]]
+        if self.experiment_baseline_start:
+            baseline = self.experiment_baseline_start.replace("Z", "+00:00")
+            records = [
+                record for record in records
+                if str(record.get("occurred_at") or "") >= baseline
+            ]
+        return records
 
     @staticmethod
     def _write_json(path: str | Path, payload: dict[str, object]) -> None:

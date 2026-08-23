@@ -162,6 +162,21 @@ class AutonomousPaperTradingJob:
             counts[pillar] = counts.get(pillar, 0) + 1
         return counts
 
+    def _active_v2_pending_by_pillar(self, ledger: PortfolioLedger) -> dict[str, float]:
+        pending: dict[str, float] = {}
+        for manifest in ledger.unresolved_entry_manifests():
+            if str(manifest.get("created_at") or "") < self.experiment_baseline_start.isoformat():
+                continue
+            if str(manifest.get("lifecycle_state")) not in self.unresolved_states:
+                continue
+            approved = float(manifest.get("approved_notional") or 0.0)
+            filled = float(manifest.get("filled_quantity") or 0.0)
+            average = float(manifest.get("average_fill_price") or 0.0)
+            remaining = max(approved - abs(filled * average), 0.0)
+            pillar = str(manifest.get("pillar") or "unknown")
+            pending[pillar] = pending.get(pillar, 0.0) + remaining
+        return pending
+
     def run(self, now: datetime) -> JobResult:
         if now.tzinfo is None:
             now = now.replace(tzinfo=UTC)
@@ -301,6 +316,24 @@ class AutonomousPaperTradingJob:
                     }
                 )
                 continue
+            existing_manifest = ledger.latest_unresolved_entry_manifest_for_symbol(
+                signal.instrument.symbol.replace("_", "/").upper(), broker=(
+                    "alpaca-crypto-paper"
+                    if signal.instrument.asset_class is AssetClass.CRYPTO
+                    else ("oanda-practice" if signal.instrument.asset_class is AssetClass.FOREX else "alpaca-paper")
+                )
+            )
+            if existing_manifest is not None:
+                duplicates.append(
+                    {
+                        "symbol": signal.instrument.symbol,
+                        "broker": existing_manifest.get("broker"),
+                        "manifest_id": existing_manifest.get("manifest_id"),
+                        "lifecycle_state": existing_manifest.get("lifecycle_state"),
+                        "reason": "existing unresolved manifest blocks duplicate entry",
+                    }
+                )
+                continue
             gross = sum(abs(p.quantity * p.average_price) for p in strategy_portfolio.positions.values())
             decision = self.risk.evaluate(
                 signal.proposal,
@@ -309,6 +342,25 @@ class AutonomousPaperTradingJob:
             )
             if not decision.approved:
                 rejections.append({"symbol": signal.instrument.symbol, "pillar": pillar, "reason": decision.reason})
+                continue
+            pending_by_pillar = self._active_v2_pending_by_pillar(ledger)
+            committed_total = gross + sum(pending_by_pillar.values())
+            pillar_committed = pillar_notional + pending_by_pillar.get(pillar, 0.0)
+            requested_notional = decision.quantity * signal.proposal.entry_price
+            available_total = max(TOTAL_PAPER_CAPITAL - committed_total, 0.0)
+            available_pillar = max(pillar_limit - pillar_committed, 0.0)
+            if requested_notional > min(available_total, available_pillar):
+                rejections.append(
+                    {
+                        "symbol": signal.instrument.symbol,
+                        "pillar": pillar,
+                        "reason": "v2 capital reservation unavailable",
+                        "capacity_state": "CAPITAL_RESERVED",
+                        "requested_notional": requested_notional,
+                        "available_total": available_total,
+                        "available_pillar": available_pillar,
+                    }
+                )
                 continue
             remaining_notional = max(pillar_limit - pillar_notional, 0.0)
             capacity_quantity = remaining_notional / signal.proposal.entry_price
