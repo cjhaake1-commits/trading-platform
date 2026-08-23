@@ -77,6 +77,7 @@ class AutonomousPaperConfig:
     momentum_only_score: float = 12.0
     take_profit_r_multiple: float = 1.5
     max_entries_per_cycle: int = 3
+    max_unresolved_v2_per_pillar: int = 3
     alpaca_crypto_min_notional: float = 10.0
     alpaca_universe: tuple[str, ...] = DEFAULT_ALPACA_UNIVERSE
     oanda_universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
@@ -151,6 +152,15 @@ class AutonomousPaperTradingJob:
         self.risk = RiskEngine()
         self.idempotency = IdempotencyStore(self.config.idempotency_path)
         self.unresolved_states = set(PortfolioLedger.unresolved_entry_states())
+
+    def _active_v2_unresolved_by_pillar(self, ledger: PortfolioLedger) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for manifest in ledger.unresolved_entry_manifests():
+            if str(manifest.get("created_at") or "") < self.experiment_baseline_start.isoformat():
+                continue
+            pillar = str(manifest.get("pillar") or "unknown")
+            counts[pillar] = counts.get(pillar, 0) + 1
+        return counts
 
     def run(self, now: datetime) -> JobResult:
         if now.tzinfo is None:
@@ -250,6 +260,7 @@ class AutonomousPaperTradingJob:
             )
 
         entries, rejections, failures, duplicates, sizing = [], [], [], [], []
+        unresolved_by_pillar = self._active_v2_unresolved_by_pillar(ledger)
         for signal in signals:
             if len(entries) >= self.config.max_entries_per_cycle:
                 break
@@ -263,6 +274,18 @@ class AutonomousPaperTradingJob:
             portfolio = fresh.portfolio
             strategy_portfolio = self._strategy_portfolio(portfolio)
             pillar = pillar_for_asset(signal.instrument.asset_class)
+            if unresolved_by_pillar.get(pillar, 0) >= self.config.max_unresolved_v2_per_pillar:
+                rejections.append(
+                    {
+                        "symbol": signal.instrument.symbol,
+                        "pillar": pillar,
+                        "reason": "active-v2 reconciliation capacity exhausted",
+                        "capacity_state": "RECONCILING",
+                        "unresolved_active_v2": unresolved_by_pillar.get(pillar, 0),
+                        "capacity": self.config.max_unresolved_v2_per_pillar,
+                    }
+                )
+                continue
             pillar_limit = PILLAR_ALLOCATIONS[pillar]
             pillar_notional = sum(
                 abs(p.quantity * p.average_price)

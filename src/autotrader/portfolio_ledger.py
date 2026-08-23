@@ -637,6 +637,7 @@ class PortfolioLedger:
             "protection_pending",
             "protection_submitted",
             "active",
+            "reconciliation_deferred",
             "unprotected_position",
             "manual_review_required",
         )

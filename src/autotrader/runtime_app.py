@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .alpaca_backlog import load_backlog_checkpoint, reconcile_alpaca_equity_backlog
 from .audit import SQLiteAuditStore
 from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
 from .capital_allocations import TOTAL_PAPER_CAPITAL
@@ -30,6 +31,33 @@ class HeartbeatJob:
 
     def run(self, now: datetime) -> JobResult:
         return JobResult(True, "Runtime health check passed", {"timestamp": now.isoformat()})
+
+
+@dataclass
+class ActiveV2ReconciliationJob:
+    ledger_path: str = "var/autotrader/portfolio.db"
+    checkpoint_path: str = "var/autotrader/alpaca_active_v2_checkpoint.json"
+    name: str = "active-v2-reconciliation"
+    cadence_seconds: float = 120.0
+
+    def run(self, now: datetime) -> JobResult:
+        checkpoint = load_backlog_checkpoint(self.checkpoint_path)
+        if checkpoint.retry_after_until:
+            try:
+                retry_at = datetime.fromisoformat(checkpoint.retry_after_until.replace("Z", "+00:00"))
+                if retry_at > now.astimezone(UTC):
+                    return JobResult(True, "Active v2 reconciliation cooling down", {"state": "RECONCILING", "retry_after_until": checkpoint.retry_after_until})
+            except ValueError:
+                pass
+        result = reconcile_alpaca_equity_backlog(
+            self.ledger_path,
+            apply_paper_cleanup=True,
+            scope="active_v2",
+            checkpoint_path=self.checkpoint_path,
+            budget_limit=12,
+        )
+        state = "RECONCILING" if result.unresolved_after else "CLEAR"
+        return JobResult(True, "Active v2 reconciliation completed", {"state": state, "unresolved_before": result.unresolved_before, "unresolved_after": result.unresolved_after, **result.telemetry})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +93,7 @@ def main() -> None:
     )
     jobs = [HeartbeatJob()]
     if args.autonomous_paper:
+        jobs.append(ActiveV2ReconciliationJob(ledger_path=args.ledger))
         jobs.append(
             AutonomousPaperTradingJob(
                 AutonomousPaperConfig(

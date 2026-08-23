@@ -306,16 +306,17 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
           </div>
           <div class="pillar-state">{escape(str(data.get("state") or "HOLDING CASH"))}</div>
           <div class="pillar-grid">
-            <div><span>Cap</span><strong>{_money(data.get("cap"))}</strong></div>
-            <div><span>Deployed</span><strong>{_money(data.get("deployed"))}</strong></div>
-            <div><span>Available</span><strong>{_money(data.get("available"))}</strong></div>
-            <div><span>Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
-            <div><span>Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
-            <div><span>Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
+            <div><span>V2 Cap</span><strong>{_money(data.get("cap"))}</strong></div>
+            <div><span>V2 Deployed</span><strong>{_money(data.get("deployed"))}</strong></div>
+            <div><span>V2 Available</span><strong>{_money(data.get("available"))}</strong></div>
+            <div><span>V2 Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
+            <div><span>V2 Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
+            <div><span>V2 Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
             <div><span>Trades</span><strong>{int(_float(data.get("completed_trades")))}</strong></div>
             <div><span>Win Rate</span><strong>{escape(str(data.get("win_rate") or "—"))}</strong></div>
           </div>
           <div class="pillar-foot">
+            <div><span>Legacy Exposure</span><strong>{_money(data.get("legacy_exposure"))} · {int(_float(data.get("legacy_positions"))) } positions</strong></div>
             <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DATA UNAVAILABLE"))}</strong></div>
             <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "UNAVAILABLE"))}</strong></div>
             <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "UNAVAILABLE"))}</strong></div>
@@ -779,6 +780,26 @@ def _render_overview(ctx: dict[str, object]) -> None:
             unsafe_allow_html=True,
         )
     st.markdown("<div class='section-title'>Capital & Cash Command Center</div>", unsafe_allow_html=True)
+    backlog = runtime.get("backlog_progress") if isinstance(runtime.get("backlog_progress"), dict) else {}
+    active_v2_unresolved = int(_float(backlog.get("active_experiment_unresolved"), 0.0))
+    v2_deployed = _float(ctx.get("deployed"))
+    v2_available = max(TOTAL_BASE_CAPITAL - v2_deployed - _float(ctx.get("protected_cash")), 0.0)
+    latest_cycle = ctx.get("snapshot", {}).get("latest_cycle", {}) if isinstance(ctx.get("snapshot"), dict) else {}
+    latest_cycle = latest_cycle if isinstance(latest_cycle, dict) else {}
+    top = (latest_cycle.get("top_candidates") or [{}])[0] if isinstance(latest_cycle.get("top_candidates"), list) else {}
+    idle_reason = "ACTIVE V2 unresolved manifests remain" if active_v2_unresolved else "No qualifying v2 order currently approved"
+    st.markdown(
+        f"""
+        <div class='panel activation-panel'><div class='section-title'>V2 CAPITAL ACTIVATION</div>
+        <div class='activation-head'><span>AUTHORIZED</span><strong>{_money(TOTAL_BASE_CAPITAL)}</strong><span>DEPLOYED</span><strong>{_money(v2_deployed)}</strong><span>AVAILABLE</span><strong>{_money(v2_available)}</strong><span>UTILIZATION</span><strong>{v2_deployed / TOTAL_BASE_CAPITAL * 100:.1f}%</strong></div>
+        <div class='small-note'>Capital remains idle only when the existing signal, risk, duplicate, session, or reconciliation gates say so: {escape(idle_reason)}.</div>
+        </div>
+        """, unsafe_allow_html=True,
+    )
+    activation_rows = []
+    for name, data in _pillars_from_snapshot(ctx["snapshot"]).items():
+        activation_rows.append(f"<tr><td>{escape(name)}</td><td>{_money(data.get('cap'))}</td><td>{_money(data.get('deployed'))}</td><td>{_money(data.get('available'))}</td><td>{escape(str(data.get('status') or 'SCANNING'))}</td><td>{escape(str(top.get('symbol') or '—'))}</td><td>{_float(top.get('score')):.2f}</td><td>5.00</td><td>{escape(str(data.get('status') or 'HOLDING CASH'))}</td></tr>")
+    st.markdown("<div class='table-panel'><table><thead><tr><th>Pillar</th><th>$1,000 Cap</th><th>Deployed</th><th>Available</th><th>State</th><th>Top Candidate</th><th>Score</th><th>Threshold</th><th>Why Capital Is Idle</th></tr></thead><tbody>" + "".join(activation_rows) + "</tbody></table></div>", unsafe_allow_html=True)
     cols = st.columns(4)
     cols[0].metric("Starting Strategy Capital", _money(ctx["original_capital"]))
     cols[1].metric("Capital Deployed", _money(ctx["deployed"]))
@@ -893,6 +914,22 @@ def _render_overview(ctx: dict[str, object]) -> None:
     e2.metric("Broker Requests", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("requests"), 0.0))))
     e3.metric("Retries", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("retries"), 0.0))))
     e4.metric("429 Events", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("rate_limited"), 0.0))))
+    active_lifecycle = {"open": 0, "filled": 0, "reconciling": active_v2_unresolved, "terminal": 0}
+    st.markdown(
+        f"""
+        <div class='panel' style='padding:1rem'>
+          <div class='section-title'>ACTIVE V2 ORDER LIFECYCLE</div>
+          <div class='status-grid'>
+            <div class='status-card'><div class='status-label'>ACTIVE</div><div class='status-value'>{active_v2_unresolved}</div></div>
+            <div class='status-card'><div class='status-label'>OPEN</div><div class='status-value'>{active_lifecycle['open']}</div></div>
+            <div class='status-card'><div class='status-label'>FILLED</div><div class='status-value'>{active_lifecycle['filled']}</div></div>
+            <div class='status-card'><div class='status-label'>RECONCILING</div><div class='status-value'>RECONCILING</div></div>
+            <div class='status-card'><div class='status-label'>DEFERRED</div><div class='status-value'>{int(_float(backlog.get('active_experiment_unresolved'), 0.0))}</div></div>
+            <div class='status-card'><div class='status-label'>TERMINAL</div><div class='status-value'>{active_lifecycle['terminal']}</div></div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True,
+    )
     if ctx["live_errors"]:
         st.warning(" · ".join(ctx["live_errors"]))
     if unresolved:
@@ -900,9 +937,11 @@ def _render_overview(ctx: dict[str, object]) -> None:
             f"<tr><td>{escape(str(row.get('created_at') or '—'))}</td><td>{escape(str(row.get('canonical_symbol') or '—'))}</td><td>{escape(str(row.get('broker_order_id') or '—'))}</td><td>{escape(str(row.get('lifecycle_state') or '—'))}</td></tr>"
             for row in unresolved[:20]
         )
-        st.markdown(
+        with st.expander("LEGACY HISTORY — DOES NOT BLOCK V2", expanded=False):
+            st.markdown(
             f"""
-            <div class="section-title">Unresolved Manifests</div>
+            <div class="section-title">LEGACY / PRE-V2 RECONCILIATION BACKLOG</div>
+            <div class="small-note">Active V2 unresolved: <strong>{active_v2_unresolved}</strong> · Legacy total: <strong>{int(_float(backlog.get('legacy_total')))}</strong> · Resolved: <strong>{int(_float(backlog.get('legacy_resolved')))}</strong> · Deferred: <strong>{int(_float(backlog.get('legacy_deferred')))}</strong> · Manual review: <strong>{int(_float(backlog.get('legacy_manual_review')))}</strong> · Last reconciliation: <strong>{escape(str(backlog.get('last_successful_reconciliation') or 'UNAVAILABLE'))}</strong> · Next cleanup: <strong>{escape(str(backlog.get('cooldown_until') or 'UNAVAILABLE'))}</strong></div>
             <div class="table-panel">
               <table>
                 <thead><tr><th>Created</th><th>Symbol</th><th>Broker Order ID</th><th>Lifecycle</th></tr></thead>
@@ -911,7 +950,7 @@ def _render_overview(ctx: dict[str, object]) -> None:
             </div>
             """,
             unsafe_allow_html=True,
-        )
+            )
 
 
 def _render_dashboard_legacy() -> None:
@@ -1298,6 +1337,13 @@ def _dashboard_css() -> str:
     .block-container{padding-top:1.1rem;padding-bottom:3rem;max-width:1480px;}
     [data-testid="stHeader"]{background:rgba(5,11,21,.86);}
     [data-testid="stSidebar"]{background:linear-gradient(180deg,rgba(8,15,28,.98),rgba(10,18,33,.94));border-right:1px solid var(--line);}
+    [data-testid="stSidebar"] *{color:var(--text);}
+    [data-testid="stSidebar"] label,[data-testid="stSidebar"] .stCaption{color:#d7e1ef!important;font-size:.92rem!important;opacity:1!important;}
+    [data-testid="stSidebar"] [data-testid="stRadio"] label{min-height:2.35rem;padding:.45rem .65rem;border-left:3px solid transparent;border-radius:0 8px 8px 0;white-space:nowrap;font-size:.95rem!important;font-weight:650;}
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked){color:#fff!important;background:rgba(215,181,109,.14);border-left-color:var(--gold);}
+    [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p{font-size:.95rem!important;white-space:nowrap;}
+    [data-testid="stSidebar"] button{color:#f4f7fb!important;font-size:.9rem!important;}
+    [data-testid="stSidebar"] .brand-sub,[data-testid="stSidebar"] .brand-footer{color:#c0ccdc!important;opacity:1;}
     [data-testid="stMetric"],.panel,.pillar,.table-panel,.brand-box,.status-card{background:linear-gradient(180deg,rgba(17,26,45,.98),rgba(10,18,33,.95));border:1px solid var(--line);border-radius:18px;box-shadow:0 16px 40px rgba(0,0,0,.24);}
     [data-testid="stMetric"]{padding:.15rem .3rem;}
     [data-testid="stMetricLabel"]{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;}
@@ -1330,9 +1376,13 @@ def _dashboard_css() -> str:
     th,td{border-bottom:1px solid var(--line);padding:.6rem .5rem;font-size:.84rem;vertical-align:top;}
     th{text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-size:.67rem;}
     .small-note{color:var(--muted);font-size:.78rem;line-height:1.4;}
+    .activation-panel{padding:1rem;margin:.5rem 0 1rem;}
+    .activation-head{display:grid;grid-template-columns:repeat(8,auto);gap:.55rem 1rem;align-items:baseline;margin-bottom:.65rem;}
+    .activation-head span{color:var(--muted);font-size:.68rem;letter-spacing:.12em;font-weight:700;}
+    .activation-head strong{color:#fff;font-size:1.08rem;}
     .progress{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;margin-top:.4rem;}
     .progress > div{height:100%;background:linear-gradient(90deg,var(--gold),#88d7ff);}
-    @media (max-width:768px){.block-container{padding-left:.9rem;padding-right:.9rem;}}
+    @media (max-width:768px){.block-container{padding-left:.9rem;padding-right:.9rem;}.activation-head{grid-template-columns:repeat(2,minmax(0,1fr));}[data-testid="stSidebar"] [data-testid="stRadio"] label{font-size:.9rem!important;}}
     </style>
     """
 
@@ -1382,13 +1432,14 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
     jobs = ctx["jobs"] if isinstance(ctx["jobs"], dict) else {}
     runtime = ctx["runtime"] if isinstance(ctx["runtime"], dict) else {}
     activity = ctx["activity"] if isinstance(ctx["activity"], list) else []
+    v2_metrics = _pillars_from_snapshot(ctx["snapshot"])
     for name, broker, accent in PILLARS:
         job_name = PILLAR_JOB_MAP[name]
         job = jobs.get(job_name) if isinstance(jobs, dict) else {}
         job = job if isinstance(job, dict) else {}
         broker_state = live_pillar_status.get(name) if isinstance(live_pillar_status, dict) else {}
         broker_state = broker_state if isinstance(broker_state, dict) else {}
-        positions_count = int(broker_state.get("positions", 0) or 0)
+        positions_count = int((v2_metrics.get(name) or {}).get("positions", 0) or 0)
         current_state, connection, blocker = _derive_pillar_state(name, job, broker_state, activity)
         connection_class = "good" if connection == "CONNECTED" else ("warn" if connection in {"AUTH REQUIRED", "ERROR"} else "neutral")
         pillar_rows.append(
@@ -1397,20 +1448,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "broker": broker,
                 "accent": accent,
                 "cap": PILLAR_BASE_CAPITAL,
-                "deployed": _float(
-                    broker_state.get("gross_exposure", 0.0)
-                    if name != "Forex"
-                    else ctx["live_metrics"].get("oanda_exposure", 0.0)
-                ),
-                "available": max(
-                    PILLAR_BASE_CAPITAL
-                    - _float(
-                        broker_state.get("gross_exposure", 0.0)
-                        if name != "Forex"
-                        else ctx["live_metrics"].get("oanda_exposure", 0.0)
-                    ),
-                    0.0,
-                ),
+                "deployed": _float((v2_metrics.get(name) or {}).get("deployed")),
+                "available": max(PILLAR_BASE_CAPITAL - _float((v2_metrics.get(name) or {}).get("deployed")), 0.0),
                 "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
                 "unrealized_pnl": _float(broker_state.get("unrealized_pnl", 0.0)),
                 "positions": positions_count,
@@ -1426,6 +1465,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 else ("DISABLED" if job.get("disabled") else "DEGRADED"),
                 "state": current_state,
                 "blocker": blocker,
+                "legacy_exposure": _float(broker_state.get("gross_exposure", 0.0)),
+                "legacy_positions": max(int(broker_state.get("positions", 0) or 0) - positions_count, 0),
             }
         )
     st.markdown("<div class='section-title'>Five Pillars</div>", unsafe_allow_html=True)
@@ -1436,7 +1477,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 _render_pillar_card(pillar["name"], pillar)
     st.markdown(
         """
-        <div class="small-note">Each pillar shows its live broker connection, scanner state, hard $1,000 cap, deployed capital, available allocation, realized P&amp;L, unrealized P&amp;L, positions, completed trades, win rate, and latest decision.</div>
+        <div class="small-note">Primary metrics are ACTIVE V2 only. Legacy broker exposure is shown separately and never counts toward v2 utilization.</div>
         """,
         unsafe_allow_html=True,
     )
