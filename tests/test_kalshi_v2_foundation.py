@@ -6,7 +6,16 @@ import pytest
 from autotrader.kalshi.config import KalshiConfig
 from autotrader.kalshi.exchange import ExchangeStatus, execution_gate
 from autotrader.kalshi.fees import FeeRule, fee_for
-from autotrader.kalshi.foundation import ExpectedEdge, PriceBand, VariableTick, normalize_timestamp, price
+from autotrader.kalshi.foundation import (
+    DataQuality,
+    ExpectedEdge,
+    Freshness,
+    PriceBand,
+    Provenance,
+    VariableTick,
+    normalize_timestamp,
+    price,
+)
 from autotrader.kalshi.normalization import funding_features
 from autotrader.kalshi.perps.models import TransfersDisabledError, transfer
 from autotrader.kalshi.perps.normalization import normalize_instrument
@@ -19,6 +28,9 @@ def test_exact_prices_and_variable_ticks():
     assert price("0.001") == Decimal("0.001")
     assert VariableTick(Decimal("0.0001")).valid(Decimal("0.1234"))
     assert not VariableTick(Decimal("0.001")).valid(Decimal("0.1234"))
+    with pytest.raises(ValueError):
+        VariableTick(Decimal("0"))
+    assert price(price("0.0001")) == Decimal("0.0001")
 
 
 def test_timestamps_are_explicit_and_timezone_safe():
@@ -70,3 +82,21 @@ def test_safety_locks_and_transfers():
 def test_funding_features_do_not_fabricate_empty_history():
     assert funding_features([]).current is None
     assert funding_features([Decimal(".01"), Decimal(".02")]).change == Decimal(".01")
+
+
+def test_provenance_freshness_and_durable_family_replay_storage(tmp_path):
+    retrieved = datetime(2026, 1, 1, 0, 1, tzinfo=UTC)
+    fresh = Freshness.from_source("2026-01-01T00:00:00Z", retrieved, provider_family="predictions")
+    unavailable = Freshness.from_source(None, retrieved, provider_family="perps")
+    assert fresh.quality is DataQuality.FRESH and unavailable.quality is DataQuality.UNAVAILABLE
+    provenance = Provenance(family="perps", endpoint="/perps", exchange_index="shard-1", instrument="BTC")
+    assert provenance.broker_control is False and provenance.execution_enabled is False
+    from autotrader.kalshi.storage import KalshiResearchStore
+    store = KalshiResearchStore(tmp_path / "kalshi.db")
+    store.put_observation({"id": "p1", "family": "predictions", "observation_type": "probability", "retrieved_at": "now", "quality": "FRESH"})
+    store.put_observation({"id": "f1", "family": "perps", "observation_type": "funding", "retrieved_at": "now", "quality": "INCOMPLETE"})
+    store.put_replay_snapshot({"id": "r1", "event_id": "e1", "snapshot_label": "T-1h", "captured_at": "now", "retrieved_at": "now"})
+    import sqlite3
+    with sqlite3.connect(store.path) as conn:
+        assert conn.execute("select count(*) from kalshi_observations").fetchone()[0] == 2
+        assert conn.execute("select count(*) from kalshi_event_replay").fetchone()[0] == 1

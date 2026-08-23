@@ -99,7 +99,7 @@ class Freshness:
     def from_source(cls, source: Any, retrieved_at: datetime, *, provider_family: str, max_age_seconds: float = 60) -> "Freshness":
         retrieved_at = retrieved_at.astimezone(UTC)
         if source is None:
-            return cls(None, retrieved_at, DataQuality.UNKNOWN if hasattr(DataQuality, "UNKNOWN") else DataQuality.UNAVAILABLE, None)
+            return cls(None, retrieved_at, DataQuality.UNAVAILABLE, None)
         normalized = normalize_timestamp(source, provider_family=provider_family)
         lag = max(0.0, (retrieved_at - normalized.utc).total_seconds())
         return cls(normalized, retrieved_at, DataQuality.FRESH if lag <= max_age_seconds else DataQuality.STALE, lag)
@@ -138,4 +138,3 @@ class ResearchObservation:
     payload: Mapping[str, Any]
     provenance: Provenance
     quality: DataQuality = DataQuality.FRESH
-
