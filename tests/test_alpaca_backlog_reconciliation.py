@@ -238,6 +238,28 @@ def test_request_budget_exhaustion_defers_safely(monkeypatch, tmp_path):
     assert result.unresolved_after >= 1
 
 
+def test_active_v2_scope_reconciles_only_post_baseline_manifests(monkeypatch, tmp_path):
+    ledger = PortfolioLedger(tmp_path / "portfolio.db")
+    ledger.save_entry_manifest(**_manifest_kwargs("MSTR", "order_pending", "legacy", "2026-08-20T00:55:00+00:00"))
+    ledger.save_entry_manifest(**_manifest_kwargs("AMD", "order_pending", "active", "2026-08-23T00:55:00+00:00"))
+
+    def fake_request(url, *, method, headers, body=None, timeout=15.0, budget=None):
+        if url.endswith("/v2/positions"):
+            return ([], {})
+        if "status=open" in url:
+            return ([{"id": "active", "symbol": "AMD", "status": "new", "filled_qty": "0"}], {})
+        if "status=all" in url:
+            return ([], {})
+        raise AssertionError(url)
+
+    monkeypatch.setattr(alpaca_backlog, "_alpaca_auth", lambda: ("key", "secret", "https://paper-api.alpaca.markets"))
+    result = alpaca_backlog.reconcile_alpaca_equity_backlog(
+        tmp_path / "portfolio.db", request_fn=fake_request, scope="active_v2"
+    )
+    assert result.unresolved_before == 1
+    assert result.classifications[0].manifest_id == "AMD-order_pending-active"
+
+
 def test_incomplete_recent_snapshot_becomes_reconciliation_deferred(monkeypatch, tmp_path):
     ledger = PortfolioLedger(tmp_path / "portfolio.db")
     ledger.save_entry_manifest(

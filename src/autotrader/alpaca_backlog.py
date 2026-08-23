@@ -377,6 +377,7 @@ def reconcile_alpaca_equity_backlog(
     ledger_path: str | Path,
     *,
     apply_paper_cleanup: bool = False,
+    scope: str = "legacy",
     request_fn: Callable[..., tuple[object, dict[str, str]]] = _request,
     budget_limit: int = 12,
     checkpoint_path: str | Path | None = None,
@@ -396,13 +397,23 @@ def reconcile_alpaca_equity_backlog(
     except Exception:
         baseline_time = datetime.now(UTC)
     key, secret, base = _alpaca_auth()
+    if scope not in {"legacy", "active_v2"}:
+        raise ValueError("scope must be legacy or active_v2")
     unresolved = [
         manifest
         for manifest in ledger.unresolved_entry_manifests(broker="alpaca-paper")
-        if _manifest_is_legacy(
-            manifest,
-            experiment_id=experiment["experiment_id"],
-            baseline_time=baseline_time,
+        if (
+            _manifest_is_legacy(
+                manifest,
+                experiment_id=experiment["experiment_id"],
+                baseline_time=baseline_time,
+            )
+            if scope == "legacy"
+            else not _manifest_is_legacy(
+                manifest,
+                experiment_id=experiment["experiment_id"],
+                baseline_time=baseline_time,
+            )
         )
     ]
     snapshot = fetch_alpaca_bulk_snapshot(

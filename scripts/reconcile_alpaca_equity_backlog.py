@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--ledger", default="var/autotrader/portfolio.db")
     parser.add_argument("--status", default="var/autotrader/status.json")
     parser.add_argument("--apply-paper-cleanup", action="store_true")
+    parser.add_argument("--active-v2", action="store_true", help="Reconcile active five_pillar_paper_v2 manifests")
     parser.add_argument("--budget-limit", type=int, default=12)
     args = parser.parse_args()
 
@@ -38,6 +39,7 @@ def main() -> None:
     result = reconcile_alpaca_equity_backlog(
         args.ledger,
         apply_paper_cleanup=args.apply_paper_cleanup,
+        scope="active_v2" if args.active_v2 else "legacy",
         budget_limit=args.budget_limit,
     )
     print(
