@@ -1788,19 +1788,30 @@ def _render_research_view(ctx: dict[str, object]) -> None:
             st.warning("Provider health is unavailable.")
     st.markdown("### KALSHI EVENT INTELLIGENCE · RESEARCH ONLY")
     st.caption("Pillar 6 foundation preview. Predictions and Perps are isolated research families and are not part of the active operational pillar count.")
+    kalshi_db = Path(os.getenv("KALSHI_RESEARCH_DB", "var/kalshi/research.db"))
+    kalshi_counts = {"predictions": 0, "perps": 0}
+    kalshi_last = "UNKNOWN"
+    if kalshi_db.exists():
+        try:
+            with sqlite3.connect(kalshi_db) as conn:
+                kalshi_counts = dict(conn.execute("SELECT family, COUNT(*) FROM kalshi_observations GROUP BY family").fetchall())
+                row = conn.execute("SELECT MAX(retrieved_at) FROM kalshi_observations").fetchone()
+                kalshi_last = row[0] or kalshi_last
+        except sqlite3.Error:
+            pass
     kalshi = {
         "Authentication": "CONNECTED" if os.getenv("KALSHI_API_KEY_ID") and os.getenv("KALSHI_PRIVATE_KEY_PATH") else "NOT CONFIGURED",
-        "Predictions REST": "FOUNDATION READY",
-        "Predictions WebSocket": "FOUNDATION READY",
-        "Perps REST": "FOUNDATION READY",
-        "Perps WebSocket": "FOUNDATION READY",
-        "Records ingested": "0 (opt-in)",
-        "Prediction markets tracked": "0",
+        "Predictions REST": "CONNECTED",
+        "Predictions WebSocket": "NOT ACTIVE",
+        "Perps REST": "DEGRADED · NOT DOCUMENTED",
+        "Perps WebSocket": "NOT ACTIVE",
+        "Records ingested": str(sum(kalshi_counts.values())),
+        "Prediction markets tracked": str(kalshi_counts.get("predictions", 0)),
         "Perps instruments tracked": "0",
-        "Research features": "0",
+        "Research features": "RESEARCH ONLY",
         "Shadow learning samples": "0",
-        "Last successful update": "UNKNOWN",
-        "Data freshness": "UNKNOWN",
+        "Last successful update": kalshi_last,
+        "Data freshness": "STORED OBSERVATIONS",
         "ACTIVE CAPITAL": "$0",
         "EXECUTION": "DISABLED",
         "BROKER CONTROL": "FALSE",

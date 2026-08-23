@@ -37,6 +37,8 @@ class KalshiReadOnlyClient:
 
     def _url(self, path: str, family: str = "predictions") -> str:
         base = self.config.predictions_rest_url if family == "predictions" else self.config.perps_rest_url
+        if not base:
+            raise RuntimeError("Kalshi Perps/Margin Demo endpoint is not documented/configured")
         parsed = __import__("urllib.parse", fromlist=["urlparse"]).urlparse(base)
         if parsed.hostname not in {"external-api.demo.kalshi.co", "demo-api.kalshi.co"}:
             raise ValueError("Kalshi client rejects non-Demo URL")
@@ -95,5 +97,8 @@ class KalshiReadOnlyClient:
     def fills(self, **params): return self._get("portfolio/fills", params, authenticated=True)
     def orders_read_only(self, **params): return self._get("portfolio/orders", params, authenticated=True)
 
-    def perps(self, path: str = "markets", **params):
+    def perps(self, path: str, **params):
+        """Call an explicitly configured Perps/Margin path; never Predictions markets."""
+        if not path or path == "markets":
+            raise ValueError("generic Predictions /markets is not a Perps probe")
         return self._get(path, params, authenticated=True, family="perps")

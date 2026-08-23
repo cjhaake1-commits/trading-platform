@@ -16,8 +16,10 @@ def probe(family: str) -> dict:
         return result
     client = KalshiReadOnlyClient(config)
     try:
-        data = client.exchange_status() if family == "status" else (client.events(limit="1") if family == "predictions" else client.perps())
+        data = client.exchange_status() if family == "status" else (client.events(limit="1") if family == "predictions" else client.perps("margin/account"))
         result.update(http_state="OK", records_returned=len(data.get("events", data.get("markets", []))) if isinstance(data, dict) else 0, telemetry=client.telemetry.__dict__)
+    except RuntimeError as exc:
+        result.update(http_state="NOT_DOCUMENTED", last_error=type(exc).__name__)
     except Exception as exc:
         result.update(http_state="ERROR", last_error=type(exc).__name__)
     return result
