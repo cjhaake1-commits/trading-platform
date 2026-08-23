@@ -1772,6 +1772,20 @@ def _render_research_view(ctx: dict[str, object]) -> None:
                 st.dataframe(providers, use_container_width=True, hide_index=True)
         except sqlite3.Error:
             st.warning("Provider health is unavailable.")
+    st.markdown("### KALSHI EVENT INTELLIGENCE · RESEARCH ONLY")
+    st.caption("Pillar 6 foundation preview. Predictions and Perps are isolated research families and are not part of the active operational pillar count.")
+    kalshi = {
+        "Foundation": "READY",
+        "Feature flag": "DISABLED",
+        "Predictions": "RESEARCH ONLY",
+        "Perps": "RESEARCH ONLY",
+        "Active capital": "$0.00",
+        "Execution": "DISABLED",
+        "Broker control": "FALSE",
+        "Exchange/shard state": "UNAVAILABLE",
+        "Data freshness": "UNKNOWN",
+    }
+    st.dataframe([kalshi], use_container_width=True, hide_index=True)
     st.markdown("### Promotion gate")
     st.info(
         "Promotion requires meaningful out-of-sample evidence, positive incremental results, bounded drawdown, and execution-quality limits. No research signal can submit an order directly."

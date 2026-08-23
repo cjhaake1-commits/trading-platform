@@ -19,6 +19,11 @@ class KalshiConfig:
     private_key_path: str | None = None
     paper_capital: float = 0.0
     base_url: str = "https://demo-api.kalshi.co/trade-api/v2"
+    predictions_rest_url: str = "https://demo-api.kalshi.co/trade-api/v2"
+    predictions_websocket_url: str = "wss://demo-api.kalshi.co/trade-api/ws/v2"
+    perps_rest_url: str = "https://demo-api.kalshi.co/trade-api/v2"
+    perps_websocket_url: str = "wss://demo-api.kalshi.co/trade-api/ws/v2"
+    fix_url: str = "fix-demo://kalshi-disabled"
 
     @classmethod
     def from_env(cls) -> "KalshiConfig":
@@ -36,4 +41,8 @@ class KalshiConfig:
         return not self.enabled and not self.trading_enabled
 
     def can_trade(self) -> bool:
+        return False
+
+    @property
+    def broker_control(self) -> bool:
         return False
