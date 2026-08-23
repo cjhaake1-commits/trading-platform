@@ -53,6 +53,16 @@ def collect() -> dict[str, object]:
             body = getter()
             store.put_observation({"id":observation_id("predictions", endpoint, body), "family":"predictions",
                 "observation_type":"exchange", "payload":body, "retrieved_at":now, "endpoint":endpoint, "quality":"FRESH"})
+        for endpoint, getter in (("portfolio/balance", client.balance), ("portfolio/positions", lambda: client.positions(limit="100")),
+                                 ("portfolio/orders", lambda: client.orders_read_only(limit="100")),
+                                 ("portfolio/fills", lambda: client.fills(limit="100")),
+                                 ("exchange/user_data_timestamp", client.user_data_timestamp)):
+            try:
+                body = getter()
+                store.put_observation({"id":observation_id("predictions", endpoint, body), "family":"predictions",
+                    "observation_type":"authenticated", "payload":body, "retrieved_at":now, "endpoint":endpoint, "quality":"FRESH"})
+            except Exception as exc:
+                result["errors"].append(f"{endpoint}:{type(exc).__name__}")
     except Exception as exc:
         result["errors"].append(type(exc).__name__)
     return result

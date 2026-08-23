@@ -37,6 +37,8 @@ st.set_page_config(
 
 DATA_PATH = Path("dashboard/data.json")
 TOTAL_BASE_CAPITAL = 5000.0
+KALSHI_BASE_CAPITAL = 1000.0
+SIX_PILLAR_BASE_CAPITAL = TOTAL_BASE_CAPITAL + KALSHI_BASE_CAPITAL
 PILLAR_BASE_CAPITAL = 1000.0
 PILLARS = (
     ("US Stocks / ETFs", "Alpaca PAPER", "blue"),
@@ -44,6 +46,7 @@ PILLARS = (
     ("Crypto", "Alpaca PAPER", "purple"),
     ("Metals / Commodities", "Alpaca PAPER", "gold"),
     ("International", "Saxo SIM", "teal"),
+    ("Kalshi", "Kalshi DEMO", "orange"),
 )
 METALS_UNIVERSE = {"GLD", "IAU", "SGOL", "SLV", "SIVR", "GDX", "GDXJ", "SIL"}
 PILLAR_JOB_MAP = {
@@ -52,6 +55,7 @@ PILLAR_JOB_MAP = {
     "Forex": "oanda-fx-paper-trading",
     "Metals / Commodities": "alpaca-metals-paper-trading",
     "International": "saxo-international-paper-trading",
+    "Kalshi": "trading-platform-kalshi-research",
 }
 
 
@@ -242,6 +246,14 @@ def _pillars_from_snapshot(snapshot: dict[str, object]) -> dict[str, dict[str, o
         metrics["available"] = max(PILLAR_BASE_CAPITAL - metrics["deployed"], 0.0)
         if metrics["positions"] == 0 and metrics["status"] == "HOLDING CASH":
             metrics["status"] = "FLAT"
+    kalshi_db = Path(os.getenv("KALSHI_RESEARCH_DB", "var/kalshi/research.db"))
+    if "Kalshi" in result and kalshi_db.exists():
+        try:
+            with sqlite3.connect(kalshi_db) as conn:
+                count = conn.execute("SELECT COUNT(*) FROM kalshi_observations WHERE family='predictions'").fetchone()[0]
+            result["Kalshi"].update({"connection": "CONNECTED", "scanner": "ACTIVE", "status": "OBSERVING" if count else "NO DATA", "last_scan": _path_age_label(kalshi_db), "last_decision": "HOLD CASH"})
+        except sqlite3.Error:
+            result["Kalshi"].update({"connection": "API DEGRADED", "scanner": "DEGRADED", "status": "DEGRADED"})
     return result
 
 
@@ -781,13 +793,27 @@ def _render_overview(ctx: dict[str, object]) -> None:
         )
     st.markdown("<div class='section-title'>Capital & Cash Command Center</div>", unsafe_allow_html=True)
     st.markdown(
+        f"<div class='panel'><div class='section-title'>CAPITAL HISTORY</div>"
+        f"<div class='small-note'>ORIGINAL FIVE-PILLAR BASE: <strong>{_money(TOTAL_BASE_CAPITAL)}</strong> · "
+        f"KALSHI DEMO BASE: <strong>{_money(KALSHI_BASE_CAPITAL)}</strong> · "
+        f"SIX-PILLAR BASE: <strong>{_money(SIX_PILLAR_BASE_CAPITAL)}</strong></div></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='panel'><div class='section-title'>GLOBAL INTELLIGENCE</div>"
+        "<div class='small-note'>Best opportunity: <strong>NONE QUALIFYING</strong> · Best pillar: <strong>HOLD CASH</strong> · "
+        "Best hedge: <strong>SHADOW RESEARCH</strong> · Learning confidence: <strong>COLLECTING EVIDENCE</strong> · "
+        "Cross-pillar allocation remains theoretical until each engine supplies validated evidence.</div></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
         f"<div class='panel'><div class='section-title'>AUTHORITATIVE PAPER CAPITAL</div><div class='status-grid'>"
         f"<div class='status-card'><div class='status-label'>TOTAL PAPER CAPITAL</div><div class='status-value'>{_money(ctx['original_capital'])}</div></div>"
         f"<div class='status-card'><div class='status-label'>INVESTED / RESERVED</div><div class='status-value'>{_money(ctx['deployed'] + ctx['protected_cash'])}</div></div>"
         f"<div class='status-card'><div class='status-label'>LIQUID CASH</div><div class='status-value'>{_money(ctx['available_cash'])}</div></div>"
         f"<div class='status-card'><div class='status-label'>UNREALIZED P&L</div><div class='status-value'>{_money(ctx['unrealized'])}</div></div>"
         f"<div class='status-card'><div class='status-label'>REALIZED P&L</div><div class='status-value'>{_money(ctx['net_cash'])}</div></div>"
-        f"<div class='status-card'><div class='status-label'>KALSHI</div><div class='status-value'>$0.00</div></div>"
+        f"<div class='status-card'><div class='status-label'>KALSHI AUTHORIZED</div><div class='status-value'>{_money(KALSHI_BASE_CAPITAL)}</div></div>"
         f"</div></div>", unsafe_allow_html=True,
     )
     backlog = runtime.get("backlog_progress") if isinstance(runtime.get("backlog_progress"), dict) else {}
@@ -1504,7 +1530,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "legacy_positions": max(int(broker_state.get("positions", 0) or 0) - positions_count, 0),
             }
         )
-    st.markdown("<div class='section-title'>Five Pillars</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Six Pillars</div>", unsafe_allow_html=True)
     for row in (pillar_rows[:3], pillar_rows[3:]):
         cols = st.columns(len(row))
         for col, pillar in zip(cols, row, strict=False):

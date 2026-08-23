@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS kalshi_event_replay (
  captured_at TEXT NOT NULL, payload_json TEXT NOT NULL, family TEXT NOT NULL,
  retrieved_at TEXT NOT NULL, normalization_version TEXT NOT NULL,
  broker_control INTEGER NOT NULL DEFAULT 0, execution_enabled INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS kalshi_global_decisions (
+ id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, recorded_at TEXT NOT NULL,
+ broker_control INTEGER NOT NULL DEFAULT 0, execution_enabled INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS kalshi_hedge_candidates (
+ id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, recorded_at TEXT NOT NULL,
+ state TEXT NOT NULL, evidence_samples INTEGER NOT NULL DEFAULT 0,
+ broker_control INTEGER NOT NULL DEFAULT 0, execution_enabled INTEGER NOT NULL DEFAULT 0);
 """
 
 

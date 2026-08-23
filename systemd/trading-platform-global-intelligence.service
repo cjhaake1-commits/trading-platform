@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading Platform global portfolio intelligence (paper-only)
+After=trading-platform-kalshi-research.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/cjhaake1/trading-platform
+Environment=PYTHONPATH=/home/cjhaake1/trading-platform/src
+ExecStart=/bin/bash -lc 'while true; do /home/cjhaake1/trading-platform/.venv/bin/python scripts/global_intelligence_cycle.py; sleep 60; done'
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=default.target

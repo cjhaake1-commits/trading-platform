@@ -91,6 +91,7 @@ class KalshiReadOnlyClient:
 
     def exchange_status(self): return self._get("exchange/status")
     def exchange_schedule(self): return self._get("exchange/schedule")
+    def user_data_timestamp(self): return self._get("exchange/user_data_timestamp", authenticated=True)
     def fee_changes(self, **params): return self._get("series/fee_changes", params)
     def positions(self, **params): return self._get("portfolio/positions", params, authenticated=True)
     def balance(self): return self._get("portfolio/balance", authenticated=True)
