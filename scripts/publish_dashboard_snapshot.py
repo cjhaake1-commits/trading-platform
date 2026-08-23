@@ -234,7 +234,11 @@ def _aggregate_experiment_records(
                 metadata = {}
         if isinstance(metadata, dict):
             learning_eligible = bool(metadata.get("learning_eligible"))
-        if learning_eligible:
+        if learning_eligible or (
+            experiment_start is not None
+            and occurred_at is not None
+            and occurred_at >= experiment_start
+        ):
             eligible.append(row)
     return eligible
 
@@ -420,7 +424,8 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             try:
                 rows = conn.execute(
                     """
-                    SELECT manifest_id, canonical_symbol, broker_order_id, lifecycle_state, created_at, metadata_json
+                    SELECT manifest_id, canonical_symbol, broker_order_id, lifecycle_state, created_at, metadata_json,
+                           requested_quantity, approved_notional, filled_quantity, average_fill_price
                     FROM entry_manifests
                     WHERE lifecycle_state IN (
                         'approved_manifest',
@@ -439,7 +444,9 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             except sqlite3.Error:
                 rows = conn.execute(
                     """
-                    SELECT manifest_id, canonical_symbol, broker_order_id, lifecycle_state, created_at
+                    SELECT manifest_id, canonical_symbol, broker_order_id, lifecycle_state, created_at,
+                           NULL AS requested_quantity, NULL AS approved_notional,
+                           NULL AS filled_quantity, NULL AS average_fill_price
                     FROM entry_manifests
                     WHERE lifecycle_state IN (
                         'approved_manifest', 'order_submitted', 'order_pending',
@@ -486,6 +493,17 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                 legacy_backlog_total += 1
                 legacy_backlog_deferred += 1
 
+    active_crypto_symbols: set[str] = set()
+    if ledger_path.exists():
+        with sqlite3.connect(ledger_path) as conn:
+            try:
+                crypto_rows = conn.execute(
+                    "SELECT symbol FROM crypto_entry_state WHERE lifecycle_state IN ('active', 'reconciled')"
+                ).fetchall()
+            except sqlite3.Error:
+                crypto_rows = []
+        active_crypto_symbols = {_canonical_crypto_symbol(row[0]) for row in crypto_rows}
+
     classified_positions = []
     for row in live_positions:
         merged_row = dict(row)
@@ -494,6 +512,10 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             for key in ("opened_at", "broker", "broker_position_id"):
                 if merged_row.get(key) in {None, ""} and ledger_row.get(key) not in {None, ""}:
                     merged_row[key] = ledger_row.get(key)
+        if _canonical_crypto_symbol(merged_row.get("symbol")) in active_crypto_symbols:
+            merged_row["metadata_json"] = json.dumps(
+                {"experiment_id": experiment_state.get("experiment_id")}
+            )
         classified_positions.append(
             _serialize_position(merged_row, experiment_start=experiment_start, source="broker")
         )
@@ -520,6 +542,26 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
         _float(record.get("realized_pnl")) - _float(record.get("fees_costs"))
         for record in active_records
     )
+    learning_stats = learning.get("stats") if isinstance(learning.get("stats"), dict) else {}
+    learning_stats = dict(learning_stats)
+    realized_values = [_float(record.get("realized_pnl")) for record in active_records]
+    wins = [value for value in realized_values if value > 0]
+    losses = [value for value in realized_values if value < 0]
+    learning_stats.update(
+        {
+            "completed_trades": len(active_records),
+            "cumulative_realized_pnl": active_realized_cash,
+            "wins": len(wins),
+            "losses": len(losses),
+            "average_win": sum(wins) / len(wins) if wins else 0.0,
+            "average_loss": sum(losses) / len(losses) if losses else 0.0,
+            "expectancy": sum(realized_values) / len(realized_values) if realized_values else 0.0,
+            "profit_factor": (sum(wins) / abs(sum(losses))) if losses else None,
+            "win_rate": len(wins) / len(realized_values) if realized_values else 0.0,
+        }
+    )
+    learning = dict(learning)
+    learning["stats"] = learning_stats
 
     jobs = status.get("jobs") if isinstance(status.get("jobs"), dict) else {}
     auto = jobs.get("autonomous-paper-trading") if isinstance(jobs, dict) else {}
@@ -562,6 +604,35 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
         broker_reported_virtual_equity=_float((alpaca_connection.details or {}).get("equity"))
         if alpaca_connection.ok
         else None,
+    )
+    active_v2_rows = []
+    for row in unresolved_manifests:
+        created_at = _parse_iso(row.get("created_at"))
+        if experiment_start is not None and created_at is not None and created_at >= experiment_start:
+            active_v2_rows.append(row)
+    pending_capital = sum(
+        max(
+            _float(row.get("approved_notional"))
+            - abs(_float(row.get("filled_quantity")) * _float(row.get("average_fill_price"))),
+            0.0,
+        )
+        for row in active_v2_rows
+        if str(row.get("lifecycle_state")) in {
+            "approved_manifest", "order_submitted", "order_pending",
+            "filled_position_pending", "reconciliation_pending", "protection_pending",
+        }
+    )
+    active_cash = active_cash_dashboard.as_dict()
+    active_cash.update(
+        {
+            "position_capital": active_deployed,
+            "pending_capital": pending_capital,
+            "capital_deployed": active_deployed + pending_capital,
+            "available_cash": max(TOTAL_PAPER_CAPITAL + active_realized_cash - active_deployed - pending_capital, 0.0),
+            "strategy_equity": TOTAL_PAPER_CAPITAL + active_realized_cash + active_cash_dashboard.unrealized_pnl,
+            "realized_pnl": active_realized_cash,
+            "fees": sum(_float(record.get("fees_costs")) for record in active_records),
+        }
     )
     broker_history_cash_dashboard = aggregate_cash_dashboard(
         realized_records=[*fills, *pillar_trades],
@@ -674,7 +745,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "max_daily_loss_pct": 0.05,
             "max_peak_drawdown_pct": 0.15,
         },
-        "cash_dashboard": active_cash_dashboard.as_dict(),
+        "cash_dashboard": active_cash,
         "legacy_cash_dashboard": broker_history_cash_dashboard.as_dict(),
         "coordinated_test": FivePillarTestConfig().as_dict(),
         "pillar_performance": pillar_performance,

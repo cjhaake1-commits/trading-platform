@@ -783,6 +783,10 @@ def _render_overview(ctx: dict[str, object]) -> None:
     backlog = runtime.get("backlog_progress") if isinstance(runtime.get("backlog_progress"), dict) else {}
     active_v2_unresolved = int(_float(backlog.get("active_experiment_unresolved"), 0.0))
     v2_deployed = _float(ctx.get("deployed"))
+    accounting = ctx.get("snapshot", {}).get("cash_dashboard", {}) if isinstance(ctx.get("snapshot"), dict) else {}
+    accounting = accounting if isinstance(accounting, dict) else {}
+    position_capital = _float(accounting.get("position_capital"))
+    pending_capital = _float(accounting.get("pending_capital"))
     v2_available = max(TOTAL_BASE_CAPITAL - v2_deployed - _float(ctx.get("protected_cash")), 0.0)
     latest_cycle = ctx.get("snapshot", {}).get("latest_cycle", {}) if isinstance(ctx.get("snapshot"), dict) else {}
     latest_cycle = latest_cycle if isinstance(latest_cycle, dict) else {}
@@ -791,7 +795,7 @@ def _render_overview(ctx: dict[str, object]) -> None:
     st.markdown(
         f"""
         <div class='panel activation-panel'><div class='section-title'>V2 CAPITAL ACTIVATION</div>
-        <div class='activation-head'><span>AUTHORIZED</span><strong>{_money(TOTAL_BASE_CAPITAL)}</strong><span>DEPLOYED</span><strong>{_money(v2_deployed)}</strong><span>AVAILABLE</span><strong>{_money(v2_available)}</strong><span>UTILIZATION</span><strong>{v2_deployed / TOTAL_BASE_CAPITAL * 100:.1f}%</strong></div>
+        <div class='activation-head'><span>AUTHORIZED</span><strong>{_money(TOTAL_BASE_CAPITAL)}</strong><span>POSITION CAPITAL</span><strong>{_money(position_capital)}</strong><span>PENDING CAPITAL</span><strong>{_money(pending_capital)}</strong><span>AVAILABLE</span><strong>{_money(v2_available)}</strong><span>UTILIZATION</span><strong>{v2_deployed / TOTAL_BASE_CAPITAL * 100:.1f}%</strong></div>
         <div class='small-note'>Capital remains idle only when the existing signal, risk, duplicate, session, or reconciliation gates say so: {escape(idle_reason)}.</div>
         </div>
         """, unsafe_allow_html=True,
@@ -1394,7 +1398,7 @@ def _dashboard_css() -> str:
     th{text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-size:.67rem;}
     .small-note{color:var(--muted);font-size:.78rem;line-height:1.4;}
     .activation-panel{padding:1rem;margin:.5rem 0 1rem;}
-    .activation-head{display:grid;grid-template-columns:repeat(8,auto);gap:.55rem 1rem;align-items:baseline;margin-bottom:.65rem;}
+    .activation-head{display:grid;grid-template-columns:repeat(10,auto);gap:.55rem 1rem;align-items:baseline;margin-bottom:.65rem;}
     .activation-head span{color:var(--muted);font-size:.68rem;letter-spacing:.12em;font-weight:700;}
     .activation-head strong{color:#fff;font-size:1.08rem;}
     .progress{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;margin-top:.4rem;}
