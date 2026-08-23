@@ -422,7 +422,7 @@ def reconcile_alpaca_equity_backlog(
         budget_limit=budget_limit,
     )
     checkpoint = load_backlog_checkpoint(resolved_checkpoint_path) if apply_paper_cleanup else AlpacaBacklogCheckpoint()
-    start_index = min(checkpoint.next_manifest_index, len(unresolved))
+    start_index = 0 if scope == "active_v2" else min(checkpoint.next_manifest_index, len(unresolved))
     remaining_unresolved = unresolved[start_index:]
     classifications = classify_unresolved_manifests(
         remaining_unresolved,
