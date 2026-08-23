@@ -105,46 +105,54 @@ def run_once() -> dict[str, int | float | str]:
                          row["id"], row["retrieved_at"], row["quality"], "RESEARCH_ONLY", 0.0, 0, 0))
                     feature_count += 1
         cross_count = 0
-        research_db = os.getenv("KALSHI_LEARNING_DB", "var/research.db")
-        if Path(research_db).exists():
-            with sqlite3.connect(research_db) as rconn:
-                rconn.row_factory = sqlite3.Row
-                targets = rconn.execute(
-                    "SELECT feature_name,feature_value,recorded_at,symbol,pillar FROM research_features "
-                    "WHERE pillar IS NOT NULL AND pillar != 'research' AND feature_value IS NOT NULL "
-                    "ORDER BY recorded_at DESC LIMIT 5000"
-                ).fetchall()
-            source_features = conn.execute(
-                "SELECT * FROM kalshi_learning_features WHERE feature_name IN "
-                "('kalshi.implied_probability','kalshi.probability_change','kalshi.perps.return') "
-                "ORDER BY observed_at DESC LIMIT 500"
-            ).fetchall()
-            for source in source_features:
+        target_rows = conn.execute(
+            "SELECT * FROM kalshi_pillar_observations WHERE feature='price' "
+            "AND pillar IN ('alpaca_equities','alpaca_crypto','oanda_fx','alpaca_metals','ibkr_global') "
+            "ORDER BY observed_at"
+        ).fetchall()
+        source_features = conn.execute(
+            "SELECT * FROM kalshi_learning_features WHERE feature_name IN "
+            "('kalshi.implied_probability','kalshi.probability_change','kalshi.perps.return') "
+            "ORDER BY observed_at DESC LIMIT 500"
+        ).fetchall()
+        for source in source_features:
+            try:
+                source_ts = datetime.fromisoformat(source["observed_at"].replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                continue
+            for target in target_rows:
                 try:
-                    source_ts = datetime.fromisoformat(source["observed_at"].replace("Z", "+00:00")).timestamp()
+                    target_ts = datetime.fromisoformat(target["observed_at"].replace("Z", "+00:00")).timestamp()
                 except ValueError:
                     continue
-                for target in targets:
-                    try:
-                        target_ts = datetime.fromisoformat(target["recorded_at"].replace("Z", "+00:00")).timestamp()
-                    except ValueError:
+                if abs(target_ts - source_ts) > 300:
+                    continue
+                for requested_lag in HORIZONS.values():
+                    future = conn.execute(
+                        "SELECT value,observed_at FROM kalshi_pillar_observations WHERE pillar=? AND symbol=? "
+                        "AND feature='price' AND observed_at>? ORDER BY observed_at LIMIT 1",
+                        (target["pillar"], target["symbol"], target["observed_at"]),
+                    ).fetchone()
+                    if not future or _num(target["value"]) in (None, 0) or _num(future[0]) is None:
                         continue
-                    lag = int(round(target_ts - source_ts))
-                    if lag not in HORIZONS.values() and -lag not in HORIZONS.values():
+                    future_ts = datetime.fromisoformat(future[1].replace("Z", "+00:00")).timestamp()
+                    actual_lag = int(round(future_ts - source_ts))
+                    if abs(actual_lag - requested_lag) > max(60, requested_lag * 0.25):
                         continue
-                    if lag < 0:
-                        continue
-                    sid = _id(source["id"], target["feature_name"], target["recorded_at"], lag)
+                    response = _num(future[0]) / _num(target["value"]) - 1
+                    sid = _id(source["id"], target["pillar"], target["symbol"], target["observed_at"], requested_lag)
                     conn.execute("INSERT OR IGNORE INTO kalshi_cross_market_samples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (sid, source["family"], source["instrument"], source["feature_name"], str(target["pillar"]),
-                         str(target["symbol"] or "unknown"), lag, source["observed_at"], target["recorded_at"],
-                         _num(target["feature_value"]), "unknown", target["feature_name"].split(".")[0],
+                         str(target["symbol"] or "unknown"), requested_lag, source["observed_at"], future[1],
+                         response, target["regime"] or "unknown", target["quality"],
                          "COLLECTING_EVIDENCE", None, None, 0))
                     cross_count += 1
                     if cross_count >= 5000:
                         break
                 if cross_count >= 5000:
                     break
+            if cross_count >= 5000:
+                break
         resolved = conn.execute("SELECT COUNT(*) FROM kalshi_resolutions WHERE result IN ('yes','no')").fetchone()[0]
         run_id = _id(datetime.now(UTC).isoformat(), len(rows), feature_count)
         now = datetime.now(UTC).isoformat()

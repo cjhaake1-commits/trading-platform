@@ -25,3 +25,12 @@ def test_streamlit_dashboard_copy_includes_five_pillars_and_benchmarks():
 def test_requirements_dashboard_installs_local_package_editably():
     requirements = Path("requirements-dashboard.txt").read_text(encoding="utf-8")
     assert "-e ." in requirements
+
+
+def test_kalshi_card_uses_stateful_health_and_learning_funnel():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert "def _kalshi_status" in source
+    assert "CONNECTED / PERPS ACCOUNT BLOCKED" in source
+    assert "Learning Funnel".lower() in source.lower()
+    assert "Cross-Market Samples" in source
+    assert "Legacy Exposure" not in source

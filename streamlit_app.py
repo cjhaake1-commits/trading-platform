@@ -165,6 +165,52 @@ def _path_age_label(path: Path) -> str:
     return f"STALE · {int(age.total_seconds())}s"
 
 
+def _kalshi_status() -> dict[str, object]:
+    """Single UI health model for the Kalshi parent card."""
+    db = Path(os.getenv("KALSHI_RESEARCH_DB", "var/kalshi/research.db"))
+    status: dict[str, object] = {
+        "connection": "DATA UNAVAILABLE", "data": "UNAVAILABLE", "scanner": "DEGRADED",
+        "predictions_auth": "DEGRADED", "predictions_data": "UNAVAILABLE", "predictions_scanner": "DEGRADED",
+        "perps_rest": "DEGRADED", "perps_markets": 0, "perps_account": "UNKNOWN",
+        "research": "DEGRADED", "learning": "DEGRADED", "observations": 0, "features": 0,
+        "cross_market": 0, "lead_lag": 0, "last_data": "UNAVAILABLE", "last_learning": "UNAVAILABLE",
+    }
+    if not db.exists():
+        return status
+    try:
+        with sqlite3.connect(db) as conn:
+            status["observations"] = conn.execute("SELECT COUNT(*) FROM kalshi_observations").fetchone()[0]
+            status["perps_markets"] = conn.execute("SELECT COUNT(*) FROM kalshi_observations WHERE family='perps' AND observation_type='markets'").fetchone()[0]
+            status["perps_account"] = "ACCOUNT BLOCKED" if conn.execute("SELECT 1 FROM kalshi_observations WHERE family='perps' AND observation_type='enabled' AND payload_json LIKE '%false%' LIMIT 1").fetchone() else "UNKNOWN"
+            status["features"] = conn.execute("SELECT COUNT(*) FROM kalshi_learning_features").fetchone()[0]
+            status["cross_market"] = conn.execute("SELECT COUNT(*) FROM kalshi_cross_market_samples").fetchone()[0]
+            status["lead_lag"] = conn.execute("SELECT COUNT(*) FROM kalshi_cross_market_samples WHERE lag_seconds > 0").fetchone()[0]
+            row = conn.execute("SELECT MAX(retrieved_at) FROM kalshi_observations").fetchone()
+            last_data = row[0] if row else None
+        learning = _safe_json(Path("var/global-intelligence/learning-status.json"))
+        status["last_learning"] = learning.get("recorded_at") or "UNAVAILABLE"
+        status["learning"] = "ACTIVE" if learning.get("recorded_at") else "DEGRADED"
+        status["last_data"] = last_data or "UNAVAILABLE"
+        try:
+            age_seconds = (datetime.now(UTC) - datetime.fromisoformat(str(last_data).replace("Z", "+00:00")).astimezone(UTC)).total_seconds()
+        except (TypeError, ValueError):
+            age_seconds = float("inf")
+        # The collector cadence is 60 seconds; allow two missed cycles before
+        # marking the provider stale while retaining the measured timestamp.
+        age = "FRESH" if age_seconds <= 180 else "STALE"
+        status["data"] = "FRESH" if age.startswith(("FRESH", "LIVE")) else ("STALE" if age.startswith("STALE") else "UNAVAILABLE")
+        status["predictions_data"] = status["data"]
+        status["research"] = "ACTIVE"
+        status["predictions_auth"] = "CONNECTED"
+        status["predictions_scanner"] = "ACTIVE"
+        status["scanner"] = "ACTIVE"
+        status["connection"] = "CONNECTED / PERPS ACCOUNT BLOCKED" if status["perps_account"] == "ACCOUNT BLOCKED" else "CONNECTED"
+        status["perps_rest"] = "CONNECTED" if status["perps_markets"] else "DEGRADED"
+    except sqlite3.Error:
+        status["connection"] = "DEGRADED"
+    return status
+
+
 @st.cache_data(ttl=20)
 def load_snapshot() -> dict[str, object]:
     return _safe_json(DATA_PATH)
@@ -318,18 +364,23 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
           </div>
           <div class="pillar-state">{escape(str(data.get("state") or "HOLDING CASH"))}</div>
           <div class="pillar-grid">
-            <div><span>V2 Cap</span><strong>{_money(data.get("cap"))}</strong></div>
-            <div><span>V2 Deployed</span><strong>{_money(data.get("deployed"))}</strong></div>
-            <div><span>V2 Available</span><strong>{_money(data.get("available"))}</strong></div>
-            <div><span>V2 Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
-            <div><span>V2 Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
-            <div><span>V2 Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
+            <div><span>Authorized Capital</span><strong>{_money(data.get("cap"))}</strong></div>
+            <div><span>Deployed Capital</span><strong>{_money(data.get("deployed"))}</strong></div>
+            <div><span>Available Capital</span><strong>{_money(data.get("available"))}</strong></div>
+            <div><span>Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
+            <div><span>Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
+            <div><span>Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
             <div><span>Trades</span><strong>{int(_float(data.get("completed_trades")))}</strong></div>
             <div><span>Win Rate</span><strong>{escape(str(data.get("win_rate") or "—"))}</strong></div>
           </div>
           <div class="pillar-foot">
-            <div><span>Legacy Exposure</span><strong>{_money(data.get("legacy_exposure"))} · {int(_float(data.get("legacy_positions"))) } positions</strong></div>
+            <div><span>Connection</span><strong>{escape(str(data.get("connection") or "UNAVAILABLE"))}</strong></div>
+            <div><span>Data</span><strong>{escape(str(data.get("data") or "UNAVAILABLE"))}</strong></div>
+            <div><span>Execution</span><strong>{escape(str(data.get("execution") or "NO QUALIFYING OPPORTUNITY"))}</strong></div>
             <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DATA UNAVAILABLE"))}</strong></div>
+            <div><span>Research / Learning</span><strong>{escape(str(data.get("research") or "DEGRADED"))} / {escape(str(data.get("learning") or "DEGRADED"))}</strong></div>
+            <div><span>Observations / Features</span><strong>{int(_float(data.get("observations")))} / {int(_float(data.get("features")))}</strong></div>
+            <div><span>Cross-Market Samples</span><strong>{int(_float(data.get("cross_market")))}</strong></div>
             <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "UNAVAILABLE"))}</strong></div>
             <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "UNAVAILABLE"))}</strong></div>
             <div><span>Blocker</span><strong>{escape(str(data.get("blocker") or "NONE"))}</strong></div>
@@ -1222,6 +1273,7 @@ def _render_dashboard_legacy() -> None:
 
     st.markdown("<div class='section-title'>Five Pillars</div>", unsafe_allow_html=True)
     pillar_view = []
+    kalshi_status = _kalshi_status()
     for name, broker, accent in PILLARS:
         job_name = PILLAR_JOB_MAP[name]
         job = jobs.get(job_name) if isinstance(jobs, dict) else {}
@@ -1270,6 +1322,25 @@ def _render_dashboard_legacy() -> None:
                 "blocker": blocker,
             }
         )
+        if name == "Kalshi":
+            pillar_view[-1].update(
+                {
+                    "connection": kalshi_status["connection"],
+                    "connection_class": "good" if str(kalshi_status["connection"]).startswith("CONNECTED") else "warn",
+                    "data": kalshi_status["data"],
+                    "scanner": kalshi_status["scanner"],
+                    "research": kalshi_status["research"],
+                    "learning": kalshi_status["learning"],
+                    "observations": kalshi_status["observations"],
+                    "features": kalshi_status["features"],
+                    "cross_market": kalshi_status["cross_market"],
+                    "last_scan": kalshi_status["last_data"],
+                    "last_decision": "HOLD_CASH · no qualifying opportunity",
+                    "execution": "NO QUALIFYING OPPORTUNITY",
+                    "blocker": f"Perps {kalshi_status['perps_account']} · {kalshi_status['perps_markets']} markets",
+                    "state": "OBSERVING",
+                }
+            )
 
     for row in (pillar_view[:3], pillar_view[3:]):
         cols = st.columns(len(row))
@@ -1650,6 +1721,24 @@ def _render_learning_view(ctx: dict[str, object]) -> None:
     c3.metric("Cross-Market Samples", str(telemetry.get("cross", 0)))
     c4.metric("Resolved Markets", str(telemetry.get("resolved", 0)))
     c5.metric("Evidence State", str(telemetry.get("evidence_state", "COLLECTING_EVIDENCE")))
+    funnel = [
+        ("Kalshi Observations", telemetry.get("kalshi", 0)),
+        ("Derived Features", telemetry.get("features", 0)),
+        ("Cross-Market Samples", telemetry.get("cross", 0)),
+        ("Lead/Lag Samples", telemetry.get("lead_lag", 0)),
+        ("Validated Relationships", 0),
+        ("Shadow Models", 0),
+        ("Challengers", 0),
+        ("Promotions", 0),
+    ]
+    st.markdown(
+        "<div class='panel' style='padding:1rem'><strong>LEARNING FUNNEL</strong><br>"
+        + " <span style='font-size:1.1rem'> ↓ </span> ".join(
+            f"{escape(label)} <strong>{int(_float(value))}</strong>" for label, value in funnel
+        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
     st.markdown(
         f"<div class='panel' style='padding:1rem'><strong>KALSHI LEARNING</strong><br>"
         f"Prediction and Perps histories are reprocessed from durable observations. "

@@ -52,6 +52,12 @@ CREATE TABLE IF NOT EXISTS kalshi_learning_runs (
  derived_features INTEGER NOT NULL, cross_market_samples INTEGER NOT NULL,
  lead_lag_samples INTEGER NOT NULL, resolved_markets INTEGER NOT NULL,
  brier_score REAL, evidence_state TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS kalshi_pillar_observations (
+ id TEXT PRIMARY KEY, pillar TEXT NOT NULL, engine TEXT NOT NULL, symbol TEXT NOT NULL,
+ feature TEXT NOT NULL, value REAL, observed_at TEXT NOT NULL, source TEXT NOT NULL,
+ source_quality TEXT NOT NULL, freshness TEXT NOT NULL, session TEXT, regime TEXT,
+ broker_control INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_kalshi_pillar_time ON kalshi_pillar_observations(pillar, symbol, feature, observed_at);
 """
 
 

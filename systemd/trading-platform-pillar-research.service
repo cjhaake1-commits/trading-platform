@@ -1,0 +1,17 @@
+[Unit]
+Description=Trading Platform paper and SIM pillar research observations
+After=trading-platform-paper-runtime.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/cjhaake1/trading-platform
+EnvironmentFile=-/home/cjhaake1/trading-platform/.env
+Environment=LIVE_TRADING_ENABLED=false
+Environment=KALSHI_RESEARCH_DB=var/kalshi/research.db
+ExecStart=/bin/bash -lc 'while true; do /home/cjhaake1/trading-platform/.venv/bin/python scripts/pillar_research_cycle.py; sleep 300; done'
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
