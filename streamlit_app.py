@@ -1624,6 +1624,41 @@ def _render_learning_view(ctx: dict[str, object]) -> None:
         """,
         unsafe_allow_html=True,
     )
+    telemetry = {}
+    learning_db = Path("var/kalshi/research.db")
+    if learning_db.exists():
+        try:
+            with sqlite3.connect(learning_db) as conn:
+                telemetry = {
+                    "kalshi": conn.execute("SELECT COUNT(*) FROM kalshi_observations").fetchone()[0],
+                    "features": conn.execute("SELECT COUNT(*) FROM kalshi_learning_features").fetchone()[0],
+                    "cross": conn.execute("SELECT COUNT(*) FROM kalshi_cross_market_samples").fetchone()[0],
+                    "resolved": conn.execute("SELECT COUNT(*) FROM kalshi_resolutions WHERE result IN ('yes','no')").fetchone()[0],
+                }
+        except sqlite3.Error:
+            telemetry = {}
+    status_path = Path("var/global-intelligence/learning-status.json")
+    if status_path.exists():
+        try:
+            telemetry.update(json.loads(status_path.read_text()))
+        except (OSError, json.JSONDecodeError):
+            pass
+    st.markdown("<div class='section-title'>Learning Command Center</div>", unsafe_allow_html=True)
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Kalshi Observations", str(telemetry.get("kalshi", 0)))
+    c2.metric("Derived Features", str(telemetry.get("features", 0)))
+    c3.metric("Cross-Market Samples", str(telemetry.get("cross", 0)))
+    c4.metric("Resolved Markets", str(telemetry.get("resolved", 0)))
+    c5.metric("Evidence State", str(telemetry.get("evidence_state", "COLLECTING_EVIDENCE")))
+    st.markdown(
+        f"<div class='panel' style='padding:1rem'><strong>KALSHI LEARNING</strong><br>"
+        f"Prediction and Perps histories are reprocessed from durable observations. "
+        f"Calibration: <strong>{escape(str(telemetry.get('calibration', 'COLLECTING EVIDENCE')))}</strong> · "
+        f"Last update: <strong>{escape(str(telemetry.get('recorded_at', '—')))}</strong><br>"
+        "All derived features remain RESEARCH_ONLY with weight 0 and broker control false. "
+        "Cross-market relationships and calibration remain collecting evidence until sufficient timestamp-aligned or resolved samples exist.</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_performance_view(ctx: dict[str, object]) -> None:

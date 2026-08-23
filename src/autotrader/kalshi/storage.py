@@ -34,6 +34,24 @@ CREATE TABLE IF NOT EXISTS kalshi_hedge_candidates (
  id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, recorded_at TEXT NOT NULL,
  state TEXT NOT NULL, evidence_samples INTEGER NOT NULL DEFAULT 0,
  broker_control INTEGER NOT NULL DEFAULT 0, execution_enabled INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS kalshi_learning_features (
+ id TEXT PRIMARY KEY, family TEXT NOT NULL, instrument TEXT NOT NULL, feature_name TEXT NOT NULL,
+ feature_value REAL, category TEXT, exchange_index TEXT, observation_id TEXT NOT NULL,
+ observed_at TEXT NOT NULL, quality TEXT NOT NULL, evidence_state TEXT NOT NULL DEFAULT 'RESEARCH_ONLY',
+ feature_weight REAL NOT NULL DEFAULT 0, broker_control INTEGER NOT NULL DEFAULT 0,
+ execution_enabled INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS kalshi_cross_market_samples (
+ id TEXT PRIMARY KEY, source_family TEXT NOT NULL, source_instrument TEXT NOT NULL,
+ source_feature TEXT NOT NULL, target_pillar TEXT NOT NULL, target_symbol TEXT NOT NULL,
+ lag_seconds INTEGER NOT NULL, source_at TEXT NOT NULL, target_at TEXT NOT NULL,
+ target_response REAL, regime TEXT NOT NULL, quality TEXT NOT NULL,
+ evidence_state TEXT NOT NULL DEFAULT 'COLLECTING_EVIDENCE', correlation REAL,
+ directional_hit_rate REAL, broker_control INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS kalshi_learning_runs (
+ run_id TEXT PRIMARY KEY, recorded_at TEXT NOT NULL, observations INTEGER NOT NULL,
+ derived_features INTEGER NOT NULL, cross_market_samples INTEGER NOT NULL,
+ lead_lag_samples INTEGER NOT NULL, resolved_markets INTEGER NOT NULL,
+ brier_score REAL, evidence_state TEXT NOT NULL);
 """
 
 
