@@ -780,6 +780,16 @@ def _render_overview(ctx: dict[str, object]) -> None:
             unsafe_allow_html=True,
         )
     st.markdown("<div class='section-title'>Capital & Cash Command Center</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='panel'><div class='section-title'>AUTHORITATIVE PAPER CAPITAL</div><div class='status-grid'>"
+        f"<div class='status-card'><div class='status-label'>TOTAL PAPER CAPITAL</div><div class='status-value'>{_money(ctx['original_capital'])}</div></div>"
+        f"<div class='status-card'><div class='status-label'>INVESTED / RESERVED</div><div class='status-value'>{_money(ctx['deployed'] + ctx['protected_cash'])}</div></div>"
+        f"<div class='status-card'><div class='status-label'>LIQUID CASH</div><div class='status-value'>{_money(ctx['available_cash'])}</div></div>"
+        f"<div class='status-card'><div class='status-label'>UNREALIZED P&L</div><div class='status-value'>{_money(ctx['unrealized'])}</div></div>"
+        f"<div class='status-card'><div class='status-label'>REALIZED P&L</div><div class='status-value'>{_money(ctx['net_cash'])}</div></div>"
+        f"<div class='status-card'><div class='status-label'>KALSHI</div><div class='status-value'>$0.00</div></div>"
+        f"</div></div>", unsafe_allow_html=True,
+    )
     backlog = runtime.get("backlog_progress") if isinstance(runtime.get("backlog_progress"), dict) else {}
     active_v2_unresolved = int(_float(backlog.get("active_experiment_unresolved"), 0.0))
     v2_deployed = _float(ctx.get("deployed"))
@@ -914,7 +924,7 @@ def _render_overview(ctx: dict[str, object]) -> None:
     )
     st.markdown("<div class='section-title'>Execution & System Health</div>", unsafe_allow_html=True)
     e1, e2, e3, e4 = st.columns(4)
-    e1.metric("Unresolved Manifests", str(int(_float(runtime.get("unresolved_manifest_count"), 0.0))))
+    e1.metric("Actionable Manifest Issues", str(int(_float(runtime.get("actionable_manifest_count"), 0.0))))
     e2.metric("Broker Requests", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("requests"), 0.0))))
     e3.metric("Retries", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("retries"), 0.0))))
     e4.metric("429 Events", str(int(_float(runtime.get("rate_limit_telemetry", {}).get("rate_limited"), 0.0))))
@@ -954,11 +964,15 @@ def _render_overview(ctx: dict[str, object]) -> None:
     if ctx["live_errors"]:
         st.warning(" · ".join(ctx["live_errors"]))
     if unresolved:
+        categories = runtime.get("manifest_categories") if isinstance(runtime.get("manifest_categories"), dict) else {}
         unresolved_rows = "".join(
             f"<tr><td>{escape(str(row.get('created_at') or '—'))}</td><td>{escape(str(row.get('canonical_symbol') or '—'))}</td><td>{escape(str(row.get('broker_order_id') or '—'))}</td><td>{escape(str(row.get('lifecycle_state') or '—'))}</td></tr>"
             for row in unresolved[:20]
         )
         with st.expander("LEGACY HISTORY — DOES NOT BLOCK V2", expanded=False):
+            st.markdown(
+                "**Manifest categories:** " + " · ".join(f"{escape(str(k))}: {int(v)}" for k, v in sorted(categories.items()))
+            )
             st.markdown(
             f"""
             <div class="section-title">LEGACY / PRE-V2 RECONCILIATION BACKLOG</div>

@@ -141,7 +141,28 @@ class PortfolioLedger:
                     updated_at TEXT NOT NULL,
                     metadata_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS manifest_archive (
+                    manifest_id TEXT PRIMARY KEY,
+                    archived_at TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    evidence_json TEXT NOT NULL,
+                    source_lifecycle_state TEXT NOT NULL
+                );
                 """
+            )
+
+    def archive_manifest(self, manifest_id: str, *, category: str, reason: str, evidence: list[str]) -> None:
+        """Append an auditable archive disposition; never delete the source manifest."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT lifecycle_state FROM entry_manifests WHERE manifest_id = ?", (manifest_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown manifest: {manifest_id}")
+            connection.execute(
+                "INSERT OR REPLACE INTO manifest_archive VALUES (?, ?, ?, ?, ?, ?)",
+                (manifest_id, datetime.now(UTC).isoformat(), category, reason, json.dumps(evidence), row[0]),
             )
 
     def save_portfolio(self, portfolio: PortfolioState, *, peak_equity: float) -> None:

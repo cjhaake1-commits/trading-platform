@@ -176,6 +176,19 @@ def alpaca_open_positions() -> BrokerSafetyResult:
     )
 
 
+def alpaca_open_orders() -> BrokerSafetyResult:
+    """Read-only snapshot of Alpaca PAPER open orders."""
+    key, secret, base = _alpaca_auth()
+    query = urlencode({"status": "open", "limit": 500})
+    payload, headers = _request(f"{base}/v2/orders?{query}", method="GET", headers=_alpaca_headers(key, secret))
+    return BrokerSafetyResult(
+        "alpaca-paper",
+        True,
+        "Fetched Alpaca paper open orders",
+        {"orders": payload if isinstance(payload, list) else [], "request_id": headers.get("X-Request-ID") or headers.get("x-request-id")},
+    )
+
+
 def cancel_alpaca_open_orders_for_symbol(symbol: str) -> BrokerSafetyResult:
     key, secret, base = _alpaca_auth()
     api_symbol = _alpaca_api_symbol(symbol)

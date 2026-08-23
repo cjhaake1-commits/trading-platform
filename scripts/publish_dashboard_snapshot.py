@@ -8,11 +8,12 @@ from pathlib import Path
 
 from autotrader.brokers.alpaca_metals_paper import METALS_UNIVERSE
 from autotrader.brokers.connectivity import test_alpaca_paper, test_oanda_practice
-from autotrader.brokers.safety import alpaca_open_positions, oanda_open_positions
+from autotrader.brokers.safety import alpaca_open_orders, alpaca_open_positions, oanda_open_positions
 from autotrader.capital_allocations import TOTAL_PAPER_CAPITAL
 from autotrader.cash_dashboard import aggregate_cash_dashboard
 from autotrader.coordinated_test import FivePillarTestConfig, five_pillar_performance
 from autotrader.experiment_state import ensure_experiment_state
+from autotrader.manifest_ops import classify_manifest
 
 
 def _float(value, default: float = 0.0) -> float:
@@ -252,7 +253,13 @@ def live_broker_positions(ledger_rows: list[dict[str, object]]) -> tuple[list[di
         "alpaca_exposure": 0.0,
         "metals_exposure": 0.0,
         "oanda_exposure": 0.0,
+        "open_order_ids": [],
     }
+    try:
+        open_orders = alpaca_open_orders().details.get("orders", [])
+        metrics["open_order_ids"] = [str(row.get("id")) for row in open_orders if isinstance(row, dict) and row.get("id")]
+    except Exception:
+        metrics["open_order_ids"] = []
 
     try:
         raw_alpaca = alpaca_open_positions().details.get("positions", [])
@@ -493,6 +500,17 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                 legacy_backlog_total += 1
                 legacy_backlog_deferred += 1
 
+    manifest_categories: dict[str, int] = {}
+    current_symbols = [str(row.get("symbol") or "").upper() for row in live_positions]
+    for row in unresolved_manifests:
+        disposition = classify_manifest(
+            row,
+            experiment_start=experiment_start,
+            open_order_ids=broker_metrics.get("open_order_ids", []),
+            position_symbols=current_symbols,
+        )
+        manifest_categories[disposition.category.value] = manifest_categories.get(disposition.category.value, 0) + 1
+
     active_crypto_symbols: set[str] = set()
     if ledger_path.exists():
         with sqlite3.connect(ledger_path) as conn:
@@ -679,6 +697,11 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             "last_cycle_finished_at": auto.get("last_finished_at"),
             "last_cycle_duration_ms": auto.get("last_duration_ms"),
             "unresolved_manifest_count": len(unresolved_manifests),
+            "actionable_manifest_count": sum(
+                count for category, count in manifest_categories.items()
+                if category in {"AWAITING_EXTERNAL_EVIDENCE", "CORRUPT", "SOFTWARE_DEFECT"}
+            ),
+            "manifest_categories": manifest_categories,
             "rate_limit_telemetry": {
                 "requests": int((latest_cycle.get("broker_requests") or 0) or 0),
                 "retries": int((latest_cycle.get("broker_retries") or 0) or 0),
