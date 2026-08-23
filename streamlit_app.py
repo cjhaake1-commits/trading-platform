@@ -1812,8 +1812,20 @@ def _render_research_view(ctx: dict[str, object]) -> None:
                 st.dataframe(providers, use_container_width=True, hide_index=True)
         except sqlite3.Error:
             st.warning("Provider health is unavailable.")
-    st.markdown("### KALSHI EVENT INTELLIGENCE · RESEARCH ONLY")
-    st.caption("Pillar 6 foundation preview. Predictions and Perps are isolated research families and are not part of the active operational pillar count.")
+    st.markdown("### GLOBAL RESEARCH INTELLIGENCE")
+    public_status_path = Path(os.getenv("GLOBAL_RESEARCH_STATUS", "var/global-intelligence/public-research.json"))
+    if public_status_path.exists():
+        try:
+            public_status = json.loads(public_status_path.read_text(encoding="utf-8"))
+            lane_rows = [
+                {"lane": lane, **(value if isinstance(value, dict) else {})}
+                for lane, value in (public_status.get("lanes") or {}).items()
+            ]
+            st.dataframe(lane_rows, use_container_width=True, hide_index=True)
+        except (OSError, ValueError, TypeError):
+            st.warning("Public research telemetry is unavailable.")
+    st.caption("Public research, Kalshi intelligence, and challenger evidence are isolated from broker execution.")
+    st.markdown("### KALSHI EVENT INTELLIGENCE · PILLAR 6")
     kalshi_db = Path(os.getenv("KALSHI_RESEARCH_DB", "var/kalshi/research.db"))
     kalshi_counts = {"predictions": 0, "perps": 0}
     kalshi_last = "UNKNOWN"
