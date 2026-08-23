@@ -420,7 +420,7 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
             try:
                 rows = conn.execute(
                     """
-                    SELECT manifest_id, canonical_symbol, broker_order_id, lifecycle_state, created_at
+                    SELECT manifest_id, canonical_symbol, broker_order_id, lifecycle_state, created_at, metadata_json
                     FROM entry_manifests
                     WHERE lifecycle_state IN (
                         'approved_manifest',
@@ -428,13 +428,27 @@ def build_snapshot(status_path: Path, ledger_path: Path, audit_path: Path) -> di
                         'order_pending',
                         'filled_position_pending',
                         'reconciliation_pending',
-                        'protection_pending'
+                        'protection_pending',
+                        'reconciliation_deferred',
+                        'manual_review_required'
+                    )
+                    ORDER BY created_at, manifest_id
+                """
+                ).fetchall()
+            except sqlite3.Error:
+                rows = conn.execute(
+                    """
+                    SELECT manifest_id, canonical_symbol, broker_order_id, lifecycle_state, created_at
+                    FROM entry_manifests
+                    WHERE lifecycle_state IN (
+                        'approved_manifest', 'order_submitted', 'order_pending',
+                        'filled_position_pending', 'reconciliation_pending',
+                        'protection_pending', 'reconciliation_deferred',
+                        'manual_review_required'
                     )
                     ORDER BY created_at, manifest_id
                     """
                 ).fetchall()
-            except sqlite3.Error:
-                rows = []
             unresolved_manifests = [dict(row) for row in rows]
     backlog_checkpoint = read_backlog_checkpoint()
     ledger_position_index = {

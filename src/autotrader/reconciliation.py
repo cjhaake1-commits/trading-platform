@@ -137,6 +137,8 @@ UNRESOLVED_MANIFEST_STATES = {
     "reconciliation_pending",
     "protection_pending",
     "protection_submitted",
+    "reconciliation_deferred",
+    "manual_review_required",
 }
 
 

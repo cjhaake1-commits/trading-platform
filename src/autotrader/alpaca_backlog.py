@@ -520,12 +520,18 @@ def reconcile_alpaca_equity_backlog(
         if not apply_paper_cleanup:
             continue
         _persist_manifest_resolution(ledger, manifest, classification)
+        retry_after_until = (
+            (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+            if snapshot.deferred
+            else None
+        )
         save_backlog_checkpoint(
             resolved_checkpoint_path,
             AlpacaBacklogCheckpoint(
                 next_manifest_index=start_index + len(classifications),
                 last_manifest_id=classification.manifest_id,
                 updated_at=datetime.now(UTC).isoformat(),
+                retry_after_until=retry_after_until,
             ),
         )
 
@@ -619,6 +625,15 @@ def _manifest_metadata(
     metadata = dict(metadata)
     metadata["reconciliation_resolution"] = classification.resolution_reason
     metadata["reconciliation_run_state"] = classification.lifecycle_state
+    if classification.lifecycle_state == "reconciliation_deferred":
+        attempted_at = datetime.now(UTC)
+        metadata["reconciliation_missing_evidence"] = (
+            "authoritative open-order and recent-order broker snapshots"
+        )
+        metadata["reconciliation_last_attempt"] = attempted_at.isoformat()
+        metadata["reconciliation_next_eligible_attempt"] = (
+            attempted_at + timedelta(seconds=60)
+        ).isoformat()
     return metadata
 
 
