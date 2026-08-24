@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError
 
@@ -20,6 +20,14 @@ def _write_status(engine: str, result: dict[str, object]) -> None:
     path = Path(os.getenv("KALSHI_EXECUTION_STATUS_DIR", "var/kalshi")) / f"execution-{engine}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _read_status(engine: str) -> dict[str, object]:
+    path = Path(os.getenv("KALSHI_EXECUTION_STATUS_DIR", "var/kalshi")) / f"execution-{engine}.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
 
 
 def _prediction_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
@@ -144,14 +152,15 @@ def _perps_order_payload(market: dict[str, object], evaluation: dict[str, object
     signal = str(evaluation["signal"])
     return {
         "ticker": str(market["ticker"]),
-        "side": "buy" if signal == "LONG" else "sell",
-        "quantity": f"{float(evaluation['approved_quantity']):.2f}",
+        # Margin orders use the bid/ask book side and the short wire key
+        # ``count``; the event-contract API's yes/no and count_fp keys are
+        # not valid on /margin/orders.
+        "side": "bid" if signal == "LONG" else "ask",
+        "count": f"{float(evaluation['approved_quantity']):.2f}",
         # Margin API schema requires fixed-point prices as strings.
         "price": f"{float(market['ask'] if signal == 'LONG' else market['bid']):.4f}",
-        "order_type": "limit",
         "time_in_force": "good_till_canceled",
         "self_trade_prevention_type": "taker_at_cross",
-        "reduce_only": False,
         "client_order_id": f"perps-baseline-{market['ticker']}",
     }
 
@@ -241,6 +250,19 @@ def cycle() -> dict[str, object]:
                         evaluation["capital_rejection"] = "DUPLICATE_EXPOSURE"
                         continue
                     try:
+                        prior = _read_status("perps")
+                        prior_at = datetime.fromisoformat(str(prior.get("observed_at")))
+                        prior_rejected = prior.get("provider_submission_state") == "REJECTED"
+                        if prior_rejected and datetime.now(UTC) - prior_at < timedelta(minutes=5):
+                            evaluation["order_state"] = "BLOCKED_PROVIDER_COOLDOWN"
+                            evaluation["order_rejection"] = "PROVIDER_SUBMISSION_COOLDOWN"
+                            break
+                        payload = _perps_order_payload(market, evaluation)
+                        response = KalshiDemoExecutionClient(config).create_order(payload, family="perps")
+                        evaluation["order_state"] = "ACKNOWLEDGED"
+                        evaluation["order_response"] = {"order_id": response.get("order", {}).get("order_id")}
+                        submitted = 1
+                    except ValueError:
                         payload = _perps_order_payload(market, evaluation)
                         response = KalshiDemoExecutionClient(config).create_order(payload, family="perps")
                         evaluation["order_state"] = "ACKNOWLEDGED"
@@ -254,9 +276,12 @@ def cycle() -> dict[str, object]:
                             body = ""
                         evaluation["order_rejection"] = f"HTTP_{exc.code}"
                         evaluation["provider_rejection"] = body or "provider returned no detail"
+                        result["provider_submission_state"] = "REJECTED"
+                        result["provider_rejection"] = evaluation["provider_rejection"]
                     except Exception as exc:
                         evaluation["order_state"] = "REJECTED"
                         evaluation["order_rejection"] = type(exc).__name__
+                        result["provider_submission_state"] = "REJECTED"
                     break
             funnel["orders_submitted"] = submitted
             result["top_candidates"] = sorted(
@@ -275,7 +300,11 @@ def cycle() -> dict[str, object]:
             result.update({"state": "SCANNING" if enabled.get("enabled", True) else "EXTERNAL_BLOCK",
                            "margin_enabled": enabled, "instruments": len(rows), "funnel": funnel,
                            "funding_state": "OPTIONAL_UNAVAILABLE", "fee_state": "OPTIONAL_UNAVAILABLE",
-                           "last_rejection_reason": rejection if enabled.get("enabled", True) else "MARGIN_DISABLED"})
+                           "last_rejection_reason": (
+                               "PROVIDER_SUBMISSION_REJECTED"
+                               if result.get("provider_submission_state") == "REJECTED"
+                               else rejection
+                           ) if enabled.get("enabled", True) else "MARGIN_DISABLED"})
     except Exception as exc:
         result.update({"state": "API_DEGRADED", "error": type(exc).__name__})
         result["last_rejection_reason"] = "API_DEGRADED"

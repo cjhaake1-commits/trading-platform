@@ -75,5 +75,5 @@ def test_perps_risk_approved_candidate_reaches_capital_and_order_boundary():
     assert result["capital_approved"] is True
     assert result["qualified"] is True
     payload = _perps_order_payload(market, result)
-    assert payload["side"] == "buy"
-    assert payload["quantity"] == "1.00"
+    assert payload["side"] == "bid"
+    assert payload["count"] == "1.00"
