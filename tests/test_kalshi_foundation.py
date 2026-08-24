@@ -53,6 +53,17 @@ def test_demo_mutation_transport_is_separate_and_guarded(monkeypatch):
     assert paths == [("POST", "portfolio/events/orders"), ("DELETE", "portfolio/events/orders/O")]
 
 
+def test_demo_gate_controls_demo_broker_capability_not_live_flag(monkeypatch):
+    monkeypatch.setenv("KALSHI_DEMO_TRADING_ENABLED", "true")
+    monkeypatch.setenv("KALSHI_PAPER_CAPITAL", "1000")
+    monkeypatch.setenv("KALSHI_TRADING_ENABLED", "false")
+    monkeypatch.setenv("KALSHI_LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    config = KalshiConfig.from_env()
+    assert config.can_trade()
+    assert config.broker_control
+
+
 def test_perps_account_paths_use_current_margin_namespace(monkeypatch):
     client = KalshiReadOnlyClient(KalshiConfig())
     paths = []

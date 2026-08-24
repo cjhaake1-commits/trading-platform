@@ -43,11 +43,11 @@ class KalshiConfig:
         return not self.enabled and not self.trading_enabled
 
     def can_trade(self) -> bool:
-        return False
+        return self.demo_trading_enabled and self.paper_capital > 0
 
     @property
     def broker_control(self) -> bool:
-        return False
+        return self.can_trade()
 
     @property
     def research_enabled(self) -> bool:

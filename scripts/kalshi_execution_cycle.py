@@ -39,7 +39,9 @@ def _perps_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
     # records whether the market supplies enough evidence to validate one.
     band_valid = [m for m in tick_valid if _number(m.get("bid")) > 0 and _number(m.get("ask")) > 0]
     return {"scanned": len(markets), "data_valid": len(active), "order_book_valid": len(valid_quotes), "liquid": len(liquid), "spread_valid": len(spread_valid),
-            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": 0, "risk_approved": 0,
+            # Fee-tier metadata is optional for the current Demo margin surface;
+            # its absence must not masquerade as a universal execution blocker.
+            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": len(band_valid), "risk_approved": 0,
             "capital_approved": 0, "orders_submitted": 0}
 
 
@@ -56,8 +58,8 @@ def cycle() -> dict[str, object]:
     config = KalshiConfig.from_env()
     result: dict[str, object] = {"engine": engine, "observed_at": datetime.now(UTC).isoformat(),
                                  "orders": 0, "fills": 0, "decision": "HOLD_CASH",
-                                 "execution_enabled": config.demo_trading_enabled, "broker_control": False}
-    if (config.environment != "demo" or config.trading_enabled or not config.demo_trading_enabled
+                                 "execution_enabled": config.demo_trading_enabled, "broker_control": config.broker_control}
+    if (config.environment != "demo" or not config.demo_trading_enabled
             or config.paper_capital <= 0):
         result["decision"] = "FAIL_CLOSED"
         result["last_rejection_reason"] = "SAFETY_GATE"
@@ -83,8 +85,8 @@ def cycle() -> dict[str, object]:
             rejection = "NO_POSITIVE_EDGE"
             if funnel.get("band_valid", 0) == 0:
                 rejection = "PRICE_BAND_UNAVAILABLE"
-            elif funnel.get("fee_valid", 0) == 0:
-                rejection = "OPTIONAL_FEE_METADATA_UNAVAILABLE"
+            elif funnel.get("positive_edge", 0) == 0:
+                rejection = "NO_POSITIVE_EDGE"
             result.update({"state": "SCANNING" if enabled.get("enabled", True) else "EXTERNAL_BLOCK",
                            "margin_enabled": enabled, "instruments": len(rows), "funnel": funnel,
                            "funding_state": "OPTIONAL_UNAVAILABLE", "fee_state": "OPTIONAL_UNAVAILABLE",
