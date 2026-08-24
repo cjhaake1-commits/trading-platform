@@ -172,7 +172,7 @@ def _kalshi_status() -> dict[str, object]:
         "connection": "DATA UNAVAILABLE", "data": "UNAVAILABLE", "scanner": "DEGRADED",
         "predictions_auth": "DEGRADED", "predictions_data": "UNAVAILABLE", "predictions_scanner": "DEGRADED",
         "perps_rest": "DEGRADED", "perps_markets": 0, "perps_account": "UNKNOWN", "perps_margin": "UNKNOWN",
-        "research": "DEGRADED", "learning": "DEGRADED", "observations": 0, "features": 0,
+        "research": "UNAVAILABLE", "learning": "UNAVAILABLE", "evidence": "COLLECTING", "observations": 0, "features": 0,
         "cross_market": 0, "lead_lag": 0, "last_data": "UNAVAILABLE", "last_learning": "UNAVAILABLE",
         "predictions_funnel": {}, "perps_funnel": {}, "predictions_rejection": "UNAVAILABLE",
         "perps_rejection": "UNAVAILABLE", "perps_funding": "UNAVAILABLE", "perps_fees": "UNAVAILABLE",
@@ -203,7 +203,8 @@ def _kalshi_status() -> dict[str, object]:
         status["perps_funding"] = perps_cycle.get("funding_state", "UNAVAILABLE")
         status["perps_fees"] = perps_cycle.get("fee_state", "UNAVAILABLE")
         status["last_learning"] = learning.get("recorded_at") or "UNAVAILABLE"
-        status["learning"] = "ACTIVE" if learning.get("recorded_at") else "DEGRADED"
+        status["learning"] = "ACTIVE" if learning.get("recorded_at") else "UNAVAILABLE"
+        status["evidence"] = str(learning.get("evidence_state") or "COLLECTING").replace("_", " ").upper()
         status["last_data"] = last_data or "UNAVAILABLE"
         try:
             age_seconds = (datetime.now(UTC) - datetime.fromisoformat(str(last_data).replace("Z", "+00:00")).astimezone(UTC)).total_seconds()
@@ -392,7 +393,11 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Data</span><strong>{escape(str(data.get("data") or "UNAVAILABLE"))}</strong></div>
             <div><span>Execution</span><strong>{escape(str(data.get("execution") or "NO QUALIFYING OPPORTUNITY"))}</strong></div>
             <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DATA UNAVAILABLE"))}</strong></div>
-            <div><span>Research / Learning</span><strong>{escape(str(data.get("research") or "DEGRADED"))} / {escape(str(data.get("learning") or "DEGRADED"))}</strong></div>
+            <div><span>Research Health</span><strong>{escape(str(data.get("research") or "UNAVAILABLE"))}</strong></div>
+            <div><span>Learning Health</span><strong>{escape(str(data.get("learning") or "UNAVAILABLE"))}</strong></div>
+            <div><span>Evidence Maturity</span><strong>{escape(str(data.get("evidence") or "COLLECTING"))}</strong></div>
+            <div><span>Last Research Update</span><strong>{escape(str(data.get("last_research") or "UNAVAILABLE"))}</strong></div>
+            <div><span>Last Learning Update</span><strong>{escape(str(data.get("last_learning") or "UNAVAILABLE"))}</strong></div>
             <div><span>Perps API / Margin</span><strong>{escape(str(data.get("perps_rest") or "UNAVAILABLE"))} / {escape(str(data.get("perps_margin") or "UNKNOWN"))}</strong></div>
             <div><span>Last Rejection</span><strong>{escape(str(data.get("last_rejection") or "—"))}</strong></div>
             <div><span>Observations / Features</span><strong>{int(_float(data.get("observations")))} / {int(_float(data.get("features")))}</strong></div>
@@ -1336,6 +1341,12 @@ def _render_dashboard_legacy() -> None:
                 else ("DISABLED" if job.get("disabled") else "DEGRADED"),
                 "state": state,
                 "blocker": blocker,
+                "data": "FRESH" if job.get("last_finished_at") else "UNAVAILABLE",
+                "research": "DEGRADED" if job.get("last_error") else ("STOPPED" if job.get("disabled") else "ACTIVE"),
+                "learning": "ACTIVE" if not job.get("last_error") and not job.get("disabled") else ("DEGRADED" if job.get("last_error") else "STOPPED"),
+                "evidence": "COLLECTING",
+                "last_research": job.get("last_finished_at") or job.get("last_started_at"),
+                "last_learning": (jobs.get("daily-learning", {}) or {}).get("last_finished_at") if isinstance(jobs.get("daily-learning"), dict) else None,
             }
         )
         if name == "Kalshi":
@@ -1347,6 +1358,7 @@ def _render_dashboard_legacy() -> None:
                     "scanner": kalshi_status["scanner"],
                     "research": kalshi_status["research"],
                     "learning": kalshi_status["learning"],
+                    "evidence": kalshi_status["evidence"],
                     "observations": kalshi_status["observations"],
                     "features": kalshi_status["features"],
                     "cross_market": kalshi_status["cross_market"],
@@ -1355,6 +1367,8 @@ def _render_dashboard_legacy() -> None:
                     "last_rejection": f"Predictions {kalshi_status['predictions_rejection']} · Perps {kalshi_status['perps_rejection']}",
                     "last_scan": kalshi_status["last_data"],
                     "last_decision": "HOLD_CASH · no qualifying opportunity",
+                    "last_research": kalshi_status["last_data"],
+                    "last_learning": kalshi_status["last_learning"],
                     "execution": "NO QUALIFYING OPPORTUNITY",
                     "blocker": f"Perps {kalshi_status['perps_account']} · {kalshi_status['perps_markets']} markets",
                     "state": "OBSERVING",

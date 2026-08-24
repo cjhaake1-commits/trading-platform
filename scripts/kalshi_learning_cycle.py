@@ -141,7 +141,7 @@ def run_once() -> dict[str, int | float | str]:
                         continue
                     response = _num(future[0]) / _num(target["value"]) - 1
                     sid = _id(source["id"], target["pillar"], target["symbol"], target["observed_at"], requested_lag)
-                    conn.execute("INSERT OR IGNORE INTO kalshi_cross_market_samples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    conn.execute("INSERT OR IGNORE INTO kalshi_cross_market_samples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (sid, source["family"], source["instrument"], source["feature_name"], str(target["pillar"]),
                          str(target["symbol"] or "unknown"), requested_lag, source["observed_at"], future[1],
                          response, target["regime"] or "unknown", target["source_quality"],
@@ -159,10 +159,11 @@ def run_once() -> dict[str, int | float | str]:
         conn.execute("INSERT OR REPLACE INTO kalshi_learning_runs VALUES (?,?,?,?,?,?,?,?,?)",
             (run_id, now, len(rows), feature_count, cross_count, 0, resolved, None, "COLLECTING_EVIDENCE" if not resolved else "RESEARCH_ONLY"))
         conn.commit()
+    evidence_state = "COLLECTING" if not resolved else "RESEARCH_ONLY"
     status = {"recorded_at": now, "observations": len(rows), "derived_features": feature_count,
               "cross_market_samples": cross_count, "lead_lag_samples": 0, "resolved_markets": resolved,
               "calibration": "COLLECTING EVIDENCE" if not resolved else "RESEARCH ONLY",
-              "evidence_state": "RESEARCH_ONLY"}
+              "evidence_state": evidence_state}
     out = Path(os.getenv("KALSHI_LEARNING_STATUS", "var/global-intelligence/learning-status.json"))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(status, indent=2, sort_keys=True) + "\n")

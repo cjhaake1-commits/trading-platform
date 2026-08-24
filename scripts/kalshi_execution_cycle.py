@@ -28,9 +28,21 @@ def _prediction_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
 
 def _perps_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
     active = [m for m in markets if str(m.get("status") or "active").lower() in {"active", "open"}]
-    return {"scanned": len(markets), "data_valid": len(active), "liquid": 0, "spread_valid": 0,
-            "band_valid": 0, "fee_valid": 0, "positive_edge": 0, "risk_approved": 0,
+    valid_quotes = [m for m in active if _number(m.get("bid")) is not None and _number(m.get("ask")) is not None
+                    and _number(m.get("bid")) > 0 and _number(m.get("ask")) > 0]
+    liquid = [m for m in valid_quotes if _number(m.get("volume_24h")) is not None and _number(m.get("volume_24h")) > 0]
+    spread_valid = [m for m in liquid if _number(m.get("ask")) >= _number(m.get("bid"))]
+    return {"scanned": len(markets), "data_valid": len(active), "order_book_valid": len(valid_quotes), "liquid": len(liquid), "spread_valid": len(spread_valid),
+            "band_valid": 0, "fee_valid": 0, "risk_approved": 0,
             "capital_approved": 0, "orders_submitted": 0}
+
+
+def _number(value: object) -> float | None:
+    try:
+        number = float(value)
+        return number if number == number else None
+    except (TypeError, ValueError):
+        return None
 
 
 def cycle() -> dict[str, object]:

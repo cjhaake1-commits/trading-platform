@@ -34,3 +34,6 @@ def test_kalshi_card_uses_stateful_health_and_learning_funnel():
     assert "Learning Funnel".lower() in source.lower()
     assert "Cross-Market Samples" in source
     assert "Legacy Exposure" not in source
+    assert "Research Health" in source
+    assert "Learning Health" in source
+    assert "Evidence Maturity" in source
