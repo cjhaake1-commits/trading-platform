@@ -6,9 +6,14 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.error import HTTPError
 
-from autotrader.kalshi.client import KalshiReadOnlyClient
+from autotrader.capital_allocations import kalshi_pool_available
+from autotrader.kalshi.client import KalshiDemoExecutionClient, KalshiReadOnlyClient
 from autotrader.kalshi.config import KalshiConfig
+from autotrader.models import AssetClass, PortfolioState, Side, TradeProposal
+from autotrader.risk import RiskEngine
+from autotrader.risk_stack import LayeredRiskStack
 
 
 def _write_status(engine: str, result: dict[str, object]) -> None:
@@ -40,11 +45,115 @@ def _perps_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
     band_valid = [m for m in tick_valid if _number(m.get("bid")) > 0 and _number(m.get("ask")) > 0]
     model_valid = [m for m in band_valid if _perps_baseline(m) is not None]
     positive_edge = [m for m in model_valid if _perps_baseline(m)["net_edge"] > 0]
+    risk_results = [_perps_risk_evaluation(m) for m in positive_edge]
+    risk_approved = [r for r in risk_results if r["risk_approved"]]
+    capital_approved = [r for r in risk_approved if r["capital_approved"]]
+    qualified = [r for r in capital_approved if r["qualified"]]
     return {"scanned": len(markets), "data_valid": len(active), "order_book_valid": len(valid_quotes), "liquid": len(liquid), "spread_valid": len(spread_valid),
             # Fee-tier metadata is optional for the current Demo margin surface;
             # its absence must not masquerade as a universal execution blocker.
-            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": len(band_valid), "model_valid": len(model_valid), "positive_edge": len(positive_edge), "risk_approved": 0,
-            "capital_approved": 0, "orders_submitted": 0}
+            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": len(band_valid), "model_valid": len(model_valid), "positive_edge": len(positive_edge), "risk_approved": len(risk_approved),
+            "capital_approved": len(capital_approved), "qualified": len(qualified), "orders_submitted": 0}
+
+
+def _perps_risk_evaluation(market: dict[str, object]) -> dict[str, object]:
+    """Run a Perps candidate through the shared layered risk boundary.
+
+    Perps quotes are contract prices.  The shared risk engine operates on
+    dollar prices, so the provider contract size is applied before creating
+    the proposal.  This preserves the existing risk formulas and avoids a
+    Perps-specific approval flag or bypass.
+    """
+    model = _perps_baseline(market)
+    ticker = str(market.get("ticker") or "")
+    if model is None:
+        return {"ticker": ticker, "risk_invoked": False, "risk_approved": False,
+                "capital_approved": False, "qualified": False,
+                "risk_rejection": "MODEL_INPUT_UNAVAILABLE"}
+    mid = (_number(market.get("bid")) + _number(market.get("ask"))) / 2
+    contract_size = _number(market.get("contract_size")) or 1.0
+    if mid <= 0 or contract_size <= 0:
+        return {"ticker": ticker, "risk_invoked": False, "risk_approved": False,
+                "capital_approved": False, "qualified": False,
+                "risk_rejection": "INVALID_CONTRACT_METADATA"}
+    side = Side.BUY if model["signal"] == "LONG" else Side.SELL
+    # A one-contract proposal is the minimum sizing probe; the risk engine
+    # may reduce it further, but never increases it beyond the request.
+    dollar_entry = mid * contract_size
+    stop_distance = max(float(market.get("tick_size") or 0.0001) * contract_size,
+                        float(model["spread_cost"]) * contract_size)
+    stop = dollar_entry - stop_distance if side is Side.BUY else dollar_entry + stop_distance
+    proposal = TradeProposal(
+        symbol=ticker,
+        asset_class=AssetClass.FUTURE,
+        side=side,
+        entry_price=dollar_entry,
+        stop_price=stop,
+        confidence=1.0,
+        source="kalshi-perps-baseline",
+        rationale="Existing Perps baseline after market-quality and net-edge gates",
+        requested_quantity=1.0,
+    )
+    portfolio = PortfolioState(equity=1000.0, cash=1000.0)
+    stack = LayeredRiskStack(RiskEngine())
+    decision = stack.evaluate(proposal, portfolio)
+    risk_approved = bool(decision.approved)
+    risk_reason = decision.reason
+    quantity = float(decision.quantity or 0.0)
+    required_capital = quantity * dollar_entry if risk_approved else dollar_entry
+    available = kalshi_pool_available(committed=0.0, pending=0.0)
+    capital_approved = risk_approved and required_capital <= available and quantity >= 1.0
+    if not risk_approved:
+        capital_reason = "NOT_EVALUATED_RISK_REJECTED"
+    elif capital_approved:
+        capital_reason = "capital capacity available"
+    else:
+        capital_reason = "KALSHI_CAPITAL_INSUFFICIENT"
+    # The Demo venue accepts whole contracts for this path.  A fractional
+    # risk result is capacity information, not an executable order size.
+    executable = quantity >= 1.0
+    if risk_approved and required_capital <= available and not executable:
+        capital_reason = "PROVIDER_MINIMUM_EXCEEDS_RISK_CAP"
+    qualified = model["net_edge"] > 0 and risk_approved and capital_approved and executable
+    return {
+        "ticker": ticker,
+        "signal": model["signal"],
+        "gross_edge": model["gross_move"],
+        "spread_cost": model["spread_cost"],
+        "fee_cost": model["fee_cost"],
+        "funding_cost": model["funding_cost"],
+        "net_edge": model["net_edge"],
+        "risk_invoked": True,
+        "risk_approved": risk_approved,
+        "risk_rejection": None if risk_approved else risk_reason,
+        "proposed_quantity": 1.0,
+        "approved_quantity": quantity,
+        "capital_required": required_capital,
+        "capital_available": available,
+        "capital_approved": capital_approved,
+        "capital_rejection": None if capital_approved else capital_reason,
+        "provider_minimum_valid": executable,
+        "qualified": qualified,
+    }
+
+
+def _perps_order_payload(market: dict[str, object], evaluation: dict[str, object]) -> dict[str, object]:
+    """Build the normal Demo mutation payload only after qualification."""
+    if not evaluation.get("qualified"):
+        raise ValueError("unqualified Perps candidate cannot reach order builder")
+    signal = str(evaluation["signal"])
+    return {
+        "ticker": str(market["ticker"]),
+        "side": "buy" if signal == "LONG" else "sell",
+        "quantity": f"{float(evaluation['approved_quantity']):.2f}",
+        # Margin API schema requires fixed-point prices as strings.
+        "price": f"{float(market['ask'] if signal == 'LONG' else market['bid']):.4f}",
+        "order_type": "limit",
+        "time_in_force": "good_till_canceled",
+        "self_trade_prevention_type": "taker_at_cross",
+        "reduce_only": False,
+        "client_order_id": f"perps-baseline-{market['ticker']}",
+    }
 
 
 def _perps_baseline(market: dict[str, object]) -> dict[str, float | str] | None:
@@ -112,11 +221,55 @@ def cycle() -> dict[str, object]:
             markets = client.perps_markets(limit="100")
             rows = markets.get("markets", [])
             funnel = _perps_funnel(rows)
+            evaluations = sorted(
+                [(m, _perps_risk_evaluation(m)) for m in rows if _perps_baseline(m) is not None],
+                key=lambda pair: float(pair[1].get("net_edge", 0.0)), reverse=True,
+            )
+            result["top_candidates"] = [evaluation for _, evaluation in evaluations[:10]]
+            qualified = [(m, evaluation) for m, evaluation in evaluations if evaluation.get("qualified")]
+            submitted = 0
+            if qualified:
+                try:
+                    existing = client.perps("orders").get("orders", [])
+                    positions = client.perps_positions().get("positions", [])
+                    occupied = {str(item.get("ticker")) for item in [*existing, *positions]}
+                except Exception:
+                    occupied = set()
+                for market, evaluation in qualified[:1]:
+                    if str(market.get("ticker")) in occupied:
+                        evaluation["qualified"] = False
+                        evaluation["capital_rejection"] = "DUPLICATE_EXPOSURE"
+                        continue
+                    try:
+                        payload = _perps_order_payload(market, evaluation)
+                        response = KalshiDemoExecutionClient(config).create_order(payload, family="perps")
+                        evaluation["order_state"] = "ACKNOWLEDGED"
+                        evaluation["order_response"] = {"order_id": response.get("order", {}).get("order_id")}
+                        submitted = 1
+                    except HTTPError as exc:
+                        evaluation["order_state"] = "REJECTED"
+                        try:
+                            body = exc.read().decode("utf-8", errors="replace")[:300]
+                        except Exception:
+                            body = ""
+                        evaluation["order_rejection"] = f"HTTP_{exc.code}"
+                        evaluation["provider_rejection"] = body or "provider returned no detail"
+                    except Exception as exc:
+                        evaluation["order_state"] = "REJECTED"
+                        evaluation["order_rejection"] = type(exc).__name__
+                    break
+            funnel["orders_submitted"] = submitted
             result["top_candidates"] = sorted(
-                [{"ticker": m.get("ticker"), **_perps_baseline(m)} for m in rows if _perps_baseline(m) is not None],
-                key=lambda x: float(x["net_edge"]), reverse=True,
+                result["top_candidates"],
+                key=lambda x: float(x.get("net_edge", 0.0)), reverse=True,
             )[:10]
             rejection = "NO_POSITIVE_EDGE"
+            if funnel.get("positive_edge", 0) and funnel.get("risk_approved", 0) == 0:
+                rejection = "RISK_REJECTED"
+            elif funnel.get("risk_approved", 0) and funnel.get("capital_approved", 0) == 0:
+                rejection = "CAPITAL_REJECTED"
+            elif funnel.get("qualified", 0):
+                rejection = "READY_TO_SUBMIT"
             if funnel.get("band_valid", 0) == 0:
                 rejection = "PRICE_BAND_UNAVAILABLE"
             result.update({"state": "SCANNING" if enabled.get("enabled", True) else "EXTERNAL_BLOCK",

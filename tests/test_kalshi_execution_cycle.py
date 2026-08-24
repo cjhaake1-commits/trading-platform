@@ -34,3 +34,46 @@ def test_perps_baseline_model_is_computed_from_provider_reference():
     assert model is not None
     assert model["signal"] == "LONG"
     assert funnel["model_valid"] == 1
+
+
+def test_perps_positive_edge_invokes_shared_risk_and_reports_short_rejection():
+    from scripts.kalshi_execution_cycle import _perps_risk_evaluation
+
+    market = {
+        "ticker": "KXTESTPERP1",
+        "status": "active",
+        "bid": "3.20",
+        "ask": "3.21",
+        "volume_24h": "100",
+        "tick_size": "0.0001",
+        "contract_size": "0.001",
+        "settlement_mark_price": {"price": "3.30"},
+    }
+    result = _perps_risk_evaluation(market)
+    assert result["risk_invoked"] is True
+    assert result["risk_approved"] is False
+    assert result["risk_rejection"] == "Short selling is disabled"
+    assert result["capital_approved"] is False
+
+
+def test_perps_risk_approved_candidate_reaches_capital_and_order_boundary():
+    from scripts.kalshi_execution_cycle import _perps_order_payload, _perps_risk_evaluation
+
+    market = {
+        "ticker": "KXTESTPERP1",
+        "status": "active",
+        "bid": "3.20",
+        "ask": "3.21",
+        "volume_24h": "100",
+        "tick_size": "0.0001",
+        "contract_size": "0.001",
+        "settlement_mark_price": {"price": "3.10"},
+    }
+    result = _perps_risk_evaluation(market)
+    assert result["risk_invoked"] is True
+    assert result["risk_approved"] is True
+    assert result["capital_approved"] is True
+    assert result["qualified"] is True
+    payload = _perps_order_payload(market, result)
+    assert payload["side"] == "buy"
+    assert payload["quantity"] == "1.00"
