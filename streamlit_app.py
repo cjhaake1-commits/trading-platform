@@ -1589,6 +1589,24 @@ def _render_dashboard_legacy() -> None:
         c3.metric("Eligible Crypto", str(len(latest_crypto.get("eligible_crypto_universe") or [])))
         c4.metric("Baseline Candidates", str(latest_crypto.get("baseline_candidates") or 0))
         c5.metric("Experimental Candidates", str(latest_crypto.get("experimental_candidates") or 0))
+        managed = latest_crypto.get("position_management") if isinstance(latest_crypto.get("position_management"), list) else []
+        if managed:
+            st.markdown("<div class='status-value'>ACTIVE — POSITION MANAGEMENT</div>", unsafe_allow_html=True)
+            st.dataframe(
+                [
+                    {
+                        "Symbol": row.get("symbol"),
+                        "Current Signal": row.get("strategy") or "—",
+                        "Current Edge": (_float((row.get("current_edge") or {}).get("expected_net_edge")) if isinstance(row.get("current_edge"), dict) else None),
+                        "Decision": row.get("decision"),
+                        "Reason": row.get("reason"),
+                        "Capital": _money(row.get("capital")),
+                    }
+                    for row in managed
+                ], use_container_width=True, hide_index=True,
+            )
+            st.caption("Positions evaluated this cycle: {} · exit candidates: {} · rotation decisions: {}".format(
+                len(managed), sum(1 for row in managed if str(row.get("decision", "")).startswith("EXIT")), len(managed)))
         st.caption("Experimental entries are PAPER-only challengers with explicit cost-positive edge assumptions; baseline evidence remains separate.")
     crypto_live = [row for row in live_positions if isinstance(row, dict) and str(row.get("pillar") or "") == "Crypto"]
     crypto_deployed = sum(_float(row.get("market_value")) for row in crypto_live)

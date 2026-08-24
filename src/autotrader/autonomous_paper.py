@@ -264,10 +264,13 @@ class AutonomousPaperTradingJob:
                 True, "Autonomous paper cycle found no usable market data", {"learned_parameters": learned}
             )
 
+        position_management, rotation_exits = self._manage_crypto_positions(preflight.portfolio, histories)
         exits = self._manage_take_profits(preflight.portfolio, histories)
-        if exits:
+        if rotation_exits or exits:
             return JobResult(
-                True, "Autonomous paper cycle managed exits", {"exits": exits, "learned_parameters": learned}
+                True,
+                "Autonomous paper cycle managed exits",
+                {"exits": [*rotation_exits, *exits], "position_management": position_management, "learned_parameters": learned},
             )
 
         loaded = ledger.load_portfolio()
@@ -358,6 +361,7 @@ class AutonomousPaperTradingJob:
                     "top_candidates": diagnostics[:10],
                     "pillar_allocations": PILLAR_ALLOCATIONS,
                         "learned_parameters": learned,
+                    "position_management": position_management,
                 },
             )
 
@@ -1003,6 +1007,7 @@ class AutonomousPaperTradingJob:
                 "top_candidates": diagnostics[:10],
                 "pillar_allocations": PILLAR_ALLOCATIONS,
                 "learned_parameters": learned,
+                "position_management": position_management,
             },
         )
 
@@ -1087,6 +1092,56 @@ class AutonomousPaperTradingJob:
                 }
             )
         return exits
+
+    def _manage_crypto_positions(self, portfolio: PortfolioState, histories) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+        """Re-evaluate every open Crypto position before considering new entries.
+
+        This is deliberately conservative: a missing or weak re-entry signal is
+        evidence for telemetry, not an automatic liquidation. Exits require a
+        clear invalidation (no usable market candidate), while stops/targets
+        continue through the existing guarded exit coordinator.
+        """
+        decisions: list[dict[str, object]] = []
+        exits: list[dict[str, object]] = []
+        history_by_symbol = {item.symbol.replace("/", "").upper(): (item, bars) for item, bars in histories.items()}
+        for symbol, position in portfolio.positions.items():
+            if position.asset_class is not AssetClass.CRYPTO:
+                continue
+            instrument, bars = history_by_symbol.get(symbol.replace("/", "").upper(), (None, None))
+            candidate = self.scanner.score_instrument(instrument, bars) if instrument and bars else None
+            signal = choose_experimental_long_signal(
+                instrument, bars, scanner=self.scanner, strategies=self.strategies, config=self.experiment
+            ) if instrument and bars else None
+            edge = signal.edge if signal else None
+            if candidate is None:
+                decision, reason = "EXIT_SIGNAL_INVALIDATED", "no fresh usable Crypto candidate"
+            elif edge is not None and edge.expected_net_edge > edge.required_edge:
+                decision, reason = "HOLD", "current strategy retains positive cost-aware edge"
+            else:
+                decision, reason = "HOLD", "protective stop remains valid; no explicit exit trigger"
+            row = {
+                "symbol": symbol, "decision": decision, "reason": reason,
+                "current_price": candidate.last_price if candidate else None,
+                "momentum_pct": candidate.momentum_pct if candidate else None,
+                "score": candidate.score if candidate else None,
+                "strategy": signal.proposal.source if signal else None,
+                "lane": signal.mode if signal else "POSITION_MANAGEMENT",
+                "current_edge": edge.as_dict() if edge else None,
+                "capital": abs(position.quantity * position.average_price),
+            }
+            decisions.append(row)
+            self.experiment_ledger.record_decision(
+                pillar="alpaca_crypto", symbol=symbol, strategy=str(row["strategy"] or "position_management"),
+                timeframe=self.config.interval, lane=str(row["lane"]), decision=decision,
+                entry_price=position.average_price, edge=edge,
+                features={"reason": reason, "score": row["score"], "momentum_pct": row["momentum_pct"]},
+            )
+            if decision == "EXIT_SIGNAL_INVALIDATED":
+                result = AlpacaCryptoExitCoordinator(
+                    AlpacaCryptoExitPaperBroker.from_env(), self.idempotency, ledger_path=self.config.ledger_path
+                ).close(symbol, stop_price=position.stop_price)
+                exits.append({"symbol": symbol, "decision": decision, "reason": reason, "ok": result.ok, "message": result.message})
+        return decisions, exits
 
     def _sync_broker_flat_positions(self, ledger: PortfolioLedger) -> None:
         loaded = ledger.load_portfolio()
