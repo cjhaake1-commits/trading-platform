@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from .brokers.alpaca_metals_paper import AlpacaMetalsConfigurationError
 from .brokers.saxo_sim import SaxoSimAdapter
@@ -35,6 +37,26 @@ def _bars_from_saxo(samples, instrument: Instrument) -> list[MarketBar]:
         except Exception:
             continue
     return bars
+
+
+def _write_saxo_permission_status(*, now: datetime, authenticated: bool, read_only: bool | None, error: str | None = None, shadow_candidate: str | None = None) -> None:
+    path = Path("var/autotrader/saxo-permission.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "authenticated": authenticated,
+        "environment": "sim",
+        "base_url": "https://gateway.saxobank.com/sim/openapi",
+        "read_only": read_only,
+        "write_permission": authenticated and read_only is False,
+        "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK" if read_only else ("READY / EVALUATING" if authenticated else "AUTH REQUIRED"),
+        "last_permission_check": now.astimezone(UTC).isoformat(),
+        "shadow_candidate": shadow_candidate,
+        "shadow_rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION" if read_only else None,
+        "error": error,
+    }
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    temporary.replace(path)
 
 
 @dataclass
@@ -125,12 +147,15 @@ class InternationalPaperTradingJob:
     def run(self, now: datetime) -> JobResult:
         now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
         if self.adapter is None or self.service is None:
+            _write_saxo_permission_status(now=now, authenticated=False, read_only=None, error="Saxo SIM credentials unavailable")
             return JobResult(
                 True,
                 "International AUTH REQUIRED",
                 {"state": "AUTH REQUIRED", "error": "Saxo SIM credentials unavailable"},
             )
         try:
+            summary = self.adapter.account_summary()
+            read_only = bool(summary.read_only)
             instruments = self.adapter.search_instruments(
                 self.search_keywords,
                 asset_types=("Stock",),
@@ -144,7 +169,8 @@ class InternationalPaperTradingJob:
                     "International AUTH REQUIRED",
                     {"state": "AUTH REQUIRED", "error": "Saxo SIM authentication rejected the read-only probe"},
                 )
-            return JobResult(True, "International DATA UNAVAILABLE", {"state": "DATA UNAVAILABLE", "error": error})
+            _write_saxo_permission_status(now=now, authenticated=True, read_only=None, error=error)
+            return JobResult(True, "International data probe failed", {"state": "DEGRADED", "error": error})
         if not instruments:
             return JobResult(True, "International cycle found no instruments", {})
         histories: dict[Instrument, list[MarketBar]] = {}
@@ -161,5 +187,10 @@ class InternationalPaperTradingJob:
             return JobResult(True, "International cycle found no usable market data", {})
         ranked = self.scanner.rank(histories, top_n=1)
         if not ranked:
+            _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only)
             return JobResult(True, "International cycle found no qualifying entry", {})
-        return JobResult(True, "International cycle scanned successfully", {"candidate": ranked[0].instrument.symbol})
+        candidate = ranked[0].instrument.symbol
+        _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, shadow_candidate=candidate)
+        if read_only:
+            return JobResult(True, "International shadow candidate blocked by Saxo SIM permissions", {"candidate": candidate, "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK", "rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION"})
+        return JobResult(True, "International cycle scanned successfully", {"candidate": candidate, "execution_state": "READY / EVALUATING"})
