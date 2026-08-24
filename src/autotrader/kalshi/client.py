@@ -115,3 +115,36 @@ class KalshiReadOnlyClient:
     def perps_funding_rate(self, **params): return self.perps("funding/rate", **params)
     def perps_funding_history(self, **params): return self.perps("funding/rates/historical", **params)
     def perps_fee_tiers(self): return self.perps("fees/tiers")
+
+
+class KalshiDemoExecutionClient(KalshiReadOnlyClient):
+    """Explicitly guarded Demo mutation transport.
+
+    Research/scanner code continues to use ``KalshiReadOnlyClient``.  This
+    separate transport refuses every non-Demo configuration and requires the
+    explicit Demo execution gate before a mutation can be sent.
+    """
+
+    def _mutation(self, method: str, path: str, payload: dict[str, Any] | None = None,
+                  *, family: str = "predictions") -> dict[str, Any]:
+        if not self.config.demo_trading_enabled or self.config.environment != "demo":
+            raise RuntimeError("Kalshi Demo execution gate is not enabled")
+        url = self._url(path, family)
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        headers.update(self.auth.sign(method, __import__("urllib.parse", fromlist=["urlparse"]).urlparse(url).path))
+        request = Request(url, method=method.upper(), headers=headers,
+                          data=None if payload is None else json.dumps(payload).encode("utf-8"))
+        with urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def create_order(self, payload: dict[str, Any], *, family: str = "predictions") -> dict[str, Any]:
+        path = "portfolio/events/orders" if family == "predictions" else "orders"
+        return self._mutation("POST", path, payload, family=family)
+
+    def get_order(self, order_id: str, *, family: str = "predictions") -> dict[str, Any]:
+        path = f"portfolio/orders/{order_id}" if family == "predictions" else f"orders/{order_id}"
+        return self.perps(path) if family == "perps" else self._get(path, authenticated=True)
+
+    def cancel_order(self, order_id: str, *, family: str = "predictions") -> dict[str, Any]:
+        path = f"portfolio/events/orders/{order_id}" if family == "predictions" else f"orders/{order_id}"
+        return self._mutation("DELETE", path, family=family)

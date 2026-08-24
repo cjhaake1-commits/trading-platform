@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from autotrader.kalshi.client import KalshiReadOnlyClient
+from autotrader.kalshi.client import KalshiDemoExecutionClient, KalshiReadOnlyClient
 from autotrader.kalshi.config import KalshiConfig
 from autotrader.kalshi.features import probability_features
 from autotrader.kalshi.hedging import evaluate_shadow_hedge
@@ -39,6 +39,18 @@ def test_client_is_demo_only_and_read_only():
     assert client.config.environment == "demo"
     with pytest.raises(ValueError):
         KalshiReadOnlyClient(KalshiConfig(environment="production"))
+
+
+def test_demo_mutation_transport_is_separate_and_guarded(monkeypatch):
+    monkeypatch.setenv("KALSHI_DEMO_TRADING_ENABLED", "true")
+    monkeypatch.setenv("KALSHI_LIVE_TRADING_ENABLED", "false")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+    client = KalshiDemoExecutionClient(KalshiConfig.from_env())
+    paths = []
+    monkeypatch.setattr(client, "_mutation", lambda method, path, payload=None, **kwargs: paths.append((method, path)) or {})
+    client.create_order({"ticker": "T", "client_order_id": "diagnostic"})
+    client.cancel_order("O")
+    assert paths == [("POST", "portfolio/events/orders"), ("DELETE", "portfolio/events/orders/O")]
 
 
 def test_perps_account_paths_use_current_margin_namespace(monkeypatch):

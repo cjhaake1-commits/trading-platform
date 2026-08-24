@@ -1,0 +1,8 @@
+[Unit]
+Description=Trading Platform non-secret overnight status report
+After=trading-platform-kalshi-learning.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/cjhaake1/trading-platform
+ExecStart=/home/cjhaake1/trading-platform/.venv/bin/python scripts/overnight_status_cycle.py

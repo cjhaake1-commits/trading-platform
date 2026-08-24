@@ -32,8 +32,14 @@ def _perps_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
                     and _number(m.get("bid")) > 0 and _number(m.get("ask")) > 0]
     liquid = [m for m in valid_quotes if _number(m.get("volume_24h")) is not None and _number(m.get("volume_24h")) > 0]
     spread_valid = [m for m in liquid if _number(m.get("ask")) >= _number(m.get("bid"))]
+    tick_valid = [m for m in spread_valid if _number(m.get("tick_size")) == 0.0001]
+    # Official margin price bands are derived from the best quote when both
+    # sides exist: lower=min(80%*bid, bid-1000*tick), upper=max(120%*ask,
+    # ask+1000*tick).  The scanner has no candidate order yet, so this stage
+    # records whether the market supplies enough evidence to validate one.
+    band_valid = [m for m in tick_valid if _number(m.get("bid")) > 0 and _number(m.get("ask")) > 0]
     return {"scanned": len(markets), "data_valid": len(active), "order_book_valid": len(valid_quotes), "liquid": len(liquid), "spread_valid": len(spread_valid),
-            "band_valid": 0, "fee_valid": 0, "risk_approved": 0,
+            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": 0, "risk_approved": 0,
             "capital_approved": 0, "orders_submitted": 0}
 
 
@@ -74,10 +80,15 @@ def cycle() -> dict[str, object]:
             markets = client.perps_markets(limit="100")
             rows = markets.get("markets", [])
             funnel = _perps_funnel(rows)
+            rejection = "NO_POSITIVE_EDGE"
+            if funnel.get("band_valid", 0) == 0:
+                rejection = "PRICE_BAND_UNAVAILABLE"
+            elif funnel.get("fee_valid", 0) == 0:
+                rejection = "OPTIONAL_FEE_METADATA_UNAVAILABLE"
             result.update({"state": "SCANNING" if enabled.get("enabled", True) else "EXTERNAL_BLOCK",
                            "margin_enabled": enabled, "instruments": len(rows), "funnel": funnel,
                            "funding_state": "OPTIONAL_UNAVAILABLE", "fee_state": "OPTIONAL_UNAVAILABLE",
-                           "last_rejection_reason": "NO_POSITIVE_EDGE" if enabled.get("enabled", True) else "MARGIN_DISABLED"})
+                           "last_rejection_reason": rejection if enabled.get("enabled", True) else "MARGIN_DISABLED"})
     except Exception as exc:
         result.update({"state": "API_DEGRADED", "error": type(exc).__name__})
         result["last_rejection_reason"] = "API_DEGRADED"
