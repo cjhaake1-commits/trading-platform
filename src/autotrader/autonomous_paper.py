@@ -62,7 +62,19 @@ DEFAULT_ALPACA_UNIVERSE = (
     "COST",
 )
 DEFAULT_OANDA_UNIVERSE = ("EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "NZD/USD", "EUR/JPY", "GBP/JPY")
-DEFAULT_CRYPTO_UNIVERSE = ("BTC/USD", "ETH/USD")
+# Provider-confirmed Alpaca PAPER USD pairs.  This is intentionally a
+# conservative liquid subset rather than the full asset catalog; provider
+# minimums and the existing risk/capacity gates still decide eligibility.
+DEFAULT_CRYPTO_UNIVERSE = (
+    "BTC/USD",
+    "ETH/USD",
+    "SOL/USD",
+    "LINK/USD",
+    "AVAX/USD",
+    "DOGE/USD",
+    "LTC/USD",
+    "BCH/USD",
+)
 
 
 @dataclass(frozen=True)
