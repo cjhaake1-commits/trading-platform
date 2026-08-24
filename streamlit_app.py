@@ -66,6 +66,25 @@ def _derive_pillar_state(
     activity: list[object],
 ) -> tuple[str, str, str]:
     """Derive operator truth from live runtime evidence, never stale defaults."""
+    job_name = PILLAR_JOB_MAP.get(name)
+    latest_cycle = next(
+        (row for row in activity if isinstance(row, dict) and row.get("job") == job_name), None
+    )
+    if latest_cycle:
+        if latest_cycle.get("last_error") or latest_cycle.get("error"):
+            return "DEGRADED — PROVIDER", "DEGRADED", str(latest_cycle.get("last_error") or latest_cycle.get("error"))
+        if name == "Crypto" and int(broker_state.get("positions", 0) or 0) == 0:
+            if int(latest_cycle.get("crypto_scanned", 0) or 0) > 0:
+                qualified = int(latest_cycle.get("crypto_qualified", 0) or 0)
+                reason = "NO QUALIFIED EDGE" if qualified == 0 else "READY FOR OPPORTUNITY RANKING"
+                state = "READY — NO QUALIFIED EDGE" if qualified == 0 else "READY — EVALUATING OPPORTUNITIES"
+                return state, "CONNECTED", reason
+        execution_state = str(latest_cycle.get("execution_state") or "")
+        if name == "International":
+            if "WAIT" in execution_state.upper() or "CLOSED" in execution_state.upper():
+                return "READY — WAITING FOR ELIGIBLE MARKET SESSION", "CONNECTED", execution_state
+            if execution_state in {"READY / EVALUATING", "CONNECTED / READY / EVALUATING"}:
+                return "READY — EVALUATING OPPORTUNITIES", "CONNECTED", "Saxo SIM session and market evaluation active"
     if job.get("last_error"):
         return "ERROR", "ERROR", str(job.get("last_error"))
     recent = [
@@ -1589,6 +1608,12 @@ def _render_dashboard_legacy() -> None:
         c3.metric("Eligible Crypto", str(len(latest_crypto.get("eligible_crypto_universe") or [])))
         c4.metric("Baseline Candidates", str(latest_crypto.get("baseline_candidates") or 0))
         c5.metric("Experimental Candidates", str(latest_crypto.get("experimental_candidates") or 0))
+        crypto_qualified = int(latest_crypto.get("crypto_qualified") or 0)
+        crypto_scanned = int(latest_crypto.get("crypto_scanned") or 0)
+        st.info(
+            f"WHY NO NEW TRADE? {'NO QUALIFIED EDGE' if crypto_qualified == 0 else 'QUALIFIED CANDIDATES REJECTED BY LATER GATES'} · "
+            f"{crypto_scanned} Crypto instruments evaluated"
+        )
         managed = latest_crypto.get("position_management") if isinstance(latest_crypto.get("position_management"), list) else []
         if managed:
             st.markdown("<div class='status-value'>ACTIVE — POSITION MANAGEMENT</div>", unsafe_allow_html=True)

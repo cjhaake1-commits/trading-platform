@@ -38,3 +38,11 @@ def test_kalshi_card_uses_stateful_health_and_learning_funnel():
     assert "Learning Health" in source
     assert "Evidence Maturity" in source
     assert "kalshi_pillar_observations" in source
+
+
+def test_crypto_and_international_use_execution_truth_states():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert "READY — EVALUATING OPPORTUNITIES" in source
+    assert "READY — NO QUALIFIED EDGE" in source
+    assert "READY — WAITING FOR ELIGIBLE MARKET SESSION" in source
+    assert "WHY NO NEW TRADE?" in source
