@@ -10,8 +10,8 @@ from .brokers.saxo_sim import SaxoSimAdapter
 from .capital_allocations import PILLAR_METALS
 from .international_trading import InternationalExecutionService
 from .marketdata import YahooHistoricalData
-from .metals_trading import MetalsExecutionService
-from .models import AssetClass, Instrument, MarketBar, Side
+from .metals_trading import MetalsExecutionService, MetalsOrderSpec
+from .models import AssetClass, Instrument, MarketBar, PortfolioState, Side
 from .runtime import JobResult
 from .scanner import CandidateScanner
 from .strategies import BaselineStrategies
@@ -96,10 +96,52 @@ class MetalsPaperTradingJob:
         best = self._best_signal(histories)
         if best is None:
             return JobResult(True, "Metals cycle found no qualifying entry", {"pillar": PILLAR_METALS})
+        candidate, proposal = best
+
+        # This pillar has its own capital silo.  Do not use the shared Alpaca
+        # account balance (which includes Stocks/Crypto) to decide Metals
+        # capacity, and do not let a previous open Metals trade be duplicated.
+        records = self.service.history.records()
+        active_symbols = {
+            str(record.get("instrument") or "").upper()
+            for record in records
+            if str(record.get("status") or "") in {"approved", "executed"}
+            and not record.get("closed_at")
+        }
+        deployed = sum(
+            abs(float(record.get("fill_price") or record.get("proposed_entry") or 0.0))
+            * float(record.get("quantity") or 0.0)
+            for record in records
+            if str(record.get("status") or "") in {"approved", "executed"}
+            and not record.get("closed_at")
+        )
+        if proposal.symbol.upper() in active_symbols:
+            return JobResult(
+                True,
+                "Metals cycle skipped duplicate active position",
+                {"pillar": PILLAR_METALS, "candidate": candidate.instrument.symbol, "rejection": "DUPLICATE_ACTIVE_POSITION", "deployed": deployed},
+            )
+        result = self.service.execute(
+            MetalsOrderSpec(proposal=proposal, strategy_version="metals-baseline-v1"),
+            PortfolioState(equity=1000.0, cash=max(1000.0 - deployed, 0.0)),
+            metals_deployed=deployed,
+            now=now,
+        )
         return JobResult(
             True,
-            "Metals cycle scanned successfully",
-            {"pillar": PILLAR_METALS, "candidate": best.instrument.symbol},
+            "Metals cycle submitted paper order" if result.submitted else "Metals candidate rejected",
+            {
+                "pillar": PILLAR_METALS,
+                "candidate": candidate.instrument.symbol,
+                "model_valid": True,
+                "risk_approved": result.approved,
+                "qualified": result.approved,
+                "submitted": result.submitted,
+                "order_id": result.order_id,
+                "rejection": None if result.approved else result.reason,
+                "execution_result": result.reason,
+                "deployed": deployed,
+            },
         )
 
     def _load_histories(self, now: datetime) -> dict[Instrument, list[MarketBar]]:
@@ -124,7 +166,7 @@ class MetalsPaperTradingJob:
             proposal = self.strategies.mean_reversion(candidate.instrument, histories[candidate.instrument])
         if proposal is None or proposal.side is not Side.BUY:
             return None
-        return candidate
+        return candidate, proposal
 
 
 @dataclass
