@@ -260,13 +260,13 @@ def cycle() -> dict[str, object]:
                         payload = _perps_order_payload(market, evaluation)
                         response = KalshiDemoExecutionClient(config).create_order(payload, family="perps")
                         evaluation["order_state"] = "ACKNOWLEDGED"
-                        evaluation["order_response"] = {"order_id": response.get("order", {}).get("order_id")}
+                        evaluation["order_response"] = {"order_id": response.get("order_id") or response.get("order", {}).get("order_id")}
                         submitted = 1
                     except ValueError:
                         payload = _perps_order_payload(market, evaluation)
                         response = KalshiDemoExecutionClient(config).create_order(payload, family="perps")
                         evaluation["order_state"] = "ACKNOWLEDGED"
-                        evaluation["order_response"] = {"order_id": response.get("order", {}).get("order_id")}
+                        evaluation["order_response"] = {"order_id": response.get("order_id") or response.get("order", {}).get("order_id")}
                         submitted = 1
                     except HTTPError as exc:
                         evaluation["order_state"] = "REJECTED"
@@ -284,6 +284,30 @@ def cycle() -> dict[str, object]:
                         result["provider_submission_state"] = "REJECTED"
                     break
             funnel["orders_submitted"] = submitted
+            # Reconcile the authenticated Margin portfolio after every cycle;
+            # the Margin API returns order/fill objects at the response root,
+            # not under the event-contract ``order`` wrapper.
+            try:
+                live_orders = client.perps("orders").get("orders", [])
+                live_positions = client.perps_positions().get("positions", [])
+                live_fills = client.perps_fills().get("fills", [])
+                live_balance = client.perps_balance()
+                balances = live_balance.get("subaccount_balances", [])
+                initial_margin = sum(float(b.get("initial_margin") or 0) for b in balances)
+                open_orders = [o for o in live_orders if float(o.get("remaining_count") or 0) > 0]
+                result.update({
+                    "orders": len(live_orders),
+                    "orders_acknowledged": len(live_orders),
+                    "open_orders": len(open_orders),
+                    "fills": len(live_fills),
+                    "positions": len(live_positions),
+                    "capital_deployed": initial_margin,
+                    "margin_used": initial_margin,
+                    "available_balance": sum(float(b.get("available_balance") or 0) for b in balances),
+                    "unrealized_pnl": sum(float(p.get("unrealized_pnl") or 0) for p in live_positions),
+                })
+            except Exception as exc:
+                result["reconciliation_error"] = type(exc).__name__
             result["top_candidates"] = sorted(
                 result["top_candidates"],
                 key=lambda x: float(x.get("net_edge", 0.0)), reverse=True,
