@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import fcntl
 import hashlib
 import json
@@ -96,6 +97,7 @@ class SaxoSafeAccountSummary:
     environment: str
     client_id: str | None
     default_account_id: str | None
+    default_account_key: str | None
     default_currency: str | None
     accounts: tuple[dict[str, object], ...]
     balance_currency: str | None
@@ -112,6 +114,7 @@ class SaxoSafeAccountSummary:
             "environment": self.environment,
             "client_id": self.client_id,
             "default_account_id": self.default_account_id,
+            "default_account_key": self.default_account_key,
             "default_currency": self.default_currency,
             "accounts": [dict(account) for account in self.accounts],
             "balance_currency": self.balance_currency,
@@ -417,6 +420,39 @@ class SaxoSimAdapter:
             raise self._safe_error(exc) from exc
         return payload
 
+    def capability_metadata(self) -> dict[str, object]:
+        """Return non-secret locally inspectable token capability metadata."""
+        claims: dict[str, object] = {}
+        parts = self._access_token.split(".")
+        if len(parts) == 3:
+            try:
+                raw = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+                decoded = json.loads(raw.decode("utf-8"))
+                claims = decoded if isinstance(decoded, dict) else {}
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                claims = {}
+        raw_scopes = claims.get("scope", claims.get("scp"))
+        if isinstance(raw_scopes, str):
+            scopes = tuple(sorted(value for value in raw_scopes.split() if value))
+        elif isinstance(raw_scopes, list):
+            scopes = tuple(sorted(str(value) for value in raw_scopes if value))
+        else:
+            scopes = ()
+        write_scope = any(value.lower() in {"personal:write", "write"} for value in scopes)
+        return {
+            "token_format": "jwt" if len(parts) == 3 else "opaque",
+            "scopes_present": bool(scopes),
+            "scopes": scopes,
+            "write_scope_present": write_scope if scopes else None,
+        }
+
+    def precheck_order(self, order: dict[str, object]) -> dict[str, object]:
+        """Run Saxo's non-mutating SIM order precheck."""
+        required = ("AccountKey", "Amount", "AssetType", "BuySell", "OrderType", "Uic")
+        if any(key not in order for key in required):
+            raise ValueError("Saxo precheck requires account, amount, asset, side, type, and UIC")
+        return self._write("/trade/v2/orders/precheck", "POST", order)
+
     def search_instruments(
         self,
         keywords: str,
@@ -526,6 +562,7 @@ class SaxoSimAdapter:
                 accounts.append(
                     {
                         "account_id": account.get("AccountId"),
+                        "account_key": account.get("AccountKey"),
                         "currency": account.get("Currency"),
                         "active": account.get("Active"),
                         "account_type": account.get("AccountType"),
@@ -536,6 +573,7 @@ class SaxoSimAdapter:
             environment=self.environment,
             client_id=_optional_string(client.get("ClientId")),
             default_account_id=_optional_string(client.get("DefaultAccountId")),
+            default_account_key=_optional_string(client.get("DefaultAccountKey")),
             default_currency=_optional_string(client.get("DefaultCurrency")),
             accounts=tuple(accounts),
             balance_currency=_optional_string(balance.get("Currency")),
