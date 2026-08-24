@@ -28,6 +28,7 @@ from .paper_experiment import (
     PaperExperimentLedger,
     estimate_edge,
     experimental_candidate,
+    experimental_position_quantity_cap,
 )
 from .portfolio_ledger import PortfolioLedger
 from .preflight import run_preflight
@@ -344,6 +345,7 @@ class AutonomousPaperTradingJob:
             "paper_experiment_enabled": self.experiment.enabled,
             "provider_crypto_universe": list(getattr(self, "provider_crypto_universe", ())),
             "eligible_crypto_universe": [i.symbol for i in histories if i.asset_class is AssetClass.CRYPTO],
+            "experimental_position_cap_pct": self.experiment.experimental_position_cap_pct,
         }
         if not signals:
             return JobResult(
@@ -397,7 +399,7 @@ class AutonomousPaperTradingJob:
                 if pillar_for_asset(p.asset_class) == pillar
             )
             if signal.mode == "EXPERIMENTAL_PAPER" and pillar_notional >= pillar_limit * self.experiment.experimental_max_pillar_utilization:
-                rejections.append({"symbol": signal.instrument.symbol, "pillar": pillar, "mode": signal.mode, "reason": "experimental capital envelope reached"})
+                rejections.append({"symbol": signal.instrument.symbol, "pillar": pillar, "mode": signal.mode, "reason": "CAPITAL_CONCENTRATION_HOLD" if pillar == "alpaca_crypto" else "experimental capital envelope reached"})
                 continue
             if pillar_notional >= pillar_limit:
                 rejections.append(
@@ -468,6 +470,7 @@ class AutonomousPaperTradingJob:
                 requested_quantity = min(decision.quantity, capacity_quantity, pillar_risk_quantity)
                 if signal.mode == "EXPERIMENTAL_PAPER":
                     requested_quantity *= self.experiment.experimental_risk_scale
+                    requested_quantity = min(requested_quantity, experimental_position_quantity_cap(pillar_capital=pillar_limit, entry_price=signal.proposal.entry_price, config=self.experiment))
                 provider_quantity, provider_reason = crypto_quantity_for_notional(
                     signal.instrument.symbol,
                     signal.proposal.entry_price,

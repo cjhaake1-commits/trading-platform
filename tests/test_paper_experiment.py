@@ -4,6 +4,7 @@ from autotrader.paper_experiment import (
     PaperExperimentLedger,
     estimate_edge,
     experimental_candidate,
+    experimental_position_quantity_cap,
 )
 from autotrader.scanner import CandidateScanner
 
@@ -55,3 +56,8 @@ def test_champion_challenger_decision_and_outcome_are_persisted(tmp_path):
         row = connection.execute("SELECT lane, outcome_json FROM experiment_decisions WHERE id=?", (decision_id,)).fetchone()
     assert row[0] == "EXPERIMENTAL_PAPER"
     assert "mfe" in row[1]
+
+
+def test_experimental_crypto_position_cap_is_bounded_to_twenty_percent():
+    config = PaperExperimentConfig(enabled=True)
+    assert experimental_position_quantity_cap(pillar_capital=1000.0, entry_price=100.0, config=config) * 100.0 == 200.0

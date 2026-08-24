@@ -537,6 +537,15 @@ def fetch_live_broker_data() -> tuple[
     }
     errors: list[str] = []
     eligible_symbols = _eligible_strategy_symbols()
+    active_metals_symbols: set[str] = set()
+    try:
+        with sqlite3.connect("var/autotrader/metals_trades.db") as conn:
+            rows = conn.execute(
+                "SELECT instrument FROM metals_trades WHERE status IN ('approved','executed') AND closed_at IS NULL"
+            ).fetchall()
+        active_metals_symbols = {str(row[0]).upper() for row in rows if row and row[0]}
+    except sqlite3.Error:
+        pass
 
     alpaca_key = _secret("ALPACA_PAPER_API_KEY")
     alpaca_secret = _secret("ALPACA_PAPER_SECRET_KEY")
@@ -564,13 +573,18 @@ def fetch_live_broker_data() -> tuple[
                 is_metal = symbol in METALS_UNIVERSE and not is_crypto
                 pillar = "Crypto" if is_crypto else ("Metals / Commodities" if is_metal else "US Stocks / ETFs")
                 broker_key = "alpaca_crypto" if is_crypto else "alpaca_equities"
-                strategy_position = (broker_key, symbol) in eligible_symbols
+                strategy_position = (broker_key, symbol) in eligible_symbols or (is_metal and symbol in active_metals_symbols)
                 pillar_status[pillar]["broker_positions"] += 1
                 qty = _float(row.get("qty"))
                 avg = _float(row.get("avg_entry_price"))
                 current = _float(row.get("current_price"), avg)
                 market_value = abs(_float(row.get("market_value"), qty * current))
                 unrealized = _float(row.get("unrealized_pl"))
+                lane = (
+                    "LEGACY / PRE-EXPERIMENT LARGE PAPER POSITION"
+                    if is_crypto and market_value >= 750.0 and (broker_key, symbol) not in eligible_symbols
+                    else ("BASELINE" if strategy_position else "LEGACY")
+                )
                 positions.append(
                     {
                         "pillar": pillar,
@@ -585,6 +599,7 @@ def fetch_live_broker_data() -> tuple[
                         "unrealized_pct": _float(row.get("unrealized_plpc")),
                         "classification": "VALID_STRATEGY_POSITION" if strategy_position else "LEGACY_BROKER_EXPOSURE",
                         "classification_reason": "durable strategy manifest or V2 provenance" if strategy_position else "not eligible for current strategy accounting",
+                        "lane": lane,
                     }
                 )
                 if strategy_position:
@@ -1575,6 +1590,12 @@ def _render_dashboard_legacy() -> None:
         c4.metric("Baseline Candidates", str(latest_crypto.get("baseline_candidates") or 0))
         c5.metric("Experimental Candidates", str(latest_crypto.get("experimental_candidates") or 0))
         st.caption("Experimental entries are PAPER-only challengers with explicit cost-positive edge assumptions; baseline evidence remains separate.")
+    crypto_live = [row for row in live_positions if isinstance(row, dict) and str(row.get("pillar") or "") == "Crypto"]
+    crypto_deployed = sum(_float(row.get("market_value")) for row in crypto_live)
+    largest_crypto = max((_float(row.get("market_value")) for row in crypto_live), default=0.0)
+    crypto_cap = _float((crypto_cycles[0] if crypto_cycles else {}).get("experimental_position_cap_pct"), 0.20)
+    if crypto_live:
+        st.markdown("<div class='small-note'>Crypto capital concentration: <strong>{:.2f}% deployed</strong> · largest position <strong>{:.2f}% of pillar</strong> · future experimental position cap <strong>{:.2f}%</strong> · available capacity <strong>{}</strong></div>".format(crypto_deployed / PILLAR_BASE_CAPITAL * 100.0, largest_crypto / PILLAR_BASE_CAPITAL * 100.0, crypto_cap * 100.0, _money(max(PILLAR_BASE_CAPITAL - crypto_deployed, 0.0))), unsafe_allow_html=True)
 
     st.markdown("<div class='section-title'>Capital & Cash Command Center</div>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
@@ -1803,6 +1824,9 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
         positions_count = int(broker_state.get("positions", (v2_metrics.get(name) or {}).get("positions", 0)) or 0)
         strategy_deployed = _float(broker_state.get("strategy_deployed", (v2_metrics.get(name) or {}).get("deployed", 0.0)))
         current_state, connection, blocker = _derive_pillar_state(name, job, broker_state, activity)
+        if name == "Metals / Commodities" and positions_count > 0 and strategy_deployed > 0:
+            current_state = "ACTIVE — POSITION OPEN"
+            blocker = "SIL PAPER position active"
         if name == "Kalshi":
             connection = str(kalshi_status["connection"])
             current_state = "OBSERVING"

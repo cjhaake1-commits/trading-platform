@@ -17,6 +17,7 @@ class PaperExperimentConfig:
     experimental_required_edge: float = 0.0025
     experimental_risk_scale: float = 0.50
     experimental_max_pillar_utilization: float = 0.75
+    experimental_position_cap_pct: float = 0.20
     crypto_fee_bps: float = 10.0
     crypto_slippage_bps: float = 10.0
     crypto_spread_bps: float = 20.0
@@ -93,6 +94,12 @@ class PaperExperimentLedger:
     def record_outcome(self, decision_id: int, outcome: dict[str, object]) -> None:
         with sqlite3.connect(self.path) as connection:
             connection.execute("UPDATE experiment_decisions SET outcome_json=? WHERE id=?", (json.dumps(outcome, default=str), decision_id))
+
+
+def experimental_position_quantity_cap(*, pillar_capital: float, entry_price: float, config: PaperExperimentConfig) -> float:
+    if pillar_capital <= 0 or entry_price <= 0:
+        return 0.0
+    return pillar_capital * config.experimental_position_cap_pct / entry_price
 
 
 def estimate_edge(candidate: ScanCandidate, proposal: TradeProposal, *, asset_class: AssetClass, experimental: bool) -> EdgeEstimate:
