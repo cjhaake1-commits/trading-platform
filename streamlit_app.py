@@ -1678,6 +1678,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "scanner": "ACTIVE"
                 if not job.get("disabled") and not job.get("last_error")
                 else ("DISABLED" if job.get("disabled") else "DEGRADED"),
+                "execution": "READY / EVALUATING" if not job.get("disabled") and not job.get("last_error") else "DEGRADED",
                 "state": current_state,
                 "blocker": blocker,
                 "legacy_exposure": _float(broker_state.get("gross_exposure", 0.0)),
