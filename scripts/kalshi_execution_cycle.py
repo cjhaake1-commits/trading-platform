@@ -38,11 +38,41 @@ def _perps_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
     # ask+1000*tick).  The scanner has no candidate order yet, so this stage
     # records whether the market supplies enough evidence to validate one.
     band_valid = [m for m in tick_valid if _number(m.get("bid")) > 0 and _number(m.get("ask")) > 0]
+    model_valid = [m for m in band_valid if _perps_baseline(m) is not None]
+    positive_edge = [m for m in model_valid if _perps_baseline(m)["net_edge"] > 0]
     return {"scanned": len(markets), "data_valid": len(active), "order_book_valid": len(valid_quotes), "liquid": len(liquid), "spread_valid": len(spread_valid),
             # Fee-tier metadata is optional for the current Demo margin surface;
             # its absence must not masquerade as a universal execution blocker.
-            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": len(band_valid), "model_valid": 0, "positive_edge": 0, "risk_approved": 0,
+            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": len(band_valid), "model_valid": len(model_valid), "positive_edge": len(positive_edge), "risk_approved": 0,
             "capital_approved": 0, "orders_submitted": 0}
+
+
+def _perps_baseline(market: dict[str, object]) -> dict[str, float | str] | None:
+    """Evaluate the existing transparent momentum baseline on a Perps quote.
+
+    The settlement mark is the provider's prior reference, so it is used as
+    the lookback anchor. Optional funding/fee metadata remains neutral when
+    absent; it never invalidates the baseline model.
+    """
+    bid = _number(market.get("bid"))
+    ask = _number(market.get("ask"))
+    mark = market.get("settlement_mark_price")
+    mark_price = _number(mark.get("price")) if isinstance(mark, dict) else None
+    if bid is None or ask is None or mark_price is None or mark_price <= 0 or ask < bid:
+        return None
+    mid = (bid + ask) / 2.0
+    momentum = (mid / mark_price) - 1.0
+    spread_cost = max(ask - bid, 0.0)
+    gross_move = abs(momentum) * mid
+    net_edge = gross_move - spread_cost
+    return {
+        "signal": "LONG" if momentum > 0 else ("SHORT" if momentum < 0 else "NEUTRAL"),
+        "gross_move": gross_move,
+        "spread_cost": spread_cost,
+        "fee_cost": 0.0,
+        "funding_cost": 0.0,
+        "net_edge": net_edge,
+    }
 
 
 def _number(value: object) -> float | None:
@@ -82,7 +112,11 @@ def cycle() -> dict[str, object]:
             markets = client.perps_markets(limit="100")
             rows = markets.get("markets", [])
             funnel = _perps_funnel(rows)
-            rejection = "MODEL_INPUT_UNAVAILABLE"
+            result["top_candidates"] = sorted(
+                [{"ticker": m.get("ticker"), **_perps_baseline(m)} for m in rows if _perps_baseline(m) is not None],
+                key=lambda x: float(x["net_edge"]), reverse=True,
+            )[:10]
+            rejection = "NO_POSITIVE_EDGE"
             if funnel.get("band_valid", 0) == 0:
                 rejection = "PRICE_BAND_UNAVAILABLE"
             result.update({"state": "SCANNING" if enabled.get("enabled", True) else "EXTERNAL_BLOCK",

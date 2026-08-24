@@ -16,3 +16,21 @@ def test_rejection_funnels_keep_missing_liquidity_out_of_positive_edge():
     assert predictions["scanned"] == 1 and predictions["spread_valid"] == 1
     assert predictions["positive_edge"] == 0 and predictions["orders_submitted"] == 0
     assert perps["data_valid"] == 1 and perps["liquid"] == 0
+
+
+def test_perps_baseline_model_is_computed_from_provider_reference():
+    from scripts.kalshi_execution_cycle import _perps_baseline, _perps_funnel
+
+    market = {
+        "status": "active",
+        "bid": "3.20",
+        "ask": "3.21",
+        "volume_24h": "100",
+        "tick_size": "0.0001",
+        "settlement_mark_price": {"price": "3.19"},
+    }
+    model = _perps_baseline(market)
+    funnel = _perps_funnel([market])
+    assert model is not None
+    assert model["signal"] == "LONG"
+    assert funnel["model_valid"] == 1
