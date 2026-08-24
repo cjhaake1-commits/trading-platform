@@ -298,7 +298,7 @@ class AutonomousPaperTradingJob:
                 minimum_score=minimum_score,
                 momentum_only_score=momentum_score,
             )
-            if signal is None:
+            if signal is None and instrument.asset_class is AssetClass.CRYPTO:
                 signal = choose_experimental_long_signal(
                     instrument,
                     bars,
