@@ -222,6 +222,8 @@ class AutonomousPaperTradingJob:
             if str(manifest.get("created_at") or "") < self.experiment_baseline_start.isoformat():
                 continue
             pillar = str(manifest.get("pillar") or "unknown")
+            if pillar == "alpaca_crypto" and not self._crypto_manifest_is_live(manifest):
+                continue
             counts[pillar] = counts.get(pillar, 0) + 1
         return counts
 
@@ -232,6 +234,8 @@ class AutonomousPaperTradingJob:
                 continue
             if str(manifest.get("lifecycle_state")) not in self.unresolved_states:
                 continue
+            if str(manifest.get("pillar") or "unknown") == "alpaca_crypto" and not self._crypto_manifest_is_live(manifest):
+                continue
             approved = float(manifest.get("approved_notional") or 0.0)
             filled = float(manifest.get("filled_quantity") or 0.0)
             average = float(manifest.get("average_fill_price") or 0.0)
@@ -239,6 +243,20 @@ class AutonomousPaperTradingJob:
             pillar = str(manifest.get("pillar") or "unknown")
             pending[pillar] = pending.get(pillar, 0.0) + remaining
         return pending
+
+    def _crypto_manifest_is_live(self, manifest: dict[str, object]) -> bool:
+        """Count a Crypto manifest only while broker state still exists."""
+        symbol = str(manifest.get("canonical_symbol") or "")
+        if not symbol:
+            return False
+        try:
+            broker = AlpacaCryptoExitPaperBroker.from_env()
+            if broker.position(symbol) is not None:
+                return True
+            return bool(broker.open_orders(symbol))
+        except Exception:
+            # Unknown provider state fails closed for allocation purposes.
+            return True
 
     def run(self, now: datetime) -> JobResult:
         if now.tzinfo is None:

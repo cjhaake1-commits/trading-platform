@@ -75,6 +75,11 @@ def _derive_pillar_state(
             return "DEGRADED — PROVIDER", "DEGRADED", str(latest_cycle.get("last_error") or latest_cycle.get("error"))
         if name == "Crypto" and int(broker_state.get("positions", 0) or 0) == 0:
             if int(latest_cycle.get("crypto_scanned", 0) or 0) > 0:
+                if any(
+                    str(row.get("details", {}).get("order_status") or "").lower() in {"new", "accepted", "pending", "partially_filled"}
+                    for row in (latest_cycle.get("submission_failures") or []) if isinstance(row, dict)
+                ):
+                    return "ACTIVE — ORDER WORKING", "CONNECTED", "Alpaca PAPER order pending reconciliation"
                 qualified = int(latest_cycle.get("crypto_qualified", 0) or 0)
                 reason = "NO QUALIFIED EDGE" if qualified == 0 else "READY FOR OPPORTUNITY RANKING"
                 state = "READY — NO QUALIFIED EDGE" if qualified == 0 else "READY — EVALUATING OPPORTUNITIES"
