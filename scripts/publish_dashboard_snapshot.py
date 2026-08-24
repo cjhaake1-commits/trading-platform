@@ -111,6 +111,7 @@ def read_activity(path: Path, limit: int = 50) -> tuple[list[dict[str, object]],
                 "time": record.get("created_at") or record.get("timestamp") or record.get("occurred_at"),
                 "event": record.get("event_type") or record.get("type") or "event",
                 "message": message,
+                **data,
             }
         )
         if not latest_cycle and "Autonomous paper cycle" in message:

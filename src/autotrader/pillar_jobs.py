@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from math import ceil
 from pathlib import Path
 
 from .brokers.alpaca_metals_paper import AlpacaMetalsConfigurationError
@@ -69,6 +70,7 @@ class MetalsPaperTradingJob:
     cadence_seconds: float = 300.0
     history_path: str = "var/autotrader/metals_trades.db"
     universe: tuple[str, ...] = ("GLD", "IAU", "SGOL", "SLV", "SIVR", "GDX", "GDXJ", "SIL")
+    calendar_buffer_days: int = 14
 
     def __post_init__(self) -> None:
         self.feed = YahooHistoricalData()
@@ -93,9 +95,14 @@ class MetalsPaperTradingJob:
         histories = self._load_histories(now)
         if not histories:
             return JobResult(True, "Metals cycle found no usable market data", {"pillar": PILLAR_METALS})
+        readiness = self._readiness(histories, now)
         best = self._best_signal(histories)
         if best is None:
-            return JobResult(True, "Metals cycle found no qualifying entry", {"pillar": PILLAR_METALS})
+            return JobResult(
+                True,
+                "Metals cycle found no qualifying entry" if all(row["data_valid"] for row in readiness) else "Metals cycle blocked by insufficient history",
+                {"pillar": PILLAR_METALS, "history_required": self.required_bars, "history_lookback_days": self.history_lookback_days, "metals_diagnostics": readiness},
+            )
         candidate, proposal = best
 
         # This pillar has its own capital silo.  Do not use the shared Alpaca
@@ -127,6 +134,12 @@ class MetalsPaperTradingJob:
             metals_deployed=deployed,
             now=now,
         )
+        for row in readiness:
+            if row["symbol"] == candidate.instrument.symbol:
+                row["risk_evaluated"] = True
+                row["capital_evaluated"] = True
+                row["qualified"] = result.approved
+                row["rejection"] = None if result.approved else result.reason
         return JobResult(
             True,
             "Metals cycle submitted paper order" if result.submitted else "Metals candidate rejected",
@@ -141,12 +154,55 @@ class MetalsPaperTradingJob:
                 "rejection": None if result.approved else result.reason,
                 "execution_result": result.reason,
                 "deployed": deployed,
+                "history_required": self.required_bars,
+                "history_lookback_days": self.history_lookback_days,
+                "metals_diagnostics": readiness,
             },
         )
 
+    @property
+    def required_bars(self) -> int:
+        config = self.strategies.config
+        return max(config.slow_window, config.breakout_window + 1, config.zscore_window)
+
+    @property
+    def history_lookback_days(self) -> int:
+        # Daily market data has roughly five sessions per seven calendar days.
+        # Add two session-equivalents for provider gaps plus an explicit holiday/
+        # weekend buffer. This is derived from the active strategy requirement.
+        session_buffer = ceil(self.required_bars * 2 / 5)
+        return ceil(self.required_bars * 7 / 5) + session_buffer + self.calendar_buffer_days
+
+    def _readiness(self, histories: dict[Instrument, list[MarketBar]], now: datetime) -> list[dict[str, object]]:
+        rows = []
+        for instrument, bars in histories.items():
+            candidate = self.scanner.score_instrument(instrument, bars) if bars else None
+            proposals = (
+                self.strategies.sma_cross(instrument, bars),
+                self.strategies.breakout(instrument, bars),
+                self.strategies.mean_reversion(instrument, bars),
+            ) if len(bars) >= self.required_bars else (None, None, None)
+            votes = [proposal.source + ":" + proposal.side.value for proposal in proposals if proposal is not None]
+            rows.append({
+                "symbol": instrument.symbol,
+                "bars_available": len(bars),
+                "bars_required": self.required_bars,
+                "data_valid": len(bars) >= self.required_bars,
+                "latest_bar": bars[-1].timestamp.isoformat() if bars else None,
+                "fresh": bool(bars and (now.astimezone(UTC) - bars[-1].timestamp).days <= 3),
+                "scanner_score": None if candidate is None else round(candidate.score, 6),
+                "strategy_evaluated": len(bars) >= self.required_bars,
+                "strategy_vote": ", ".join(votes) if votes else "NO_SIGNAL",
+                "risk_evaluated": False,
+                "capital_evaluated": False,
+                "qualified": False,
+                "rejection": None if len(bars) >= self.required_bars else "BLOCKED — INSUFFICIENT HISTORY",
+            })
+        return rows
+
     def _load_histories(self, now: datetime) -> dict[Instrument, list[MarketBar]]:
         end = now.astimezone(UTC)
-        start = end - timedelta(days=14)
+        start = end - timedelta(days=self.history_lookback_days)
         histories: dict[Instrument, list[MarketBar]] = {}
         for symbol in self.universe:
             instrument = Instrument(symbol, AssetClass.ETF)

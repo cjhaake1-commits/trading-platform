@@ -61,3 +61,46 @@ def test_metals_job_reaches_existing_execution_service_for_buy_candidate():
     assert job.service.calls[0][0].proposal.side is Side.BUY
     assert job.service.calls[0][1].equity == 1000.0
     assert job.service.calls[0][2] == 0.0
+
+
+def test_metals_history_window_is_derived_from_strategy_lookbacks():
+    job = MetalsPaperTradingJob.__new__(MetalsPaperTradingJob)
+    job.strategies = BaselineStrategies()
+    job.calendar_buffer_days = 14
+
+    assert job.required_bars == 21
+    assert job.history_lookback_days >= 35
+
+
+def test_metals_history_request_covers_weekends_and_provider_gaps():
+    job = MetalsPaperTradingJob.__new__(MetalsPaperTradingJob)
+    job.strategies = BaselineStrategies()
+    job.calendar_buffer_days = 14
+    captured = {}
+
+    class Feed:
+        def history(self, instrument, start, end):
+            captured[instrument.symbol] = (start, end)
+            return _history(instrument.symbol)
+
+    job.feed = Feed()
+    job.universe = ("GLD",)
+    result = job._load_histories(datetime(2026, 8, 24, tzinfo=UTC))
+
+    assert len(result[Instrument("GLD", AssetClass.ETF)]) == 25
+    assert (captured["GLD"][1] - captured["GLD"][0]).days == job.history_lookback_days
+
+
+def test_metals_insufficient_history_is_explicitly_data_readiness_blocked():
+    job = MetalsPaperTradingJob.__new__(MetalsPaperTradingJob)
+    job.strategies = BaselineStrategies()
+    job.scanner = CandidateScanner()
+    job.universe = ("GLD",)
+    job.service = None
+    job._load_histories = lambda now: {Instrument("GLD", AssetClass.ETF): _history("GLD")[:11]}
+
+    result = job._readiness(job._load_histories(datetime(2026, 8, 24, tzinfo=UTC)), datetime(2026, 8, 24, tzinfo=UTC))
+
+    assert result[0]["data_valid"] is False
+    assert result[0]["strategy_evaluated"] is False
+    assert result[0]["rejection"] == "BLOCKED — INSUFFICIENT HISTORY"

@@ -1524,6 +1524,40 @@ def _render_dashboard_legacy() -> None:
             with col:
                 _render_pillar_card(pillar["name"], pillar)
 
+    metals_cycles = [
+        row for row in activity
+        if isinstance(row, dict)
+        and str(row.get("job") or "") == "alpaca-metals-paper-trading"
+        and isinstance(row.get("metals_diagnostics"), list)
+    ]
+    if metals_cycles:
+        latest_metals = metals_cycles[0]
+        diagnostics = latest_metals.get("metals_diagnostics", [])
+        st.markdown("<div class='section-title'>Metals Strategy Readiness</div>", unsafe_allow_html=True)
+        st.dataframe(
+            [
+                {
+                    "Symbol": row.get("symbol"),
+                    "History Bars": row.get("bars_available"),
+                    "Required Bars": row.get("bars_required"),
+                    "Data Valid": row.get("data_valid"),
+                    "Scanner Score": row.get("scanner_score"),
+                    "Strategy Evaluated": row.get("strategy_evaluated"),
+                    "Strategy Vote": row.get("strategy_vote"),
+                    "Risk Approved": row.get("risk_approved"),
+                    "Capital Approved": row.get("capital_approved"),
+                    "Qualified": row.get("qualified"),
+                    "Orders": 0,
+                    "Fills": 0,
+                    "Positions": 0,
+                    "Rejection": row.get("rejection"),
+                }
+                for row in diagnostics
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
     st.markdown("<div class='section-title'>Capital & Cash Command Center</div>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Starting Strategy Capital", _money(original_capital))
