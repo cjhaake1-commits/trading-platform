@@ -605,7 +605,7 @@ def fetch_live_broker_data() -> tuple[
             pillar_status["International"]["connected"] = True
             pillar_status["International"]["positions"] = 0
             pillar_status["International"]["state"] = (
-                "CONNECTED / EXTERNAL SAXO WRITE BLOCK" if summary.read_only else "CONNECTED / READY / EVALUATING"
+                "CONNECTED / READY / EVALUATING" if summary.read_only is False else "CONNECTED / EXTERNAL SAXO WRITE BLOCK"
             )
             metrics["gross_exposure"] += 0.0
             _ = summary  # keep the read-only probe explicit and side-effect free

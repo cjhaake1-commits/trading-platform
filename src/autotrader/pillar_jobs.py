@@ -48,10 +48,11 @@ def _write_saxo_permission_status(*, now: datetime, authenticated: bool, read_on
         "base_url": "https://gateway.saxobank.com/sim/openapi",
         "read_only": read_only,
         "write_permission": authenticated and read_only is False,
-        "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK" if read_only else ("READY / EVALUATING" if authenticated else "AUTH REQUIRED"),
+        "write_capability": "WRITABLE" if read_only is False else ("READ_ONLY" if read_only is True else "UNKNOWN"),
+        "execution_state": "READY / EVALUATING" if authenticated and read_only is False else ("EXTERNAL ACCOUNT WRITE BLOCK" if authenticated else "AUTH REQUIRED"),
         "last_permission_check": now.astimezone(UTC).isoformat(),
         "shadow_candidate": shadow_candidate,
-        "shadow_rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION" if read_only else None,
+        "shadow_rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION" if read_only is not False else None,
         "error": error,
     }
     temporary = path.with_suffix(".tmp")
@@ -155,7 +156,7 @@ class InternationalPaperTradingJob:
             )
         try:
             summary = self.adapter.account_summary()
-            read_only = bool(summary.read_only)
+            read_only = summary.read_only
             instruments = self.adapter.search_instruments(
                 self.search_keywords,
                 asset_types=("Stock",),
@@ -191,6 +192,6 @@ class InternationalPaperTradingJob:
             return JobResult(True, "International cycle found no qualifying entry", {})
         candidate = ranked[0].instrument.symbol
         _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, shadow_candidate=candidate)
-        if read_only:
+        if read_only is not False:
             return JobResult(True, "International shadow candidate blocked by Saxo SIM permissions", {"candidate": candidate, "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK", "rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION"})
         return JobResult(True, "International cycle scanned successfully", {"candidate": candidate, "execution_state": "READY / EVALUATING"})

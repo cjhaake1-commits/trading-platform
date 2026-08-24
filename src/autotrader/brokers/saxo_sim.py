@@ -103,7 +103,9 @@ class SaxoSafeAccountSummary:
     cash_available_for_trading: float | None
     total_value: float | None
     international_allocation_cap: float = INTERNATIONAL_SIM_CAPITAL
-    read_only: bool = True
+    # Portfolio endpoints do not expose OAuth write capability. None means
+    # write access has not been proven and the execution boundary fails closed.
+    read_only: bool | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -540,6 +542,7 @@ class SaxoSimAdapter:
             cash_balance=_optional_float(balance.get("CashBalance")),
             cash_available_for_trading=_optional_float(balance.get("CashAvailableForTrading")),
             total_value=_optional_float(balance.get("TotalValue")),
+            read_only=None,
         )
 
     def submit_order(self, order: SaxoApprovedOrder) -> SaxoOrderResult:
