@@ -9,9 +9,9 @@ def test_streamlit_entrypoint_imports_with_src_layout():
     assert module.__name__ == "streamlit_app"
 
 
-def test_streamlit_dashboard_copy_includes_five_pillars_and_benchmarks():
+def test_streamlit_dashboard_copy_includes_six_pillars_and_benchmarks():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
-    assert "FIVE-PILLAR AUTONOMOUS TRADING COMMAND CENTER" in source
+    assert "SIX-PILLAR AUTONOMOUS TRADING COMMAND CENTER" in source
     assert "CHRIS HAAKE CAPITAL SYSTEMS" in source
     assert "US Stocks / ETFs" in source
     assert "Forex" in source

@@ -426,7 +426,11 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
           <div class="pillar-grid">
             <div><span>Authorized Capital</span><strong>{_money(data.get("cap"))}</strong></div>
             <div><span>Deployed Capital</span><strong>{_money(data.get("deployed"))}</strong></div>
+            <div><span>Pending Capital</span><strong>{_money(data.get("pending"))}</strong></div>
             <div><span>Available Capital</span><strong>{_money(data.get("available"))}</strong></div>
+            <div><span>Utilization</span><strong>{_pct((_float(data.get("deployed")) + _float(data.get("pending"))) / _float(data.get("cap")) if _float(data.get("cap")) else 0.0)}</strong></div>
+            <div><span>Position Cost Basis</span><strong>{_money(data.get("cost_basis", data.get("deployed")))}</strong></div>
+            <div><span>Position Market Value</span><strong>{_money(data.get("deployed"))}</strong></div>
             <div><span>Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
             <div><span>Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
             <div><span>Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
@@ -443,13 +447,13 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Evidence Maturity</span><strong>{escape(str(data.get("evidence") or "COLLECTING"))}</strong></div>
             <div><span>Last Research Update</span><strong>{escape(str(data.get("last_research") or "UNAVAILABLE"))}</strong></div>
             <div><span>Last Learning Update</span><strong>{escape(str(data.get("last_learning") or "UNAVAILABLE"))}</strong></div>
-            <div><span>Perps API / Margin</span><strong>{escape(str(data.get("perps_rest") or "UNAVAILABLE"))} / {escape(str(data.get("perps_margin") or "UNKNOWN"))}</strong></div>
             <div><span>Last Rejection</span><strong>{escape(str(data.get("last_rejection") or "—"))}</strong></div>
             <div><span>Observations / Features</span><strong>{int(_float(data.get("observations")))} / {int(_float(data.get("features")))}</strong></div>
             <div><span>Cross-Market Samples</span><strong>{int(_float(data.get("cross_market")))}</strong></div>
             <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "UNAVAILABLE"))}</strong></div>
             <div><span>Last Decision</span><strong>{escape(str(data.get("last_decision") or "UNAVAILABLE"))}</strong></div>
             <div><span>Blocker</span><strong>{escape(str(data.get("blocker") or "NONE"))}</strong></div>
+            <div><span>Legacy Excluded</span><strong>{_money(data.get("legacy_exposure"))} / {int(_float(data.get("legacy_positions")))}</strong></div>
           </div>
         </div>
         """,
@@ -459,6 +463,37 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
 
 def _secret_warning(name: str) -> str:
     return "Configured" if _secret(name) else "Not configured"
+
+
+def _eligible_strategy_symbols() -> set[tuple[str, str]]:
+    """Return durable current-strategy symbols, excluding legacy broker exposure."""
+    eligible: set[tuple[str, str]] = set()
+    snapshot = _safe_json(DATA_PATH)
+    for row in snapshot.get("positions", []) if isinstance(snapshot.get("positions"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("classification") or "").upper() not in {"VALID_STRATEGY_POSITION", "ACTIVE V2"}:
+            continue
+        broker = str(row.get("broker") or "").lower()
+        symbol = str(row.get("symbol") or "").upper()
+        if broker.startswith("alpaca"):
+            eligible.add(("alpaca_crypto" if str(row.get("asset_class") or "").lower() == "crypto" else "alpaca_equities", symbol))
+        elif broker.startswith("oanda"):
+            eligible.add(("oanda", symbol))
+        elif symbol:
+            eligible.add(("saxo", symbol))
+    try:
+        with sqlite3.connect("var/autotrader/portfolio.db") as conn:
+            rows = conn.execute(
+                "SELECT broker, canonical_symbol, pillar FROM entry_manifests "
+                "WHERE lifecycle_state IN ('active', 'filled_position_pending')"
+            ).fetchall()
+        for broker, symbol, pillar in rows:
+            key = "alpaca_crypto" if "crypto" in str(pillar).lower() else ("oanda" if "oanda" in str(broker).lower() else "alpaca_equities")
+            eligible.add((key, str(symbol).upper()))
+    except sqlite3.Error:
+        pass
+    return eligible
 
 
 @st.cache_data(ttl=20)
@@ -476,13 +511,14 @@ def fetch_live_broker_data() -> tuple[
         "alpaca_exposure": 0.0,
     }
     pillar_status = {
-        "US Stocks / ETFs": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
-        "Crypto": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
-        "Metals / Commodities": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
-        "Forex": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
-        "International": {"connected": False, "positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0},
+        "US Stocks / ETFs": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
+        "Crypto": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
+        "Metals / Commodities": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
+        "Forex": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
+        "International": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
     }
     errors: list[str] = []
+    eligible_symbols = _eligible_strategy_symbols()
 
     alpaca_key = _secret("ALPACA_PAPER_API_KEY")
     alpaca_secret = _secret("ALPACA_PAPER_SECRET_KEY")
@@ -509,6 +545,9 @@ def fetch_live_broker_data() -> tuple[
                 symbol = str(row.get("symbol") or "").upper()
                 is_metal = symbol in METALS_UNIVERSE and not is_crypto
                 pillar = "Crypto" if is_crypto else ("Metals / Commodities" if is_metal else "US Stocks / ETFs")
+                broker_key = "alpaca_crypto" if is_crypto else "alpaca_equities"
+                strategy_position = (broker_key, symbol) in eligible_symbols
+                pillar_status[pillar]["broker_positions"] += 1
                 qty = _float(row.get("qty"))
                 avg = _float(row.get("avg_entry_price"))
                 current = _float(row.get("current_price"), avg)
@@ -526,16 +565,23 @@ def fetch_live_broker_data() -> tuple[
                         "market_value": market_value,
                         "unrealized_pnl": unrealized,
                         "unrealized_pct": _float(row.get("unrealized_plpc")),
+                        "classification": "VALID_STRATEGY_POSITION" if strategy_position else "LEGACY_BROKER_EXPOSURE",
+                        "classification_reason": "durable strategy manifest or V2 provenance" if strategy_position else "not eligible for current strategy accounting",
                     }
                 )
-                metrics["unrealized_pnl"] += unrealized
+                if strategy_position:
+                    metrics["unrealized_pnl"] += unrealized
+                    pillar_status[pillar]["unrealized_pnl"] += unrealized
+                    pillar_status[pillar]["strategy_deployed"] += market_value
+                    pillar_status[pillar]["strategy_cost_basis"] += abs(qty * avg)
+                    pillar_status[pillar]["positions"] += 1
+                else:
+                    pillar_status[pillar]["legacy_exposure"] += market_value
                 metrics["gross_exposure"] += market_value
                 metrics["alpaca_exposure"] += market_value
                 metrics["equity_exposure"] += 0.0 if is_crypto or is_metal else market_value
                 metrics["crypto_exposure"] += market_value if is_crypto else 0.0
                 metrics["metals_exposure"] += market_value if is_metal else 0.0
-                pillar_status[pillar]["positions"] += 1
-                pillar_status[pillar]["unrealized_pnl"] += unrealized
             for pillar in ("US Stocks / ETFs", "Crypto", "Metals / Commodities"):
                 pillar_status[pillar]["state"] = "TRADING" if pillar_status[pillar]["positions"] else "FLAT"
         except Exception as exc:
@@ -556,7 +602,6 @@ def fetch_live_broker_data() -> tuple[
                 payload = json.load(r)
             rows = payload.get("positions", []) if isinstance(payload, dict) else []
             pillar_status["Forex"]["connected"] = True
-            pillar_status["Forex"]["positions"] = len(rows)
             pillar_status["Forex"]["state"] = "TRADING" if rows else "FLAT"
             for row in rows:
                 symbol = str(row.get("instrument") or "").replace("_", "/")
@@ -581,8 +626,14 @@ def fetch_live_broker_data() -> tuple[
                         "market_value": exposure,
                         "unrealized_pnl": unrealized,
                         "unrealized_pct": None,
+                        "classification": "VALID_STRATEGY_POSITION",
                     }
                 )
+                pillar_status["Forex"]["broker_positions"] += 1
+                pillar_status["Forex"]["positions"] += 1
+                pillar_status["Forex"]["strategy_deployed"] += exposure
+                pillar_status["Forex"]["strategy_cost_basis"] += exposure
+                pillar_status["Forex"]["unrealized_pnl"] += unrealized
                 metrics["unrealized_pnl"] += unrealized
                 metrics["gross_exposure"] += exposure
                 metrics["oanda_exposure"] += exposure
@@ -917,7 +968,7 @@ def _render_overview(ctx: dict[str, object]) -> None:
     st.markdown("<div class='section-title'>Capital & Cash Command Center</div>", unsafe_allow_html=True)
     st.markdown(
         f"<div class='panel'><div class='section-title'>CAPITAL HISTORY</div>"
-        f"<div class='small-note'>ORIGINAL FIVE-PILLAR BASE: <strong>{_money(TOTAL_BASE_CAPITAL)}</strong> · "
+        f"<div class='small-note'>HISTORICAL FIVE-PILLAR BASE: <strong>{_money(TOTAL_BASE_CAPITAL)}</strong> · "
         f"KALSHI DEMO BASE: <strong>{_money(KALSHI_BASE_CAPITAL)}</strong> · "
         f"SIX-PILLAR BASE: <strong>{_money(SIX_PILLAR_BASE_CAPITAL)}</strong></div></div>",
         unsafe_allow_html=True,
@@ -1291,7 +1342,7 @@ def _render_dashboard_legacy() -> None:
         <div class="brand-box">
           <div class="brand-mark">CH</div>
           <div class="brand-name">Chris Haake<br>Capital Systems</div>
-          <div class="brand-sub">FIVE-PILLAR AUTONOMOUS SYSTEM</div>
+          <div class="brand-sub">SIX-PILLAR AUTONOMOUS SYSTEM</div>
           <div class="brand-sub">Christopher J. Haake</div>
           <div class="brand-footer">Research. Discipline. Execution.</div>
         </div>
@@ -1301,7 +1352,7 @@ def _render_dashboard_legacy() -> None:
 
     st.markdown(
         """
-        <div class="hero-title">FIVE-PILLAR AUTONOMOUS TRADING COMMAND CENTER</div>
+        <div class="hero-title">SIX-PILLAR AUTONOMOUS TRADING COMMAND CENTER</div>
         <div class="hero-sub">Research · Execution · Learning · Capital Discipline</div>
         """,
         unsafe_allow_html=True,
@@ -1315,7 +1366,7 @@ def _render_dashboard_legacy() -> None:
           <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {"status-healthy" if runtime_labels["runtime_health"] == "Healthy" else "status-faulted"}">{escape(runtime_labels["runtime_health"])}</div></div>
           <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {"status-armed" if autonomous_state == "ARMED" else "status-disarmed"}">{escape(autonomous_state)}</div></div>
           <div class="status-card"><div class="status-label">LIVE TRADING</div><div class="status-value status-disabled">{escape(live_state)}</div></div>
-          <div class="status-card"><div class="status-label">FIVE-PILLAR STATUS</div><div class="status-value">{escape(five_state)}</div></div>
+          <div class="status-card"><div class="status-label">SIX-PILLAR STATUS</div><div class="status-value">{escape(five_state)}</div></div>
           <div class="status-card"><div class="status-label">LEARNING ENGINE</div><div class="status-value">{escape(learning_engine_state)}</div></div>
           <div class="status-card"><div class="status-label">LAST HEARTBEAT</div><div class="status-value">{escape(heartbeat_age)}</div></div>
           <div class="status-card"><div class="status-label">LAST CYCLE</div><div class="status-value">{escape(cycle_age)}</div></div>
@@ -1343,7 +1394,7 @@ def _render_dashboard_legacy() -> None:
             unsafe_allow_html=True,
         )
 
-    st.markdown("<div class='section-title'>Five Pillars</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Six Pillars</div>", unsafe_allow_html=True)
     pillar_view = []
     kalshi_status = _kalshi_status()
     for name, broker, accent in PILLARS:
@@ -1609,7 +1660,7 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
     runtime_labels = ctx["runtime_labels"]
     st.markdown(
         """
-        <div class="hero-title">FIVE-PILLAR AUTONOMOUS TRADING COMMAND CENTER</div>
+        <div class="hero-title">SIX-PILLAR AUTONOMOUS TRADING COMMAND CENTER</div>
         <div class="hero-sub">Research · Execution · Learning · Capital Discipline</div>
         """,
         unsafe_allow_html=True,
@@ -1622,7 +1673,7 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
           <div class="status-card"><div class="status-label">SYSTEM STATUS</div><div class="status-value {"status-healthy" if runtime_labels["runtime_health"] == "Healthy" else "status-faulted"}">{escape(runtime_labels["runtime_health"])}</div></div>
           <div class="status-card"><div class="status-label">AUTONOMOUS PAPER</div><div class="status-value {"status-armed" if ctx["autonomous_state"] == "ARMED" else "status-disarmed"}">{escape(str(ctx["autonomous_state"]))}</div></div>
           <div class="status-card"><div class="status-label">LIVE TRADING</div><div class="status-value status-disabled">{escape(str(ctx["live_state"]))}</div></div>
-          <div class="status-card"><div class="status-label">FIVE-PILLAR STATUS</div><div class="status-value">{escape(str(ctx["five_state"]))}</div></div>
+          <div class="status-card"><div class="status-label">SIX-PILLAR STATUS</div><div class="status-value">{escape(str(ctx["five_state"]))}</div></div>
           <div class="status-card"><div class="status-label">LEARNING ENGINE</div><div class="status-value">{escape(str(ctx["learning_engine_state"]))}</div></div>
           <div class="status-card"><div class="status-label">LAST HEARTBEAT</div><div class="status-value">{escape(str(ctx["heartbeat_age"]))}</div></div>
           <div class="status-card"><div class="status-label">LAST CYCLE</div><div class="status-value">{escape(str(ctx["cycle_age"]))}</div></div>
@@ -1656,7 +1707,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
         job = job if isinstance(job, dict) else {}
         broker_state = live_pillar_status.get(name) if isinstance(live_pillar_status, dict) else {}
         broker_state = broker_state if isinstance(broker_state, dict) else {}
-        positions_count = int((v2_metrics.get(name) or {}).get("positions", 0) or 0)
+        positions_count = int(broker_state.get("positions", (v2_metrics.get(name) or {}).get("positions", 0)) or 0)
+        strategy_deployed = _float(broker_state.get("strategy_deployed", (v2_metrics.get(name) or {}).get("deployed", 0.0)))
         current_state, connection, blocker = _derive_pillar_state(name, job, broker_state, activity)
         if name == "Kalshi":
             connection = str(kalshi_status["connection"])
@@ -1669,10 +1721,12 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "broker": broker,
                 "accent": accent,
                 "cap": PILLAR_BASE_CAPITAL,
-                "deployed": _float((v2_metrics.get(name) or {}).get("deployed")),
-                "available": max(PILLAR_BASE_CAPITAL - _float((v2_metrics.get(name) or {}).get("deployed")), 0.0),
+                "deployed": strategy_deployed,
+                "cost_basis": _float(broker_state.get("strategy_cost_basis", strategy_deployed)),
+                "pending": 0.0,
+                "available": max(PILLAR_BASE_CAPITAL - strategy_deployed, 0.0),
                 "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
-                "unrealized_pnl": _float(broker_state.get("unrealized_pnl", 0.0)),
+                "unrealized_pnl": _float(broker_state.get("unrealized_pnl", (v2_metrics.get(name) or {}).get("unrealized_pnl", 0.0))),
                 "positions": positions_count,
                 "completed_trades": _float((pillar_performance.get(name) or {}).get("number_of_trades")),
                 "win_rate": f"{_float((pillar_performance.get(name) or {}).get('win_rate')) * 100:.2f}%",
@@ -1687,8 +1741,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "execution": "READY / EVALUATING" if not job.get("disabled") and not job.get("last_error") else "DEGRADED",
                 "state": current_state,
                 "blocker": blocker,
-                "legacy_exposure": _float(broker_state.get("gross_exposure", 0.0)),
-                "legacy_positions": max(int(broker_state.get("positions", 0) or 0) - positions_count, 0),
+                "legacy_exposure": _float(broker_state.get("legacy_exposure", 0.0)),
+                "legacy_positions": max(int(broker_state.get("broker_positions", 0) or 0) - positions_count, 0),
                 "data": (v2_metrics.get(name) or {}).get("data", "FRESH" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
                 "research": (v2_metrics.get(name) or {}).get("research", "ACTIVE" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
                 "learning": (v2_metrics.get(name) or {}).get("learning", "ACTIVE" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
@@ -2157,7 +2211,7 @@ def render_dashboard() -> None:
         <div class="brand-box">
           <div class="brand-mark">CH</div>
           <div class="brand-name">Chris Haake<br>Capital Systems</div>
-        <div class="brand-sub">FIVE-PILLAR AUTONOMOUS SYSTEM</div>
+        <div class="brand-sub">SIX-PILLAR AUTONOMOUS SYSTEM</div>
         <div class="brand-sub">Christopher J. Haake</div>
         <div class="brand-footer">Research. Discipline. Execution.</div>
         </div>
