@@ -46,3 +46,16 @@ def test_crypto_and_international_use_execution_truth_states():
     assert "READY — NO QUALIFIED EDGE" in source
     assert "READY — WAITING FOR ELIGIBLE MARKET SESSION" in source
     assert "WHY NO NEW TRADE?" in source
+
+
+def test_crypto_broker_symbol_normalization_preserves_position_ownership():
+    module = importlib.import_module("streamlit_app")
+    assert module._canonical_symbol("CRVUSD") == "CRV/USD"
+    assert module._canonical_symbol("CRV/USD") == "CRV/USD"
+    rows = module._build_live_positions(
+        [{"broker": "Alpaca Paper", "symbol": "CRV/USD", "classification": "VALID_STRATEGY_POSITION"}],
+        [{"broker": "Alpaca Paper", "symbol": "CRV/USD", "pillar": "Crypto", "market_value": 985.27}],
+    )
+    assert len(rows) == 1
+    assert rows[0]["pillar"] == "Crypto"
+    assert rows[0]["market_value"] == 985.27

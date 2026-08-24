@@ -59,6 +59,16 @@ PILLAR_JOB_MAP = {
 }
 
 
+def _canonical_symbol(symbol: object) -> str:
+    value = str(symbol or "").strip().upper().replace("_", "/")
+    if "/" in value:
+        return value
+    for quote in ("USDT", "USDC", "USD"):
+        if value.endswith(quote) and len(value) > len(quote):
+            return f"{value[:-len(quote)]}/{quote}"
+    return value
+
+
 def _derive_pillar_state(
     name: str,
     job: dict[str, object],
@@ -437,14 +447,14 @@ def _build_live_positions(
         if not isinstance(row, dict):
             continue
         broker = str(row.get("broker") or "").strip()
-        symbol = str(row.get("symbol") or "").upper()
+        symbol = _canonical_symbol(row.get("symbol"))
         if broker or symbol:
             merged[(broker, symbol)] = dict(row)
     for row in live_positions:
         if not isinstance(row, dict):
             continue
         broker = str(row.get("broker") or "").strip()
-        symbol = str(row.get("symbol") or "").upper()
+        symbol = _canonical_symbol(row.get("symbol"))
         key = (broker, symbol)
         existing = merged.get(key, {})
         updated = dict(existing)
@@ -519,7 +529,7 @@ def _eligible_strategy_symbols() -> set[tuple[str, str]]:
         if str(row.get("classification") or "").upper() not in {"VALID_STRATEGY_POSITION", "ACTIVE V2"}:
             continue
         broker = str(row.get("broker") or "").lower()
-        symbol = str(row.get("symbol") or "").upper()
+        symbol = _canonical_symbol(row.get("symbol"))
         if broker.startswith("alpaca"):
             eligible.add(("alpaca_crypto" if str(row.get("asset_class") or "").lower() == "crypto" else "alpaca_equities", symbol))
         elif broker.startswith("oanda"):
@@ -534,7 +544,7 @@ def _eligible_strategy_symbols() -> set[tuple[str, str]]:
             ).fetchall()
         for broker, symbol, pillar in rows:
             key = "alpaca_crypto" if "crypto" in str(pillar).lower() else ("oanda" if "oanda" in str(broker).lower() else "alpaca_equities")
-            eligible.add((key, str(symbol).upper()))
+            eligible.add((key, _canonical_symbol(symbol)))
     except sqlite3.Error:
         pass
     return eligible
@@ -618,7 +628,7 @@ def fetch_live_broker_data() -> tuple[
             for row in rows:
                 asset_class = str(row.get("asset_class") or "").lower()
                 is_crypto = asset_class == "crypto"
-                symbol = str(row.get("symbol") or "").upper()
+                symbol = _canonical_symbol(row.get("symbol"))
                 is_metal = symbol in METALS_UNIVERSE and not is_crypto
                 pillar = "Crypto" if is_crypto else ("Metals / Commodities" if is_metal else "US Stocks / ETFs")
                 broker_key = "alpaca_crypto" if is_crypto else "alpaca_equities"
@@ -1520,14 +1530,14 @@ def _render_dashboard_legacy() -> None:
                 "accent": accent,
                 "cap": PILLAR_BASE_CAPITAL,
                 "deployed": _float(
-                    live_state.get("gross_exposure", 0.0)
+                    live_state.get("strategy_market_value", live_state.get("gross_exposure", 0.0))
                     if name != "Forex"
                     else live_metrics.get("oanda_exposure", 0.0)
                 ),
                 "available": max(
                     PILLAR_BASE_CAPITAL
                     - _float(
-                        live_state.get("gross_exposure", 0.0)
+                        live_state.get("strategy_market_value", live_state.get("gross_exposure", 0.0))
                         if name != "Forex"
                         else live_metrics.get("oanda_exposure", 0.0)
                     ),
@@ -1900,6 +1910,9 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
         if name == "Metals / Commodities" and positions_count > 0 and strategy_deployed > 0:
             current_state = "ACTIVE — POSITION OPEN"
             blocker = "SIL PAPER position active"
+        if name == "Crypto" and positions_count > 0 and strategy_deployed > 0:
+            current_state = "ACTIVE — POSITION MANAGEMENT"
+            blocker = "CRV/USD PAPER position active"
         if name == "Kalshi":
             connection = str(kalshi_status["connection"])
             current_state = "OBSERVING"
@@ -1916,8 +1929,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "market_value": _float(broker_state.get("strategy_market_value", strategy_deployed)),
                 "gross_notional": _float(broker_state.get("gross_notional", 0.0)),
                 "margin_used": _float(broker_state.get("margin_used", 0.0)),
-                "pending": 0.0,
-                "available": max(PILLAR_BASE_CAPITAL - strategy_deployed, 0.0),
+                "pending": _float(broker_state.get("pending_capital")),
+                "available": max(PILLAR_BASE_CAPITAL - strategy_deployed - _float(broker_state.get("pending_capital")), 0.0),
                 "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
                 "unrealized_pnl": _float(broker_state.get("unrealized_pnl", (v2_metrics.get(name) or {}).get("unrealized_pnl", 0.0))),
                 "positions": positions_count,
