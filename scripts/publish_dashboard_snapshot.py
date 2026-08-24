@@ -176,6 +176,8 @@ def _classify_position_for_experiment(
     *,
     experiment_start: datetime | None,
 ) -> tuple[str, bool, str]:
+    if str(row.get("symbol") or "").upper() in METALS_UNIVERSE and str(row.get("pillar") or "") in {"Metals/Commodities", "Metals / Commodities"}:
+        return "VALID_STRATEGY_POSITION", True, "active Alpaca PAPER Metals position"
     metadata = row.get("metadata_json")
     if isinstance(metadata, str):
         try:
