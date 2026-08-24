@@ -431,6 +431,8 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Utilization</span><strong>{_pct((_float(data.get("deployed")) + _float(data.get("pending"))) / _float(data.get("cap")) if _float(data.get("cap")) else 0.0)}</strong></div>
             <div><span>Position Cost Basis</span><strong>{_money(data.get("cost_basis", data.get("deployed")))}</strong></div>
             <div><span>Position Market Value</span><strong>{_money(data.get("market_value", data.get("deployed")))}</strong></div>
+            <div><span>Gross Notional</span><strong>{_money(data.get("gross_notional"))}</strong></div>
+            <div><span>Committed Margin</span><strong>{_money(data.get("margin_used"))}</strong></div>
             <div><span>Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
             <div><span>Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
             <div><span>Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
@@ -602,8 +604,25 @@ def fetch_live_broker_data() -> tuple[
             with urlopen(req, timeout=10) as r:
                 payload = json.load(r)
             rows = payload.get("positions", []) if isinstance(payload, dict) else []
+            account_req = Request(
+                f"{oanda_base.rstrip('/')}/v3/accounts/{oanda_account}/summary",
+                headers={"Authorization": f"Bearer {oanda_token}", "Accept": "application/json"},
+            )
+            with urlopen(account_req, timeout=10) as r:
+                account_payload = json.load(r)
+            account = account_payload.get("account", {}) if isinstance(account_payload, dict) else {}
+            margin_used = _float(account.get("marginUsed"))
+            margin_available = _float(account.get("marginAvailable"))
+            margin_rate = _float(account.get("marginRate"))
+            position_value = _float(account.get("positionValue"))
             pillar_status["Forex"]["connected"] = True
             pillar_status["Forex"]["state"] = "TRADING" if rows else "FLAT"
+            pillar_status["Forex"].update({
+                "margin_used": margin_used,
+                "margin_available": margin_available,
+                "margin_rate": margin_rate,
+                "gross_notional": position_value,
+            })
             for row in rows:
                 symbol = str(row.get("instrument") or "").replace("_", "/")
                 long = row.get("long") if isinstance(row.get("long"), dict) else {}
@@ -625,6 +644,8 @@ def fetch_live_broker_data() -> tuple[
                         "average_price": avg,
                         "current_price": None,
                         "market_value": exposure,
+                        "gross_notional": exposure,
+                        "margin_committed": exposure * margin_rate,
                         "unrealized_pnl": unrealized,
                         "unrealized_pct": None,
                         "classification": "VALID_STRATEGY_POSITION",
@@ -639,6 +660,8 @@ def fetch_live_broker_data() -> tuple[
                 metrics["unrealized_pnl"] += unrealized
                 metrics["gross_exposure"] += exposure
                 metrics["oanda_exposure"] += exposure
+            pillar_status["Forex"]["strategy_deployed"] = margin_used
+            pillar_status["Forex"]["strategy_cost_basis"] = margin_used
         except Exception as exc:
             errors.append(f"OANDA live read failed: {exc}")
     else:
@@ -1726,6 +1749,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "deployed": strategy_deployed,
                 "cost_basis": _float(broker_state.get("strategy_cost_basis", strategy_deployed)),
                 "market_value": _float(broker_state.get("strategy_market_value", strategy_deployed)),
+                "gross_notional": _float(broker_state.get("gross_notional", 0.0)),
+                "margin_used": _float(broker_state.get("margin_used", 0.0)),
                 "pending": 0.0,
                 "available": max(PILLAR_BASE_CAPITAL - strategy_deployed, 0.0),
                 "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
