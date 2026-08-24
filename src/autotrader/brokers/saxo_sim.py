@@ -214,10 +214,11 @@ class SaxoChartSample:
 
 
 class SaxoSimAdapter:
-    """Fail-closed adapter for Saxo OpenAPI's simulation host.
+    """Fail-closed Saxo SIM adapter with a separately guarded write boundary.
 
-    Portfolio access is read-only. The order boundary accepts only structured
-    tickets marked as approved by the deterministic international risk service.
+    Read operations use the portfolio/reference surface. Mutation operations
+    are restricted to the SIM host and require deterministic risk approval;
+    provider/account write permissions are still authoritative at runtime.
     """
 
     def __init__(
@@ -398,6 +399,20 @@ class SaxoSimAdapter:
                 if "HTTP 401" in str(retry_exc):
                     self._auth_required = True
                 raise self._safe_error(retry_exc) from retry_exc
+        return payload
+
+    def _write(self, path: str, method: str, body: dict[str, object] | None = None) -> dict[str, object]:
+        if self.environment != SAXO_SIM_ENV or self.base_url != SAXO_SIM_BASE_URL:
+            raise SaxoConfigurationError("Saxo mutation is locked to the SIM endpoint")
+        headers = {
+            "Authorization": f"Bearer {self._access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        try:
+            payload, _ = self._request_json(f"{self.base_url}{path}", method, headers, body, 15.0)
+        except RuntimeError as exc:
+            raise self._safe_error(exc) from exc
         return payload
 
     def search_instruments(
@@ -592,6 +607,49 @@ class SaxoSimAdapter:
             fill_price=_optional_float(response.get("Price") or response.get("OrderPrice")),
             estimated_costs=None,
         )
+
+    def get_order(self, order_id: str, *, account_key: str) -> dict[str, object]:
+        if not order_id.strip() or not account_key.strip():
+            raise ValueError("Saxo order id and account key are required")
+        return self._read(f"/port/v1/orders/{order_id}?{urlencode({'ClientKey': account_key})}")
+
+    def cancel_order(self, order_id: str, *, account_key: str) -> dict[str, object]:
+        if not order_id.strip() or not account_key.strip():
+            raise ValueError("Saxo order id and account key are required")
+        return self._write(f"/trade/v2/orders/{order_id}?{urlencode({'AccountKey': account_key})}", "DELETE")
+
+    def list_orders(self, *, account_key: str) -> dict[str, object]:
+        if not account_key.strip():
+            raise ValueError("Saxo account key is required")
+        return self._read(f"/port/v1/orders?{urlencode({'ClientKey': account_key})}")
+
+    def list_positions(self, *, account_key: str) -> dict[str, object]:
+        if not account_key.strip():
+            raise ValueError("Saxo account key is required")
+        return self._read(f"/port/v1/positions?{urlencode({'ClientKey': account_key})}")
+
+    def close_position(self, *, account_key: str, position_id: str, uic: int, asset_type: str, amount: float, side: str) -> SaxoOrderResult:
+        if amount <= 0 or uic <= 0 or side.lower() not in {"buy", "sell"}:
+            raise ValueError("valid Saxo position close details are required")
+        response = self._write(
+            "/trade/v2/orders",
+            "POST",
+            {
+                "PositionId": position_id,
+                "Orders": [{
+                    "AccountKey": account_key,
+                    "Amount": amount,
+                    "AssetType": asset_type,
+                    "BuySell": side.title(),
+                    "OrderType": "Market",
+                    "ManualOrder": False,
+                    "OrderDuration": {"DurationType": "DayOrder"},
+                    "Uic": uic,
+                }],
+            },
+        )
+        order_id = _optional_string(response.get("OrderId"))
+        return SaxoOrderResult(bool(order_id), order_id, "Saxo SIM close accepted" if order_id else "Saxo SIM close omitted OrderId")
 
 
 def _optional_string(value: object) -> str | None:

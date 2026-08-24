@@ -22,6 +22,17 @@ class PracticeOrderResult:
     details: dict[str, object]
 
 
+@dataclass(frozen=True)
+class AlpacaCryptoTradingRules:
+    """Provider-declared crypto sizing and precision rules."""
+
+    symbol: str
+    min_order_size: Decimal | None
+    min_trade_increment: Decimal | None
+    price_increment: Decimal | None
+    tradable: bool
+
+
 def _request_json(
     url: str,
     *,
@@ -103,6 +114,57 @@ def _alpaca_crypto_increment(symbol: str) -> Decimal:
     except RuntimeError:
         pass
     return Decimal("0.01")
+
+
+def alpaca_crypto_trading_rules(symbol: str) -> AlpacaCryptoTradingRules:
+    """Return current Alpaca PAPER asset rules without inventing defaults.
+
+    A missing provider field remains ``None``.  Callers must classify that
+    field as unavailable rather than silently treating it as zero.
+    """
+    key, secret, base_url = _alpaca_credentials()
+    canonical = symbol.strip().upper().replace("/", "")
+    if not key or not secret:
+        return AlpacaCryptoTradingRules(canonical, None, None, None, False)
+    try:
+        asset, _ = _request_json(
+            f"{base_url}/v2/assets/{quote(canonical, safe='')}",
+            method="GET",
+            headers=_alpaca_headers(key, secret),
+        )
+    except RuntimeError:
+        return AlpacaCryptoTradingRules(canonical, None, None, None, False)
+    if not isinstance(asset, dict):
+        return AlpacaCryptoTradingRules(canonical, None, None, None, False)
+
+    def decimal_field(name: str) -> Decimal | None:
+        value = asset.get(name)
+        try:
+            return Decimal(str(value)) if value not in (None, "") else None
+        except (ArithmeticError, ValueError):
+            return None
+
+    return AlpacaCryptoTradingRules(
+        symbol=str(asset.get("symbol") or canonical),
+        min_order_size=decimal_field("min_order_size"),
+        min_trade_increment=decimal_field("min_trade_increment"),
+        price_increment=decimal_field("price_increment"),
+        tradable=asset.get("status") == "active" and asset.get("tradable") is True,
+    )
+
+
+def crypto_quantity_for_notional(symbol: str, price: float, notional: float) -> tuple[Decimal | None, str | None]:
+    """Normalize a crypto quantity against provider minimum and increments."""
+    if price <= 0 or notional <= 0:
+        raise ValueError("positive price and notional are required")
+    rules = alpaca_crypto_trading_rules(symbol)
+    if not rules.tradable or rules.min_order_size is None or rules.min_trade_increment is None:
+        return None, "PROVIDER_MINIMUM_UNAVAILABLE"
+    requested = Decimal(str(notional)) / Decimal(str(price))
+    quantity = max(requested, rules.min_order_size)
+    increment = rules.min_trade_increment
+    steps = (quantity / increment).to_integral_value(rounding="ROUND_CEILING")
+    return steps * increment, None
 
 
 def _alpaca_crypto_price(symbol: str, value: float) -> str:

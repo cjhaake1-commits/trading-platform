@@ -157,6 +157,29 @@ def test_risk_approved_order_posts_only_to_sim_with_protective_stop():
     assert "test-token" not in str(result)
 
 
+def test_saxo_sim_mutation_lifecycle_is_guarded_to_sim():
+    calls = []
+
+    def fake_request(url, method, headers, body, timeout):
+        calls.append((url, method, body))
+        if method == "POST":
+            return {"OrderId": "sim-1"}, {}
+        return {}, {}
+
+    adapter = SaxoSimAdapter(environment="sim", access_token="test-token", request_json=fake_request)
+    result = adapter.close_position(
+        account_key="account", position_id="position", uic=21, asset_type="FxSpot", amount=1, side="sell"
+    )
+    assert result.ok
+    assert calls[0][0] == f"{SAXO_SIM_BASE_URL}/trade/v2/orders"
+    assert calls[0][1] == "POST"
+    assert calls[0][2]["PositionId"] == "position"
+
+    adapter.cancel_order("sim-1", account_key="account")
+    assert calls[1][0].startswith(f"{SAXO_SIM_BASE_URL}/trade/v2/orders/sim-1?")
+    assert calls[1][1] == "DELETE"
+
+
 def test_instrument_discovery_and_chart_reads_use_sim_get_only():
     calls = []
 

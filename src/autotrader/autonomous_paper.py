@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from .brokers.alpaca_crypto_exit import AlpacaCryptoExitPaperBroker
 from .brokers.practice_orders import (
+    crypto_quantity_for_notional,
     submit_alpaca_paper_crypto_market_order,
     submit_alpaca_paper_crypto_stop_limit,
     submit_alpaca_paper_protected_order,
@@ -367,7 +368,16 @@ class AutonomousPaperTradingJob:
             if signal.instrument.asset_class is AssetClass.CRYPTO:
                 pillar_risk_dollars = pillar_limit * 0.0125
                 pillar_risk_quantity = pillar_risk_dollars / signal.proposal.risk_per_unit
-                order_quantity = round(min(decision.quantity, capacity_quantity, pillar_risk_quantity), 8)
+                requested_quantity = min(decision.quantity, capacity_quantity, pillar_risk_quantity)
+                provider_quantity, provider_reason = crypto_quantity_for_notional(
+                    signal.instrument.symbol,
+                    signal.proposal.entry_price,
+                    max(requested_quantity * signal.proposal.entry_price, self.config.alpaca_crypto_min_notional),
+                )
+                if provider_reason:
+                    sizing.append({"symbol": signal.instrument.symbol, "pillar": pillar, "reason": provider_reason})
+                    continue
+                order_quantity = round(float(provider_quantity), 9)
                 calculated_notional = order_quantity * signal.proposal.entry_price
                 if order_quantity <= 0 or calculated_notional < self.config.alpaca_crypto_min_notional:
                     sizing.append(
@@ -378,6 +388,18 @@ class AutonomousPaperTradingJob:
                             "calculated_notional": round(calculated_notional, 4),
                             "broker_minimum_notional": self.config.alpaca_crypto_min_notional,
                             "risk_quantity": decision.quantity,
+                        }
+                    )
+                    continue
+                if order_quantity > requested_quantity or calculated_notional > min(available_total, available_pillar):
+                    sizing.append(
+                        {
+                            "symbol": signal.instrument.symbol,
+                            "pillar": pillar,
+                            "reason": "PROVIDER_MINIMUM_EXCEEDS_RISK_CAP",
+                            "provider_quantity": order_quantity,
+                            "risk_quantity": requested_quantity,
+                            "calculated_notional": calculated_notional,
                         }
                     )
                     continue
