@@ -39,6 +39,14 @@ DATA_PATH = Path("dashboard/data.json")
 TOTAL_BASE_CAPITAL = 5000.0
 KALSHI_BASE_CAPITAL = 1000.0
 SIX_PILLAR_BASE_CAPITAL = TOTAL_BASE_CAPITAL + KALSHI_BASE_CAPITAL
+FUND_STARTING_CAPITAL = 6000.0
+ANNUAL_REALIZED_INCOME_TARGET = 250000.0
+MONTHLY_REALIZED_TARGET = ANNUAL_REALIZED_INCOME_TARGET / 12.0
+WEEKLY_REALIZED_TARGET = ANNUAL_REALIZED_INCOME_TARGET / 52.0
+DAILY_CASH_HARVEST_FLOOR = 500.0
+DAILY_CASH_HARVEST_STRETCH = 1000.0
+PAPER_DAILY_RETURN_TARGET = 0.20
+PAPER_DAILY_RETURN_STRETCH = 0.40
 PILLAR_BASE_CAPITAL = 1000.0
 PILLARS = (
     ("US Stocks / ETFs", "Alpaca PAPER", "blue"),
@@ -1496,7 +1504,7 @@ def _render_dashboard_legacy() -> None:
         .progress{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;margin-top:.4rem;}
         .progress > div{height:100%;background:linear-gradient(90deg,var(--gold),#88d7ff);}
         @media (max-width:1100px){.alloc-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
-        @media (max-width:768px){.alloc-grid,.status-grid{grid-template-columns:1fr;}.block-container{padding-left:.9rem;padding-right:.9rem;}}
+        @media (max-width:768px){.alloc-grid,.status-grid,.fund-target-grid{grid-template-columns:1fr;}.block-container{padding-left:.9rem;padding-right:.9rem;}}
         </style>
         """,
         unsafe_allow_html=True,
@@ -1863,6 +1871,10 @@ def _dashboard_css() -> str:
     [data-testid="stMetricLabel"]{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;}
     [data-testid="stMetricValue"]{color:var(--text);font-size:1.35rem;font-weight:700;}
     .hero-title{font-size:clamp(1.55rem,2.8vw,2.7rem);font-weight:800;margin:0;max-width:28ch;line-height:1.08;}
+    .fund-command{padding:1rem 1.1rem;margin:.8rem 0;border:1px solid rgba(255,205,90,.35);border-radius:14px;background:linear-gradient(120deg,rgba(255,205,90,.12),rgba(75,160,255,.08));}
+    .fund-target-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;margin:.6rem 0 1rem;}
+    .fund-target-grid>div{padding:.7rem;border:1px solid var(--line);border-radius:10px;color:var(--muted);font-size:.78rem;line-height:1.45;}
+    .fund-target-grid strong{color:var(--text);font-size:.68rem;letter-spacing:.1em;}
     .hero-sub{color:var(--muted);margin-top:.35rem;font-size:.96rem;line-height:1.55;max-width:54ch;}
     .brand-box{padding:1.1rem 1rem;margin-bottom:1rem;}
     .brand-mark{display:flex;align-items:center;justify-content:center;width:3rem;height:3rem;border-radius:16px;border:1px solid var(--gold);color:var(--gold);font-weight:800;margin-bottom:.75rem;background:rgba(215,181,109,.06);}
@@ -1896,7 +1908,7 @@ def _dashboard_css() -> str:
     .activation-head strong{color:#fff;font-size:1.08rem;}
     .progress{width:100%;height:8px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden;margin-top:.4rem;}
     .progress > div{height:100%;background:linear-gradient(90deg,var(--gold),#88d7ff);}
-    @media (max-width:768px){.block-container{padding-left:.9rem;padding-right:.9rem;}.activation-head{grid-template-columns:repeat(2,minmax(0,1fr));}[data-testid="stSidebar"] [data-testid="stRadio"] label{font-size:.9rem!important;}}
+    @media (max-width:768px){.block-container{padding-left:.9rem;padding-right:.9rem;}.activation-head{grid-template-columns:repeat(2,minmax(0,1fr));}.fund-target-grid{grid-template-columns:1fr;}[data-testid="stSidebar"] [data-testid="stRadio"] label{font-size:.9rem!important;}}
     </style>
     """
 
@@ -1913,6 +1925,7 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
         unsafe_allow_html=True,
     )
     st.caption("CHRIS HAAKE CAPITAL SYSTEMS")
+    _render_fund_command_center(ctx)
     st.markdown(
         f"""
         <div class="small-note">Runtime source: <strong>{escape(str(live_runtime))}</strong> · freshness: <strong>{escape(str(ctx["runtime_source_age"]))}</strong></div>
@@ -1937,6 +1950,34 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
         st.warning("Safety configuration is invalid; execution remains fail-closed.")
     if ctx["live_errors"]:
         st.warning(" · ".join(ctx["live_errors"]))
+
+
+def _render_fund_command_center(ctx: dict[str, object]) -> None:
+    daily = ctx.get("daily_performance") if isinstance(ctx.get("daily_performance"), dict) else {}
+    realized_ytd = _float(ctx.get("net_cash"))
+    current_equity = _float(ctx.get("total_equity"))
+    remaining = max(ANNUAL_REALIZED_INCOME_TARGET - realized_ytd, 0.0)
+    st.markdown(
+        "<div class='fund-command'><div class='hero-title'>AUTONOMOUS MULTI-PILLAR FUND</div>"
+        "<div class='hero-sub'>$6,000 PAPER CAPITAL → $250,000 ANNUAL REALIZED-INCOME OBJECTIVE</div></div>",
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(6)
+    cols[0].metric("STARTING CAPITAL", _money(FUND_STARTING_CAPITAL))
+    cols[1].metric("CURRENT FUND EQUITY", _money(current_equity))
+    cols[2].metric("ANNUAL INCOME OBJECTIVE", _money(ANNUAL_REALIZED_INCOME_TARGET))
+    cols[3].metric("REALIZED YTD", _money(realized_ytd))
+    cols[4].metric("PROJECTED ANNUAL INCOME", "INSUFFICIENT DATA")
+    cols[5].metric("REMAINING TO TARGET", _money(remaining))
+    st.markdown(
+        f"<div class='fund-target-grid'><div><strong>DAILY RETURN OBJECTIVE</strong><br>20% FLOOR · 40% STRETCH</div>"
+        f"<div><strong>REALIZED CASH HARVEST</strong><br>$500 FLOOR · $1,000 STRETCH</div>"
+        f"<div><strong>MONTHLY TARGET</strong><br>{_money(MONTHLY_REALIZED_TARGET)}</div>"
+        f"<div><strong>WEEKLY TARGET</strong><br>{_money(WEEKLY_REALIZED_TARGET)}</div>"
+        f"<div><strong>DAILY REALIZED CASH</strong><br>{_money(daily.get('harvested_profit'))}</div>"
+        f"<div><strong>PROJECTION</strong><br>INSUFFICIENT DATA — ACTUAL RESULTS ONLY</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_pillars_view(ctx: dict[str, object]) -> None:
