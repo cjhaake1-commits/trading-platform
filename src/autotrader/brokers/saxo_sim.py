@@ -383,7 +383,7 @@ class SaxoSimAdapter:
         return RuntimeError(message)
 
     def _read(self, path: str) -> dict[str, object]:
-        allowed_prefixes = ("/port/", "/ref/", "/chart/", "/trade/v1/infoprices")
+        allowed_prefixes = ("/root/", "/port/", "/ref/", "/chart/", "/trade/v1/infoprices")
         if not path.startswith(allowed_prefixes):
             raise SaxoReadOnlyError("Saxo SIM adapter permits approved read-only resources only")
         headers = {
@@ -445,6 +445,10 @@ class SaxoSimAdapter:
             "scopes": scopes,
             "write_scope_present": write_scope if scopes else None,
         }
+
+    def session_capabilities(self) -> dict[str, object]:
+        """Read Saxo's authoritative authenticated session capability state."""
+        return self._read("/root/v1/sessions/capabilities")
 
     def precheck_order(self, order: dict[str, object]) -> dict[str, object]:
         """Run Saxo's non-mutating SIM order precheck."""

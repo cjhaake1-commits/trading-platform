@@ -602,10 +602,14 @@ def fetch_live_broker_data() -> tuple[
     if saxo_env and saxo_base and managed_saxo is not None:
         try:
             summary = managed_saxo.account_summary()
+            capabilities = managed_saxo.session_capabilities()
+            trade_level = str(capabilities.get("TradeLevel") or "")
+            authenticated = str(capabilities.get("AuthenticationLevel") or "").lower() == "authenticated"
+            writable = authenticated and trade_level in {"OrdersOnly", "FullTradingAndChat"}
             pillar_status["International"]["connected"] = True
             pillar_status["International"]["positions"] = 0
             pillar_status["International"]["state"] = (
-                "CONNECTED / READY / EVALUATING" if summary.read_only is False else "CONNECTED / EXTERNAL SAXO WRITE BLOCK"
+                "CONNECTED / READY / EVALUATING" if writable else "CONNECTED / EXTERNAL SAXO WRITE BLOCK"
             )
             metrics["gross_exposure"] += 0.0
             _ = summary  # keep the read-only probe explicit and side-effect free

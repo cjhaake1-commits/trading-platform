@@ -123,6 +123,16 @@ def test_account_probe_uses_get_only():
     ]
 
 
+def test_session_capabilities_are_read_from_authoritative_saxo_endpoint():
+    def fake_get(url, headers, timeout):
+        assert url == f"{SAXO_SIM_BASE_URL}/root/v1/sessions/capabilities"
+        return {"AuthenticationLevel": "Authenticated", "DataLevel": "Standard", "TradeLevel": "OrdersOnly"}, {}
+
+    result = SaxoSimAdapter(environment="sim", access_token="test-token", get_json=fake_get).session_capabilities()
+    assert result["AuthenticationLevel"] == "Authenticated"
+    assert result["TradeLevel"] == "OrdersOnly"
+
+
 def test_risk_approved_order_posts_only_to_sim_with_protective_stop():
     captured = {}
 

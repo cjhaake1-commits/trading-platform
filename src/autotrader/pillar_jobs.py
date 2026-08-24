@@ -39,7 +39,7 @@ def _bars_from_saxo(samples, instrument: Instrument) -> list[MarketBar]:
     return bars
 
 
-def _write_saxo_permission_status(*, now: datetime, authenticated: bool, read_only: bool | None, error: str | None = None, shadow_candidate: str | None = None, precheck: dict[str, object] | None = None, capabilities: dict[str, object] | None = None) -> None:
+def _write_saxo_permission_status(*, now: datetime, authenticated: bool, read_only: bool | None, error: str | None = None, shadow_candidate: str | None = None, precheck: dict[str, object] | None = None, capabilities: dict[str, object] | None = None, session_capabilities: dict[str, object] | None = None) -> None:
     path = Path("var/autotrader/saxo-permission.json")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -56,6 +56,7 @@ def _write_saxo_permission_status(*, now: datetime, authenticated: bool, read_on
         "error": error,
         "precheck": precheck or {"state": "NOT_RUN"},
         "capabilities": capabilities or {"write_scope_present": None},
+        "session_capabilities": session_capabilities or {"state": "NOT_RUN"},
     }
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
@@ -158,8 +159,12 @@ class InternationalPaperTradingJob:
             )
         try:
             summary = self.adapter.account_summary()
-            read_only = summary.read_only
             capabilities = self.adapter.capability_metadata()
+            session_capabilities = self.adapter.session_capabilities()
+            trade_level = str(session_capabilities.get("TradeLevel") or "")
+            auth_level = str(session_capabilities.get("AuthenticationLevel") or "")
+            provider_can_trade = auth_level.lower() == "authenticated" and trade_level in {"OrdersOnly", "FullTradingAndChat"}
+            read_only = False if provider_can_trade else True
             instruments = self.adapter.search_instruments(
                 self.search_keywords,
                 asset_types=("Stock",),
@@ -173,7 +178,7 @@ class InternationalPaperTradingJob:
                     "International AUTH REQUIRED",
                     {"state": "AUTH REQUIRED", "error": "Saxo SIM authentication rejected the read-only probe"},
                 )
-            _write_saxo_permission_status(now=now, authenticated=True, read_only=None, error=error, capabilities=capabilities)
+            _write_saxo_permission_status(now=now, authenticated=True, read_only=None, error=error, capabilities=capabilities, session_capabilities={"state": "ERROR"})
             return JobResult(True, "International data probe failed", {"state": "DEGRADED", "error": error})
         if not instruments:
             return JobResult(True, "International cycle found no instruments", {})
@@ -191,7 +196,7 @@ class InternationalPaperTradingJob:
             return JobResult(True, "International cycle found no usable market data", {})
         ranked = self.scanner.rank(histories, top_n=1)
         if not ranked:
-            _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, capabilities=capabilities)
+            _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, capabilities=capabilities, session_capabilities=session_capabilities)
             return JobResult(True, "International cycle found no qualifying entry", {})
         candidate = ranked[0].instrument.symbol
         source = next((item for item in instruments if item.symbol.replace('.', '-') == candidate), None)
@@ -214,7 +219,7 @@ class InternationalPaperTradingJob:
                 precheck = {"state": str(result.get("PreCheckResult") or "UNKNOWN"), "estimated_cash_required": result.get("EstimatedCashRequired"), "estimated_total_cost": result.get("EstimatedTotalCost"), "error": result.get("ErrorInfo"), "disclaimer": bool(result.get("PreTradeDisclaimers"))}
             except Exception as exc:
                 precheck = {"state": "ERROR", "error": str(exc)[:240]}
-        _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, shadow_candidate=candidate, precheck=precheck, capabilities=capabilities)
+        _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, shadow_candidate=candidate, precheck=precheck, capabilities=capabilities, session_capabilities=session_capabilities)
         if read_only is not False:
             return JobResult(True, "International shadow candidate blocked by Saxo SIM permissions", {"candidate": candidate, "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK", "rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION"})
         return JobResult(True, "International cycle scanned successfully", {"candidate": candidate, "execution_state": "READY / EVALUATING"})
