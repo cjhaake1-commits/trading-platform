@@ -20,6 +20,17 @@ def cycle() -> dict[str, object]:
         with sqlite3.connect(db_path) as conn:
             observations = int(conn.execute("SELECT COUNT(*) FROM kalshi_observations").fetchone()[0])
             candidate_sources["kalshi"] = int(conn.execute("SELECT COUNT(*) FROM kalshi_observations WHERE family='predictions' AND observation_type='market'").fetchone()[0])
+            # The pillar research collector stores normalized non-Kalshi
+            # observations in the same research DB.  The old heartbeat only
+            # counted Kalshi rows, making healthy Crypto/Metals/International
+            # sources appear disconnected in the command center.
+            rows = conn.execute(
+                "SELECT pillar, COUNT(*) FROM kalshi_pillar_observations GROUP BY pillar"
+            ).fetchall()
+            for pillar, count in rows:
+                key = str(pillar)
+                if key in candidate_sources:
+                    candidate_sources[key] = int(count)
     payload = {
         "recorded_at": datetime.now(UTC).isoformat(),
         "pillars": list(SIX_PILLARS),

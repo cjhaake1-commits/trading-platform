@@ -176,6 +176,9 @@ def _kalshi_status() -> dict[str, object]:
         "cross_market": 0, "lead_lag": 0, "last_data": "UNAVAILABLE", "last_learning": "UNAVAILABLE",
         "predictions_funnel": {}, "perps_funnel": {}, "predictions_rejection": "UNAVAILABLE",
         "perps_rejection": "UNAVAILABLE", "perps_funding": "UNAVAILABLE", "perps_fees": "UNAVAILABLE",
+        "perps_deployed": 0.0, "perps_positions": 0, "perps_orders": 0, "perps_fills": 0,
+        "perps_open_orders": 0, "perps_available_balance": 0.0, "perps_unrealized_pnl": 0.0,
+        "perps_cycle": "UNAVAILABLE", "predictions_cycle": "UNAVAILABLE",
     }
     if not db.exists():
         return status
@@ -202,6 +205,15 @@ def _kalshi_status() -> dict[str, object]:
         perps_cycle = _safe_json(Path("var/kalshi/execution-perps.json"))
         status["predictions_funnel"] = predictions_cycle.get("funnel", {})
         status["perps_funnel"] = perps_cycle.get("funnel", {})
+        status["perps_deployed"] = _float(perps_cycle.get("capital_deployed"))
+        status["perps_positions"] = int(_float(perps_cycle.get("positions")))
+        status["perps_orders"] = int(_float(perps_cycle.get("orders")))
+        status["perps_fills"] = int(_float(perps_cycle.get("fills")))
+        status["perps_open_orders"] = int(_float(perps_cycle.get("open_orders")))
+        status["perps_available_balance"] = _float(perps_cycle.get("available_balance"))
+        status["perps_unrealized_pnl"] = _float(perps_cycle.get("unrealized_pnl"))
+        status["perps_cycle"] = perps_cycle.get("observed_at", "UNAVAILABLE")
+        status["predictions_cycle"] = predictions_cycle.get("observed_at", "UNAVAILABLE")
         status["predictions_rejection"] = predictions_cycle.get("last_rejection_reason", "UNAVAILABLE")
         status["perps_rejection"] = perps_cycle.get("last_rejection_reason", "UNAVAILABLE")
         status["perps_funding"] = perps_cycle.get("funding_state", "UNAVAILABLE")
@@ -380,6 +392,10 @@ def _runtime_job_times(runtime: dict[str, object]) -> tuple[str, str]:
             last_started.append(job["last_started_at"])
         if isinstance(job.get("last_finished_at"), str):
             last_finished.append(job["last_finished_at"])
+    for engine in ("predictions", "perps"):
+        cycle = _safe_json(Path(f"var/kalshi/execution-{engine}.json"))
+        if isinstance(cycle.get("observed_at"), str):
+            last_finished.append(cycle["observed_at"])
     return (
         max(last_started) if last_started else str(runtime.get("last_heartbeat_at") or "—"),
         max(last_finished) if last_finished else str(runtime.get("last_heartbeat_at") or "—"),
@@ -1797,8 +1813,18 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "last_learning": kalshi_status["last_learning"],
                 "perps_rest": kalshi_status["perps_rest"],
                 "perps_margin": kalshi_status["perps_margin"],
+                "deployed": kalshi_status["perps_deployed"],
+                "cost_basis": kalshi_status["perps_deployed"],
+                "margin_used": kalshi_status["perps_deployed"],
+                "market_value": kalshi_status["perps_deployed"] + kalshi_status["perps_unrealized_pnl"],
+                "unrealized_pnl": kalshi_status["perps_unrealized_pnl"],
+                "positions": kalshi_status["perps_positions"],
+                "available": max(KALSHI_BASE_CAPITAL - kalshi_status["perps_deployed"], 0.0),
                 "last_rejection": f"Predictions {kalshi_status['predictions_rejection']} · Perps {kalshi_status['perps_rejection']}",
-                "execution": "NO QUALIFYING OPPORTUNITY",
+                "execution": "ACTIVE — POSITION OPEN" if kalshi_status["perps_positions"] else "READY / EVALUATING",
+                "state": "ACTIVE — POSITION OPEN" if kalshi_status["perps_positions"] else "READY / EVALUATING",
+                "last_scan": kalshi_status["perps_cycle"],
+                "last_decision": "POSITION ACTIVE" if kalshi_status["perps_positions"] else "HOLD CASH",
             })
     st.markdown("<div class='section-title'>Six Pillars</div>", unsafe_allow_html=True)
     for row in (pillar_rows[:2], pillar_rows[2:4], pillar_rows[4:]):
