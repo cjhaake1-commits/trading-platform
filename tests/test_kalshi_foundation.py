@@ -41,6 +41,16 @@ def test_client_is_demo_only_and_read_only():
         KalshiReadOnlyClient(KalshiConfig(environment="production"))
 
 
+def test_perps_account_paths_use_current_margin_namespace(monkeypatch):
+    client = KalshiReadOnlyClient(KalshiConfig())
+    paths = []
+    monkeypatch.setattr(client, "_get", lambda path, *args, **kwargs: paths.append(path) or {})
+    client.perps_balance()
+    client.perps_positions()
+    client.perps_fills()
+    assert paths == ["balance", "positions", "fills"]
+
+
 def test_probability_features_are_namespaced_and_research_only():
     features = probability_features(market(), previous={"mid_probability": 0.35})
     assert features["kalshi.implied_probability"] == 0.45

@@ -171,7 +171,7 @@ def _kalshi_status() -> dict[str, object]:
     status: dict[str, object] = {
         "connection": "DATA UNAVAILABLE", "data": "UNAVAILABLE", "scanner": "DEGRADED",
         "predictions_auth": "DEGRADED", "predictions_data": "UNAVAILABLE", "predictions_scanner": "DEGRADED",
-        "perps_rest": "DEGRADED", "perps_markets": 0, "perps_account": "UNKNOWN",
+        "perps_rest": "DEGRADED", "perps_markets": 0, "perps_account": "UNKNOWN", "perps_margin": "UNKNOWN",
         "research": "DEGRADED", "learning": "DEGRADED", "observations": 0, "features": 0,
         "cross_market": 0, "lead_lag": 0, "last_data": "UNAVAILABLE", "last_learning": "UNAVAILABLE",
     }
@@ -181,7 +181,11 @@ def _kalshi_status() -> dict[str, object]:
         with sqlite3.connect(db) as conn:
             status["observations"] = conn.execute("SELECT COUNT(*) FROM kalshi_observations").fetchone()[0]
             status["perps_markets"] = conn.execute("SELECT COUNT(*) FROM kalshi_observations WHERE family='perps' AND observation_type='markets'").fetchone()[0]
-            status["perps_account"] = "ACCOUNT BLOCKED" if conn.execute("SELECT 1 FROM kalshi_observations WHERE family='perps' AND observation_type='enabled' AND payload_json LIKE '%false%' LIMIT 1").fetchone() else "UNKNOWN"
+            enabled_row = conn.execute("SELECT payload_json FROM kalshi_observations WHERE family='perps' AND observation_type='enabled' ORDER BY retrieved_at DESC LIMIT 1").fetchone()
+            if enabled_row:
+                enabled = bool(json.loads(enabled_row[0]).get("enabled"))
+                status["perps_margin"] = "ENABLED" if enabled else "ACCOUNT BLOCKED"
+                status["perps_account"] = "ENABLED" if enabled else "ACCOUNT BLOCKED"
             status["features"] = conn.execute("SELECT COUNT(*) FROM kalshi_learning_features").fetchone()[0]
             status["cross_market"] = conn.execute("SELECT COUNT(*) FROM kalshi_cross_market_samples").fetchone()[0]
             status["lead_lag"] = conn.execute("SELECT COUNT(*) FROM kalshi_cross_market_samples WHERE lag_seconds > 0").fetchone()[0]
@@ -379,6 +383,7 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Execution</span><strong>{escape(str(data.get("execution") or "NO QUALIFYING OPPORTUNITY"))}</strong></div>
             <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DATA UNAVAILABLE"))}</strong></div>
             <div><span>Research / Learning</span><strong>{escape(str(data.get("research") or "DEGRADED"))} / {escape(str(data.get("learning") or "DEGRADED"))}</strong></div>
+            <div><span>Perps API / Margin</span><strong>{escape(str(data.get("perps_rest") or "UNAVAILABLE"))} / {escape(str(data.get("perps_margin") or "UNKNOWN"))}</strong></div>
             <div><span>Observations / Features</span><strong>{int(_float(data.get("observations")))} / {int(_float(data.get("features")))}</strong></div>
             <div><span>Cross-Market Samples</span><strong>{int(_float(data.get("cross_market")))}</strong></div>
             <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "UNAVAILABLE"))}</strong></div>
@@ -1334,6 +1339,8 @@ def _render_dashboard_legacy() -> None:
                     "observations": kalshi_status["observations"],
                     "features": kalshi_status["features"],
                     "cross_market": kalshi_status["cross_market"],
+                    "perps_rest": kalshi_status["perps_rest"],
+                    "perps_margin": kalshi_status["perps_margin"],
                     "last_scan": kalshi_status["last_data"],
                     "last_decision": "HOLD_CASH · no qualifying opportunity",
                     "execution": "NO QUALIFYING OPPORTUNITY",

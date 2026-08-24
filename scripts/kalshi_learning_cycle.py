@@ -144,7 +144,7 @@ def run_once() -> dict[str, int | float | str]:
                     conn.execute("INSERT OR IGNORE INTO kalshi_cross_market_samples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (sid, source["family"], source["instrument"], source["feature_name"], str(target["pillar"]),
                          str(target["symbol"] or "unknown"), requested_lag, source["observed_at"], future[1],
-                         response, target["regime"] or "unknown", target["quality"],
+                         response, target["regime"] or "unknown", target["source_quality"],
                          "COLLECTING_EVIDENCE", None, None, 0))
                     cross_count += 1
                     if cross_count >= 5000:
