@@ -350,7 +350,10 @@ class AutonomousPaperTradingJob:
             requested_notional = decision.quantity * signal.proposal.entry_price
             available_total = max(TOTAL_PAPER_CAPITAL - committed_total, 0.0)
             available_pillar = max(pillar_limit - pillar_committed, 0.0)
-            if requested_notional > min(available_total, available_pillar):
+            # A signal's unconstrained risk quantity can exceed the pillar
+            # allocation.  Capacity is applied during deterministic sizing
+            # below; reject only when no capital is actually available.
+            if min(available_total, available_pillar) <= 0:
                 rejections.append(
                     {
                         "symbol": signal.instrument.symbol,
@@ -379,7 +382,7 @@ class AutonomousPaperTradingJob:
                     continue
                 order_quantity = round(float(provider_quantity), 9)
                 calculated_notional = order_quantity * signal.proposal.entry_price
-                if order_quantity <= 0 or calculated_notional < self.config.alpaca_crypto_min_notional:
+                if order_quantity <= 0 or calculated_notional + 1e-6 < self.config.alpaca_crypto_min_notional:
                     sizing.append(
                         {
                             "symbol": signal.instrument.symbol,

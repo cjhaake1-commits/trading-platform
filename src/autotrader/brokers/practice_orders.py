@@ -163,7 +163,8 @@ def crypto_quantity_for_notional(symbol: str, price: float, notional: float) -> 
     requested = Decimal(str(notional)) / Decimal(str(price))
     quantity = max(requested, rules.min_order_size)
     increment = rules.min_trade_increment
-    steps = (quantity / increment).to_integral_value(rounding="ROUND_CEILING")
+    rounding = "ROUND_FLOOR" if requested >= rules.min_order_size else "ROUND_CEILING"
+    steps = (quantity / increment).to_integral_value(rounding=rounding)
     return steps * increment, None
 
 
