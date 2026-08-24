@@ -182,7 +182,11 @@ def _kalshi_status() -> dict[str, object]:
     try:
         with sqlite3.connect(db) as conn:
             status["observations"] = conn.execute("SELECT COUNT(*) FROM kalshi_observations").fetchone()[0]
-            status["perps_markets"] = conn.execute("SELECT COUNT(*) FROM kalshi_observations WHERE family='perps' AND observation_type='markets'").fetchone()[0]
+            perps_row = conn.execute("SELECT payload_json FROM kalshi_observations WHERE family='perps' AND observation_type='markets' ORDER BY retrieved_at DESC LIMIT 1").fetchone()
+            try:
+                status["perps_markets"] = len(json.loads(perps_row[0]).get("markets", [])) if perps_row else 0
+            except (TypeError, json.JSONDecodeError):
+                status["perps_markets"] = 0
             enabled_row = conn.execute("SELECT payload_json FROM kalshi_observations WHERE family='perps' AND observation_type='enabled' ORDER BY retrieved_at DESC LIMIT 1").fetchone()
             if enabled_row:
                 enabled = bool(json.loads(enabled_row[0]).get("enabled"))
@@ -315,6 +319,47 @@ def _pillars_from_snapshot(snapshot: dict[str, object]) -> dict[str, dict[str, o
             result["Kalshi"].update({"connection": "CONNECTED", "scanner": "ACTIVE", "status": "OBSERVING" if count else "NO DATA", "last_scan": _path_age_label(kalshi_db), "last_decision": "HOLD CASH"})
         except sqlite3.Error:
             result["Kalshi"].update({"connection": "API DEGRADED", "scanner": "DEGRADED", "status": "DEGRADED"})
+    # Snapshot performance is historical accounting only.  Current health,
+    # data freshness, and research telemetry come from the live observation
+    # store so a stale/partial dashboard snapshot cannot create false
+    # DATA UNAVAILABLE states.
+    pillar_map = {
+        "US Stocks / ETFs": "alpaca_equities",
+        "Crypto": "alpaca_crypto",
+        "Forex": "oanda_fx",
+        "Metals / Commodities": "alpaca_metals",
+        "International": "ibkr_global",
+    }
+    try:
+        with sqlite3.connect(kalshi_db) as conn:
+            for display_name, stored_pillar in pillar_map.items():
+                count, latest = conn.execute(
+                    "SELECT COUNT(*), MAX(observed_at) FROM kalshi_pillar_observations WHERE pillar=?",
+                    (stored_pillar,),
+                ).fetchone()
+                if not count:
+                    continue
+                feature_count = conn.execute(
+                    "SELECT COUNT(*) FROM kalshi_learning_features WHERE family=?",
+                    (stored_pillar,),
+                ).fetchone()[0]
+                metrics = result[display_name]
+                metrics.update({
+                    "connection": "CONNECTED",
+                    "data": "FRESH" if latest else "UNAVAILABLE",
+                    "research": "ACTIVE",
+                    "learning": "ACTIVE",
+                    "evidence": "COLLECTING",
+                    "observations": int(count),
+                    "features": int(feature_count),
+                    "cross_market": 0,
+                    "last_research": latest,
+                    "last_learning": _safe_json(Path("var/global-intelligence/learning-status.json")).get("recorded_at", "UNAVAILABLE"),
+                    "scanner": "ACTIVE",
+                    "status": "SCANNING" if metrics.get("positions", 0) == 0 else metrics.get("status", "TRADING"),
+                })
+    except sqlite3.Error:
+        pass
     return result
 
 
@@ -1375,7 +1420,7 @@ def _render_dashboard_legacy() -> None:
                 }
             )
 
-    for row in (pillar_view[:3], pillar_view[3:]):
+    for row in (pillar_view[:2], pillar_view[2:4], pillar_view[4:]):
         cols = st.columns(len(row))
         for col, pillar in zip(cols, row, strict=False):
             with col:
@@ -1525,16 +1570,16 @@ def _dashboard_css() -> str:
     .status-value{margin-top:.25rem;font-size:1.03rem;font-weight:800;}
     .status-healthy{color:#72e08a;}.status-faulted{color:#ff7c7c;}.status-disarmed{color:#c8d6ef;}.status-armed{color:#77d8ff;}.status-disabled{color:#8f9bb3;}
     .section-title{margin:1.4rem 0 .65rem;font-size:1rem;text-transform:uppercase;letter-spacing:.18em;color:var(--gold);}
-    .pillar{padding:.95rem;min-height:260px;position:relative;overflow:hidden;}
+    .pillar{padding:.95rem;min-height:260px;min-width:0;position:relative;overflow:hidden;}
     .pillar::before{content:'';position:absolute;inset:0 auto auto 0;width:100%;height:3px;background:var(--accent,var(--gold));opacity:.88;}
     .pillar-blue{--accent:var(--blue);}.pillar-green{--accent:var(--green);}.pillar-purple{--accent:var(--purple);}.pillar-gold{--accent:var(--orange);}.pillar-teal{--accent:var(--teal);}
     .pillar-top{display:flex;justify-content:space-between;gap:.6rem;align-items:flex-start;margin-bottom:.7rem;}
-    .pillar-name{font-size:.92rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;}
+    .pillar-name{font-size:.92rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;overflow-wrap:normal;word-break:normal;}
     .pillar-sub{color:var(--muted);font-size:.75rem;margin-top:.2rem;}
     .pillar-state{font-size:1.05rem;font-weight:800;margin:.4rem 0 .7rem;color:var(--text);}
     .pillar-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem .7rem;}
     .pillar-grid span,.pillar-foot span{display:block;color:var(--muted);font-size:.67rem;text-transform:uppercase;letter-spacing:.14em;}
-    .pillar-grid strong,.pillar-foot strong{display:block;margin-top:.15rem;font-size:.88rem;}
+    .pillar-grid strong,.pillar-foot strong{display:block;margin-top:.15rem;font-size:.88rem;overflow-wrap:anywhere;word-break:normal;}
     .pillar-foot{display:grid;gap:.45rem;margin-top:.7rem;}
     .table-panel{padding:.85rem;overflow-x:auto;}
     table{width:100%;border-collapse:collapse;min-width:980px;}
@@ -1598,6 +1643,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
     runtime = ctx["runtime"] if isinstance(ctx["runtime"], dict) else {}
     activity = ctx["activity"] if isinstance(ctx["activity"], list) else []
     v2_metrics = _pillars_from_snapshot(ctx["snapshot"])
+    kalshi_status = _kalshi_status()
     for name, broker, accent in PILLARS:
         job_name = PILLAR_JOB_MAP[name]
         job = jobs.get(job_name) if isinstance(jobs, dict) else {}
@@ -1606,6 +1652,10 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
         broker_state = broker_state if isinstance(broker_state, dict) else {}
         positions_count = int((v2_metrics.get(name) or {}).get("positions", 0) or 0)
         current_state, connection, blocker = _derive_pillar_state(name, job, broker_state, activity)
+        if name == "Kalshi":
+            connection = str(kalshi_status["connection"])
+            current_state = "OBSERVING"
+            blocker = f"Perps {kalshi_status['perps_margin']} · {kalshi_status['perps_markets']} markets"
         connection_class = "good" if connection == "CONNECTED" else ("warn" if connection in {"AUTH REQUIRED", "ERROR"} else "neutral")
         pillar_rows.append(
             {
@@ -1632,10 +1682,37 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "blocker": blocker,
                 "legacy_exposure": _float(broker_state.get("gross_exposure", 0.0)),
                 "legacy_positions": max(int(broker_state.get("positions", 0) or 0) - positions_count, 0),
+                "data": (v2_metrics.get(name) or {}).get("data", "FRESH" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
+                "research": (v2_metrics.get(name) or {}).get("research", "ACTIVE" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
+                "learning": (v2_metrics.get(name) or {}).get("learning", "ACTIVE" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
+                "evidence": (v2_metrics.get(name) or {}).get("evidence", "COLLECTING"),
+                "last_research": (v2_metrics.get(name) or {}).get("last_research") or job.get("last_finished_at"),
+                "last_learning": (v2_metrics.get(name) or {}).get("last_learning") or runtime.get("last_heartbeat_at"),
+                "observations": (v2_metrics.get(name) or {}).get("observations", 0),
+                "features": (v2_metrics.get(name) or {}).get("features", 0),
+                "cross_market": (v2_metrics.get(name) or {}).get("cross_market", 0),
             }
         )
+        if name == "Kalshi":
+            pillar_rows[-1].update({
+                "connection": kalshi_status["connection"],
+                "connection_class": "good",
+                "data": kalshi_status["data"],
+                "research": kalshi_status["research"],
+                "learning": kalshi_status["learning"],
+                "evidence": kalshi_status["evidence"],
+                "observations": kalshi_status["observations"],
+                "features": kalshi_status["features"],
+                "cross_market": kalshi_status["cross_market"],
+                "last_research": kalshi_status["last_data"],
+                "last_learning": kalshi_status["last_learning"],
+                "perps_rest": kalshi_status["perps_rest"],
+                "perps_margin": kalshi_status["perps_margin"],
+                "last_rejection": f"Predictions {kalshi_status['predictions_rejection']} · Perps {kalshi_status['perps_rejection']}",
+                "execution": "NO QUALIFYING OPPORTUNITY",
+            })
     st.markdown("<div class='section-title'>Six Pillars</div>", unsafe_allow_html=True)
-    for row in (pillar_rows[:3], pillar_rows[3:]):
+    for row in (pillar_rows[:2], pillar_rows[2:4], pillar_rows[4:]):
         cols = st.columns(len(row))
         for col, pillar in zip(cols, row, strict=False):
             with col:

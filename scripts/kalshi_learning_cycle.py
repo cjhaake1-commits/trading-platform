@@ -110,6 +110,17 @@ def run_once() -> dict[str, int | float | str]:
             "AND pillar IN ('alpaca_equities','alpaca_crypto','oanda_fx','alpaca_metals','ibkr_global') "
             "ORDER BY observed_at"
         ).fetchall()
+        # Every normalized non-Kalshi observation participates in learning as
+        # a durable, research-only market feature.  This prevents healthy
+        # pillar telemetry from appearing as 0 features while preserving the
+        # original value and provenance.
+        for target in target_rows:
+            conn.execute("INSERT OR IGNORE INTO kalshi_learning_features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (_id(target["id"], "market.price"), str(target["pillar"]), str(target["symbol"]),
+                          "market.price", _num(target["value"]), str(target["pillar"]), None,
+                          target["id"], target["observed_at"], target["source_quality"],
+                          "RESEARCH_ONLY", 0.0, 0, 0))
+            feature_count += 1
         source_features = conn.execute(
             "SELECT * FROM kalshi_learning_features WHERE feature_name IN "
             "('kalshi.implied_probability','kalshi.probability_change','kalshi.perps.return') "
