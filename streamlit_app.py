@@ -174,6 +174,8 @@ def _kalshi_status() -> dict[str, object]:
         "perps_rest": "DEGRADED", "perps_markets": 0, "perps_account": "UNKNOWN", "perps_margin": "UNKNOWN",
         "research": "DEGRADED", "learning": "DEGRADED", "observations": 0, "features": 0,
         "cross_market": 0, "lead_lag": 0, "last_data": "UNAVAILABLE", "last_learning": "UNAVAILABLE",
+        "predictions_funnel": {}, "perps_funnel": {}, "predictions_rejection": "UNAVAILABLE",
+        "perps_rejection": "UNAVAILABLE", "perps_funding": "UNAVAILABLE", "perps_fees": "UNAVAILABLE",
     }
     if not db.exists():
         return status
@@ -192,6 +194,14 @@ def _kalshi_status() -> dict[str, object]:
             row = conn.execute("SELECT MAX(retrieved_at) FROM kalshi_observations").fetchone()
             last_data = row[0] if row else None
         learning = _safe_json(Path("var/global-intelligence/learning-status.json"))
+        predictions_cycle = _safe_json(Path("var/kalshi/execution-predictions.json"))
+        perps_cycle = _safe_json(Path("var/kalshi/execution-perps.json"))
+        status["predictions_funnel"] = predictions_cycle.get("funnel", {})
+        status["perps_funnel"] = perps_cycle.get("funnel", {})
+        status["predictions_rejection"] = predictions_cycle.get("last_rejection_reason", "UNAVAILABLE")
+        status["perps_rejection"] = perps_cycle.get("last_rejection_reason", "UNAVAILABLE")
+        status["perps_funding"] = perps_cycle.get("funding_state", "UNAVAILABLE")
+        status["perps_fees"] = perps_cycle.get("fee_state", "UNAVAILABLE")
         status["last_learning"] = learning.get("recorded_at") or "UNAVAILABLE"
         status["learning"] = "ACTIVE" if learning.get("recorded_at") else "DEGRADED"
         status["last_data"] = last_data or "UNAVAILABLE"
@@ -384,6 +394,7 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Scanner</span><strong>{escape(str(data.get("scanner") or "DATA UNAVAILABLE"))}</strong></div>
             <div><span>Research / Learning</span><strong>{escape(str(data.get("research") or "DEGRADED"))} / {escape(str(data.get("learning") or "DEGRADED"))}</strong></div>
             <div><span>Perps API / Margin</span><strong>{escape(str(data.get("perps_rest") or "UNAVAILABLE"))} / {escape(str(data.get("perps_margin") or "UNKNOWN"))}</strong></div>
+            <div><span>Last Rejection</span><strong>{escape(str(data.get("last_rejection") or "—"))}</strong></div>
             <div><span>Observations / Features</span><strong>{int(_float(data.get("observations")))} / {int(_float(data.get("features")))}</strong></div>
             <div><span>Cross-Market Samples</span><strong>{int(_float(data.get("cross_market")))}</strong></div>
             <div><span>Last Scan</span><strong>{escape(str(data.get("last_scan") or "UNAVAILABLE"))}</strong></div>
@@ -1341,6 +1352,7 @@ def _render_dashboard_legacy() -> None:
                     "cross_market": kalshi_status["cross_market"],
                     "perps_rest": kalshi_status["perps_rest"],
                     "perps_margin": kalshi_status["perps_margin"],
+                    "last_rejection": f"Predictions {kalshi_status['predictions_rejection']} · Perps {kalshi_status['perps_rejection']}",
                     "last_scan": kalshi_status["last_data"],
                     "last_decision": "HOLD_CASH · no qualifying opportunity",
                     "execution": "NO QUALIFYING OPPORTUNITY",
