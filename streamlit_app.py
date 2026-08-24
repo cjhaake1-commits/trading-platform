@@ -186,6 +186,38 @@ def _safe_json(path: Path) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
 
+def _daily_performance_metrics(cash: dict[str, object]) -> dict[str, float | str]:
+    """Keep total-return and realized-cash objectives mathematically separate."""
+    today = datetime.now(UTC).date().isoformat()
+    equity = _float(cash.get("total_portfolio_equity") or cash.get("strategy_equity"))
+    if equity <= 0:
+        equity = _float(cash.get("original_capital"), TOTAL_BASE_CAPITAL)
+    state_path = Path("var/autotrader/daily_performance.json")
+    state = _safe_json(state_path)
+    if state.get("date") != today or _float(state.get("starting_equity")) <= 0:
+        state = {"date": today, "starting_equity": equity}
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+    starting = _float(state.get("starting_equity"), equity)
+    realized = _float(cash.get("daily_realized_pnl") or cash.get("realized_pnl") or cash.get("daily_realized_return"))
+    unrealized = _float(cash.get("daily_unrealized_pnl") or cash.get("unrealized_pnl"))
+    total = equity - starting
+    return {
+        "date": today,
+        "starting_equity": starting,
+        "current_equity": equity,
+        "total_pnl": total,
+        "realized_pnl": realized,
+        "unrealized_pnl": unrealized,
+        "daily_return": total / starting if starting else 0.0,
+        "harvested_profit": max(realized, 0.0),
+        "harvest_floor_progress": max(realized, 0.0) / 500.0,
+        "harvest_stretch_progress": max(realized, 0.0) / 1000.0,
+        "return_floor_progress": total / starting / 0.20 if starting else 0.0,
+        "return_stretch_progress": total / starting / 0.40 if starting else 0.0,
+    }
+
+
 def _path_age_label(path: Path) -> str:
     if not path.exists():
         return "UNAVAILABLE"
@@ -995,6 +1027,7 @@ def _build_dashboard_context() -> dict[str, object]:
     daily_unrealized = _float(cash.get("daily_unrealized_return"))
     cumulative_realized = _float(cash.get("cumulative_realized_return") or cash.get("realized_return"))
     generated_cash_ratio = _float(cash.get("generated_cash_ratio") or cash.get("realized_return"))
+    daily_performance = _daily_performance_metrics(cash)
     dist_low = 0.20 - daily_realized
     dist_high = 0.40 - daily_realized
     return {
@@ -1041,6 +1074,7 @@ def _build_dashboard_context() -> dict[str, object]:
         "daily_unrealized": daily_unrealized,
         "cumulative_realized": cumulative_realized,
         "generated_cash_ratio": generated_cash_ratio,
+        "daily_performance": daily_performance,
         "dist_low": dist_low,
         "dist_high": dist_high,
     }
@@ -1055,7 +1089,23 @@ def _render_overview(ctx: dict[str, object]) -> None:
     broker_account = ctx["broker_account"] if isinstance(ctx["broker_account"], dict) else {}
     legacy_positions = ctx["legacy_positions"] if isinstance(ctx["legacy_positions"], list) else []
     experiment = ctx["experiment"] if isinstance(ctx["experiment"], dict) else {}
+    daily = ctx["daily_performance"]
     st.markdown("<div class='section-title'>Overview</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-title'>Daily Performance Objectives</div>", unsafe_allow_html=True)
+    d1, d2 = st.columns(2)
+    d1.metric("TOTAL DAILY RETURN", _pct(daily["daily_return"]))
+    d1.caption(f"Floor 20% · {daily['return_floor_progress']:.1%} achieved · Stretch 40% · {daily['return_stretch_progress']:.1%} achieved")
+    d2.metric("REALIZED CASH GENERATED", _money(daily["harvested_profit"]))
+    d2.caption(f"Floor $500 · {daily['harvest_floor_progress']:.1%} achieved · Stretch $1,000 · {daily['harvest_stretch_progress']:.1%} achieved")
+    st.markdown(
+        f"<div class='small-note'>Starting equity: <strong>{_money(daily['starting_equity'])}</strong> · "
+        f"Current equity: <strong>{_money(daily['current_equity'])}</strong> · "
+        f"Total P&amp;L: <strong>{_money(daily['total_pnl'])}</strong> · "
+        f"Realized: <strong>{_money(daily['realized_pnl'])}</strong> · "
+        f"Unrealized: <strong>{_money(daily['unrealized_pnl'])}</strong> · "
+        f"Profit available for redeployment: <strong>{_money(daily['harvested_profit'])}</strong></div>",
+        unsafe_allow_html=True,
+    )
     st.markdown(
         f"""
         <div class="small-note">Runtime source: <strong>{escape(str(ctx["runtime_source"]))}</strong> · freshness: <strong>{escape(str(ctx["runtime_source_age"]))}</strong></div>

@@ -59,3 +59,11 @@ def test_crypto_broker_symbol_normalization_preserves_position_ownership():
     assert len(rows) == 1
     assert rows[0]["pillar"] == "Crypto"
     assert rows[0]["market_value"] == 985.27
+
+
+def test_return_and_cash_harvest_objectives_are_separate():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert "TOTAL DAILY RETURN" in source
+    assert "REALIZED CASH GENERATED" in source
+    assert "harvest_floor_progress" in source
+    assert "daily_performance.json" in source
