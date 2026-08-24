@@ -133,7 +133,9 @@ class InternationalPaperTradingJob:
     cadence_seconds: float = 300.0
     history_path: str = "var/autotrader/international_trades.db"
     search_keywords: str = "Stock"
-    search_top: int = 5
+    # Keep discovery bounded, but do not truncate the provider's eligible
+    # SIM listings to the first five results.
+    search_top: int = 20
 
     def __post_init__(self) -> None:
         try:

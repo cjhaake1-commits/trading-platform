@@ -41,7 +41,7 @@ def _perps_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
     return {"scanned": len(markets), "data_valid": len(active), "order_book_valid": len(valid_quotes), "liquid": len(liquid), "spread_valid": len(spread_valid),
             # Fee-tier metadata is optional for the current Demo margin surface;
             # its absence must not masquerade as a universal execution blocker.
-            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": len(band_valid), "risk_approved": 0,
+            "tick_valid": len(tick_valid), "band_valid": len(band_valid), "fee_valid": len(band_valid), "model_valid": 0, "positive_edge": 0, "risk_approved": 0,
             "capital_approved": 0, "orders_submitted": 0}
 
 
@@ -82,11 +82,9 @@ def cycle() -> dict[str, object]:
             markets = client.perps_markets(limit="100")
             rows = markets.get("markets", [])
             funnel = _perps_funnel(rows)
-            rejection = "NO_POSITIVE_EDGE"
+            rejection = "MODEL_INPUT_UNAVAILABLE"
             if funnel.get("band_valid", 0) == 0:
                 rejection = "PRICE_BAND_UNAVAILABLE"
-            elif funnel.get("positive_edge", 0) == 0:
-                rejection = "NO_POSITIVE_EDGE"
             result.update({"state": "SCANNING" if enabled.get("enabled", True) else "EXTERNAL_BLOCK",
                            "margin_enabled": enabled, "instruments": len(rows), "funnel": funnel,
                            "funding_state": "OPTIONAL_UNAVAILABLE", "fee_state": "OPTIONAL_UNAVAILABLE",
