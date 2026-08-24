@@ -74,6 +74,8 @@ def _derive_pillar_state(
         if latest_cycle.get("last_error") or latest_cycle.get("error"):
             return "DEGRADED — PROVIDER", "DEGRADED", str(latest_cycle.get("last_error") or latest_cycle.get("error"))
         if name == "Crypto" and int(broker_state.get("positions", 0) or 0) == 0:
+            if int(broker_state.get("working_orders", 0) or 0) > 0:
+                return "ACTIVE — ORDER WORKING", "CONNECTED", "Alpaca PAPER order pending reconciliation"
             if int(latest_cycle.get("crypto_scanned", 0) or 0) > 0:
                 if any(
                     str(row.get("details", {}).get("order_status") or "").lower() in {"new", "accepted", "pending", "partially_filled"}
@@ -554,7 +556,7 @@ def fetch_live_broker_data() -> tuple[
     }
     pillar_status = {
         "US Stocks / ETFs": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
-        "Crypto": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
+        "Crypto": {"connected": False, "positions": 0, "broker_positions": 0, "working_orders": 0, "pending_capital": 0.0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
         "Metals / Commodities": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
         "Forex": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
         "International": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
@@ -590,6 +592,29 @@ def fetch_live_broker_data() -> tuple[
             pillar_status["US Stocks / ETFs"]["connected"] = True
             pillar_status["Crypto"]["connected"] = True
             pillar_status["Metals / Commodities"]["connected"] = True
+            order_req = Request(
+                f"{alpaca_base.rstrip('/')}/v2/orders?status=open&limit=500",
+                headers={"APCA-API-KEY-ID": alpaca_key, "APCA-API-SECRET-KEY": alpaca_secret, "Accept": "application/json"},
+            )
+            with urlopen(order_req, timeout=10) as order_response:
+                open_orders = json.load(order_response)
+            for order in open_orders if isinstance(open_orders, list) else []:
+                if str(order.get("asset_class") or "").lower() != "crypto":
+                    continue
+                pillar_status["Crypto"]["working_orders"] += 1
+                # The runtime manifest is authoritative for reserved notional;
+                # this fallback uses broker notional when supplied.
+                reserved = abs(_float(order.get("notional")))
+                try:
+                    with sqlite3.connect("var/autotrader/portfolio.db") as conn:
+                        found = conn.execute(
+                            "SELECT approved_notional FROM entry_manifests WHERE broker_order_id=? ORDER BY updated_at DESC LIMIT 1",
+                            (str(order.get("id") or ""),),
+                        ).fetchone()
+                    reserved = abs(_float(found[0])) if found and found[0] is not None else reserved
+                except sqlite3.Error:
+                    pass
+                pillar_status["Crypto"]["pending_capital"] += reserved
             for row in rows:
                 asset_class = str(row.get("asset_class") or "").lower()
                 is_crypto = asset_class == "crypto"
