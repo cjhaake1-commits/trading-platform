@@ -21,5 +21,5 @@ def test_open_crypto_position_is_re_evaluated_and_reasoned_hold(tmp_path):
     decisions, exits = job._manage_crypto_positions(portfolio, {instrument: [bar]})
     assert exits == []
     assert decisions[0]["symbol"] == "SOL/USD"
-    assert decisions[0]["decision"] == "HOLD"
+    assert decisions[0]["decision"] == "TIGHTEN_PROTECTION"
     assert decisions[0]["reason"]

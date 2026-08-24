@@ -104,6 +104,7 @@ class AutonomousPaperConfig:
     alpaca_universe: tuple[str, ...] = DEFAULT_ALPACA_UNIVERSE
     oanda_universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
     crypto_universe: tuple[str, ...] = DEFAULT_CRYPTO_UNIVERSE
+    crypto_exit_confirmation_cycles: int = 2
 
 
 @dataclass(frozen=True)
@@ -213,6 +214,7 @@ class AutonomousPaperTradingJob:
         self.risk = RiskEngine()
         self.idempotency = IdempotencyStore(self.config.idempotency_path)
         self.unresolved_states = set(PortfolioLedger.unresolved_entry_states())
+        self._crypto_exit_confirmations: dict[str, int] = {}
 
     def _active_v2_unresolved_by_pillar(self, ledger: PortfolioLedger) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -264,7 +266,7 @@ class AutonomousPaperTradingJob:
                 True, "Autonomous paper cycle found no usable market data", {"learned_parameters": learned}
             )
 
-        position_management, rotation_exits = self._manage_crypto_positions(preflight.portfolio, histories)
+        position_management, rotation_exits = self._manage_crypto_positions(preflight.portfolio, histories, ledger)
         exits = self._manage_take_profits(preflight.portfolio, histories)
         if rotation_exits or exits:
             return JobResult(
@@ -1093,7 +1095,7 @@ class AutonomousPaperTradingJob:
             )
         return exits
 
-    def _manage_crypto_positions(self, portfolio: PortfolioState, histories) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    def _manage_crypto_positions(self, portfolio: PortfolioState, histories, ledger: PortfolioLedger | None = None) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
         """Re-evaluate every open Crypto position before considering new entries.
 
         This is deliberately conservative: a missing or weak re-entry signal is
@@ -1113,12 +1115,27 @@ class AutonomousPaperTradingJob:
                 instrument, bars, scanner=self.scanner, strategies=self.strategies, config=self.experiment
             ) if instrument and bars else None
             edge = signal.edge if signal else None
-            if candidate is None:
-                decision, reason = "EXIT_SIGNAL_INVALIDATED", "no fresh usable Crypto candidate"
-            elif edge is not None and edge.expected_net_edge > edge.required_edge:
-                decision, reason = "HOLD", "current strategy retains positive cost-aware edge"
+            original = ledger.latest_unresolved_entry_manifest_for_symbol(symbol, broker="alpaca-crypto-paper") if ledger else None
+            original_strategy = str(original.get("strategy_version") or "unknown") if original else "unknown"
+            original_edge = (original.get("metadata") or {}).get("edge") if original else None
+            thesis_valid = signal is not None
+            edge_valid = edge is not None and edge.expected_net_edge > edge.required_edge
+            deterioration = candidate is None or (not thesis_valid and not edge_valid)
+            if deterioration:
+                self._crypto_exit_confirmations[symbol] = self._crypto_exit_confirmations.get(symbol, 0) + 1
             else:
-                decision, reason = "HOLD", "protective stop remains valid; no explicit exit trigger"
+                self._crypto_exit_confirmations[symbol] = 0
+            confirmed = self._crypto_exit_confirmations.get(symbol, 0) >= self.config.crypto_exit_confirmation_cycles
+            if candidate is None and confirmed:
+                decision, reason = "EXIT_SIGNAL_INVALIDATED", "fresh data no longer supports the original BUY thesis"
+            elif not thesis_valid and not edge_valid and confirmed:
+                decision, reason = "EXIT_EDGE_GONE", "current expected net edge is absent or below required edge"
+            elif edge_valid:
+                decision, reason = "HOLD_EDGE_POSITIVE", "current strategy retains positive cost-aware edge"
+            elif deterioration:
+                decision, reason = "TIGHTEN_PROTECTION", f"thesis/edge deterioration confirmation {self._crypto_exit_confirmations[symbol]}/{self.config.crypto_exit_confirmation_cycles}"
+            else:
+                decision, reason = "HOLD_THESIS_VALID", "original strategy thesis remains supported"
             row = {
                 "symbol": symbol, "decision": decision, "reason": reason,
                 "current_price": candidate.last_price if candidate else None,
@@ -1128,6 +1145,13 @@ class AutonomousPaperTradingJob:
                 "lane": signal.mode if signal else "POSITION_MANAGEMENT",
                 "current_edge": edge.as_dict() if edge else None,
                 "capital": abs(position.quantity * position.average_price),
+                "original_strategy": original_strategy,
+                "original_edge": original_edge,
+                "thesis_valid": thesis_valid,
+                "edge_valid": edge_valid,
+                "would_open_today": signal is not None,
+                "confirmation_cycles": self._crypto_exit_confirmations.get(symbol, 0),
+                "holding_horizon_valid": True,
             }
             decisions.append(row)
             self.experiment_ledger.record_decision(
@@ -1136,7 +1160,7 @@ class AutonomousPaperTradingJob:
                 entry_price=position.average_price, edge=edge,
                 features={"reason": reason, "score": row["score"], "momentum_pct": row["momentum_pct"]},
             )
-            if decision == "EXIT_SIGNAL_INVALIDATED":
+            if decision in {"EXIT_SIGNAL_INVALIDATED", "EXIT_EDGE_GONE"}:
                 result = AlpacaCryptoExitCoordinator(
                     AlpacaCryptoExitPaperBroker.from_env(), self.idempotency, ledger_path=self.config.ledger_path
                 ).close(symbol, stop_price=position.stop_price)
@@ -1153,10 +1177,14 @@ class AutonomousPaperTradingJob:
             oanda = normalize_oanda_positions(oanda_open_positions().details.get("positions", []))
         except Exception:
             return
-        broker_symbols = {p.symbol for p in [*alpaca, *oanda] if abs(p.quantity) > 1e-12}
+        broker_symbols = {
+            p.symbol.replace("/", "").upper()
+            for p in [*alpaca, *oanda]
+            if abs(p.quantity) > 1e-12
+        }
         changed = False
         for symbol in list(portfolio.positions):
-            if symbol not in broker_symbols:
+            if symbol.replace("/", "").upper() not in broker_symbols:
                 del portfolio.positions[symbol]
                 changed = True
         if changed:
