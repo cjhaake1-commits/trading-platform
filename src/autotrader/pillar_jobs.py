@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from math import ceil
 from pathlib import Path
@@ -13,6 +13,7 @@ from .international_trading import InternationalExecutionService
 from .marketdata import YahooHistoricalData
 from .metals_trading import MetalsExecutionService, MetalsOrderSpec
 from .models import AssetClass, Instrument, MarketBar, PortfolioState, Side
+from .paper_experiment import PaperExperimentConfig, PaperExperimentLedger, experimental_candidate
 from .runtime import JobResult
 from .scanner import CandidateScanner
 from .strategies import BaselineStrategies
@@ -76,6 +77,8 @@ class MetalsPaperTradingJob:
         self.feed = YahooHistoricalData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
+        self.experiment = PaperExperimentConfig.from_env()
+        self.experiment_ledger = PaperExperimentLedger()
         try:
             self.service = MetalsExecutionService.from_env(self.history_path)
         except AlpacaMetalsConfigurationError:
@@ -97,13 +100,21 @@ class MetalsPaperTradingJob:
             return JobResult(True, "Metals cycle found no usable market data", {"pillar": PILLAR_METALS})
         readiness = self._readiness(histories, now)
         best = self._best_signal(histories)
+        mode = "BASELINE"
+        edge = None
+        if best is None and self.experiment.enabled:
+            best = self._best_experimental_signal(histories)
+            mode = "EXPERIMENTAL_PAPER" if best is not None else mode
         if best is None:
             return JobResult(
                 True,
                 "Metals cycle found no qualifying entry" if all(row["data_valid"] for row in readiness) else "Metals cycle blocked by insufficient history",
                 {"pillar": PILLAR_METALS, "history_required": self.required_bars, "history_lookback_days": self.history_lookback_days, "metals_diagnostics": readiness},
             )
-        candidate, proposal = best
+        if mode == "EXPERIMENTAL_PAPER":
+            candidate, proposal, edge = best
+        else:
+            candidate, proposal = best
 
         # This pillar has its own capital silo.  Do not use the shared Alpaca
         # account balance (which includes Stocks/Crypto) to decide Metals
@@ -128,8 +139,25 @@ class MetalsPaperTradingJob:
                 "Metals cycle skipped duplicate active position",
                 {"pillar": PILLAR_METALS, "candidate": candidate.instrument.symbol, "rejection": "DUPLICATE_ACTIVE_POSITION", "deployed": deployed},
             )
+        if mode == "EXPERIMENTAL_PAPER" and deployed >= 750.0:
+            return JobResult(True, "Metals experimental capital envelope reached", {"pillar": PILLAR_METALS, "candidate": candidate.instrument.symbol, "mode": mode, "rejection": "EXPERIMENTAL_CAPITAL_ENVELOPE", "deployed": deployed, "metals_diagnostics": readiness})
+        if mode == "EXPERIMENTAL_PAPER":
+            proposal = replace(proposal, requested_quantity=1.0)
+        experiment_ledger = getattr(self, "experiment_ledger", None)
+        if experiment_ledger is not None:
+            experiment_ledger.record_decision(
+                pillar=PILLAR_METALS,
+                symbol=proposal.symbol,
+                strategy=proposal.source,
+                timeframe="1d",
+                lane=mode,
+                decision="candidate",
+                entry_price=proposal.entry_price,
+                edge=edge,
+                features={"score": candidate.score, "rationale": proposal.rationale},
+            )
         result = self.service.execute(
-            MetalsOrderSpec(proposal=proposal, strategy_version="metals-baseline-v1"),
+            MetalsOrderSpec(proposal=proposal, strategy_version="metals-baseline-v1" if mode == "BASELINE" else "metals-experimental-v1"),
             PortfolioState(equity=1000.0, cash=max(1000.0 - deployed, 0.0)),
             metals_deployed=deployed,
             now=now,
@@ -154,6 +182,8 @@ class MetalsPaperTradingJob:
                 "rejection": None if result.approved else result.reason,
                 "execution_result": result.reason,
                 "deployed": deployed,
+                "mode": mode,
+                "edge": edge.as_dict() if edge else None,
                 "history_required": self.required_bars,
                 "history_lookback_days": self.history_lookback_days,
                 "metals_diagnostics": readiness,
@@ -223,6 +253,22 @@ class MetalsPaperTradingJob:
         if proposal is None or proposal.side is not Side.BUY:
             return None
         return candidate, proposal
+
+    def _best_experimental_signal(self, histories: dict[Instrument, list[MarketBar]]):
+        ranked = self.scanner.rank(histories, top_n=len(histories))
+        candidates = []
+        for candidate in ranked:
+            bars = histories[candidate.instrument]
+            proposals = (
+                self.strategies.sma_cross(candidate.instrument, bars),
+                self.strategies.breakout(candidate.instrument, bars),
+                self.strategies.mean_reversion(candidate.instrument, bars),
+            )
+            selected = experimental_candidate(candidate, proposals, config=self.experiment)
+            if selected is not None:
+                proposal, edge = selected
+                candidates.append((candidate, replace(proposal, confidence=min(proposal.confidence, 0.60)), edge))
+        return candidates[0] if candidates else None
 
 
 @dataclass

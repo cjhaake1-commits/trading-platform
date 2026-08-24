@@ -33,6 +33,38 @@ class AlpacaCryptoTradingRules:
     tradable: bool
 
 
+def alpaca_crypto_universe() -> tuple[str, ...]:
+    """Return the provider's active, tradable PAPER crypto universe.
+
+    Provider failure is fail-closed to the configured conservative universe;
+    it never fabricates symbols or silently changes the broker endpoint.
+    """
+    key, secret, base_url = _alpaca_credentials()
+    if not key or not secret:
+        return ()
+    try:
+        payload, _ = _request_json(
+            f"{base_url}/v2/assets?asset_class=crypto&status=active",
+            method="GET",
+            headers=_alpaca_headers(key, secret),
+        )
+    except RuntimeError:
+        return ()
+    if not isinstance(payload, list):
+        return ()
+    symbols = []
+    for asset in payload:
+        if not isinstance(asset, dict) or asset.get("tradable") is not True:
+            continue
+        symbol = str(asset.get("symbol") or "").strip().upper()
+        if symbol:
+            if "/" in symbol:
+                symbols.append(symbol)
+            elif symbol.endswith("USD"):
+                symbols.append(f"{symbol[:-3]}/USD")
+    return tuple(sorted(set(symbols)))
+
+
 def _request_json(
     url: str,
     *,

@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from .brokers.alpaca_crypto_exit import AlpacaCryptoExitPaperBroker
 from .brokers.practice_orders import (
+    alpaca_crypto_universe,
     crypto_quantity_for_notional,
     submit_alpaca_paper_crypto_market_order,
     submit_alpaca_paper_crypto_stop_limit,
@@ -21,6 +22,13 @@ from .learning import load_learned_parameters
 from .marketdata import YahooHistoricalData
 from .models import AssetClass, Instrument, PortfolioState, Side, TradeIntent, TradeProposal
 from .order_test_app import _sync_submitted_position
+from .paper_experiment import (
+    EdgeEstimate,
+    PaperExperimentConfig,
+    PaperExperimentLedger,
+    estimate_edge,
+    experimental_candidate,
+)
 from .portfolio_ledger import PortfolioLedger
 from .preflight import run_preflight
 from .reconciliation import normalize_alpaca_positions, normalize_oanda_positions
@@ -103,6 +111,8 @@ class RankedSignal:
     score: float
     proposal: TradeProposal
     votes: tuple[str, ...]
+    mode: str = "BASELINE"
+    edge: EdgeEstimate | None = None
 
 
 def _broker_environment(broker: str) -> str:
@@ -149,7 +159,42 @@ def choose_long_signal(
         f"scanner_score={candidate.score:.2f}; momentum={candidate.momentum_pct:.2f}%; votes={','.join(votes)}",
         TradeIntent.ENTER,
     )
-    return RankedSignal(instrument, candidate.score, proposal, votes)
+    return RankedSignal(
+        instrument,
+        candidate.score,
+        proposal,
+        votes,
+        "BASELINE",
+        estimate_edge(candidate, proposal, asset_class=instrument.asset_class, experimental=False),
+    )
+
+
+def choose_experimental_long_signal(
+    instrument: Instrument,
+    bars,
+    *,
+    scanner=None,
+    strategies=None,
+    config: PaperExperimentConfig | None = None,
+) -> RankedSignal | None:
+    config = config or PaperExperimentConfig.from_env()
+    if not config.enabled:
+        return None
+    scanner = scanner or CandidateScanner()
+    strategies = strategies or BaselineStrategies()
+    candidate = scanner.score_instrument(instrument, bars)
+    if candidate is None:
+        return None
+    proposals = (
+        strategies.sma_cross(instrument, bars),
+        strategies.breakout(instrument, bars),
+        strategies.mean_reversion(instrument, bars),
+    )
+    selected = experimental_candidate(candidate, proposals, config=config)
+    if selected is None:
+        return None
+    proposal, edge = selected
+    return RankedSignal(instrument, candidate.score, proposal, (proposal.source,), "EXPERIMENTAL_PAPER", edge)
 
 
 class AutonomousPaperTradingJob:
@@ -162,6 +207,8 @@ class AutonomousPaperTradingJob:
         self.feed = YahooHistoricalData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
+        self.experiment = PaperExperimentConfig.from_env()
+        self.experiment_ledger = PaperExperimentLedger()
         self.risk = RiskEngine()
         self.idempotency = IdempotencyStore(self.config.idempotency_path)
         self.unresolved_states = set(PortfolioLedger.unresolved_entry_states())
@@ -250,7 +297,26 @@ class AutonomousPaperTradingJob:
                 minimum_score=minimum_score,
                 momentum_only_score=momentum_score,
             )
+            if signal is None:
+                signal = choose_experimental_long_signal(
+                    instrument,
+                    bars,
+                    scanner=self.scanner,
+                    strategies=self.strategies,
+                    config=self.experiment,
+                )
             if signal is not None:
+                self.experiment_ledger.record_decision(
+                    pillar="alpaca_crypto" if instrument.asset_class is AssetClass.CRYPTO else "alpaca_equities",
+                    symbol=instrument.symbol,
+                    strategy=signal.proposal.source,
+                    timeframe=self.config.interval,
+                    lane=signal.mode,
+                    decision="candidate",
+                    entry_price=signal.proposal.entry_price,
+                    edge=signal.edge,
+                    features={"score": signal.score, "votes": signal.votes},
+                )
                 signals.append(signal)
 
         diagnostics.sort(key=lambda x: float(x["score"]), reverse=True)
@@ -273,6 +339,11 @@ class AutonomousPaperTradingJob:
             "forex_qualified": len(forex),
             "crypto_qualified": len(crypto),
             "equity_qualified": len(equities),
+            "baseline_candidates": sum(1 for s in signals if s.mode == "BASELINE"),
+            "experimental_candidates": sum(1 for s in signals if s.mode == "EXPERIMENTAL_PAPER"),
+            "paper_experiment_enabled": self.experiment.enabled,
+            "provider_crypto_universe": list(getattr(self, "provider_crypto_universe", ())),
+            "eligible_crypto_universe": [i.symbol for i in histories if i.asset_class is AssetClass.CRYPTO],
         }
         if not signals:
             return JobResult(
@@ -280,10 +351,11 @@ class AutonomousPaperTradingJob:
                 "Autonomous paper cycle found no qualifying entry",
                 {
                     **counts,
-                    "qualified_signals": 0,
+                        "qualified_signals": 0,
+                        "paper_experiment_enabled": self.experiment.enabled,
                     "top_candidates": diagnostics[:10],
                     "pillar_allocations": PILLAR_ALLOCATIONS,
-                    "learned_parameters": learned,
+                        "learned_parameters": learned,
                 },
             )
 
@@ -302,6 +374,10 @@ class AutonomousPaperTradingJob:
             portfolio = fresh.portfolio
             strategy_portfolio = self._strategy_portfolio(portfolio, ledger)
             pillar = pillar_for_asset(signal.instrument.asset_class)
+            if signal.mode == "EXPERIMENTAL_PAPER":
+                if signal.edge is None or signal.edge.expected_net_edge <= signal.edge.required_edge:
+                    rejections.append({"symbol": signal.instrument.symbol, "pillar": pillar, "mode": signal.mode, "reason": "experimental edge is not cost-positive"})
+                    continue
             if unresolved_by_pillar.get(pillar, 0) >= self.config.max_unresolved_v2_per_pillar:
                 rejections.append(
                     {
@@ -320,6 +396,9 @@ class AutonomousPaperTradingJob:
                 for p in strategy_portfolio.positions.values()
                 if pillar_for_asset(p.asset_class) == pillar
             )
+            if signal.mode == "EXPERIMENTAL_PAPER" and pillar_notional >= pillar_limit * self.experiment.experimental_max_pillar_utilization:
+                rejections.append({"symbol": signal.instrument.symbol, "pillar": pillar, "mode": signal.mode, "reason": "experimental capital envelope reached"})
+                continue
             if pillar_notional >= pillar_limit:
                 rejections.append(
                     {
@@ -383,7 +462,12 @@ class AutonomousPaperTradingJob:
             if signal.instrument.asset_class is AssetClass.CRYPTO:
                 pillar_risk_dollars = pillar_limit * 0.0125
                 pillar_risk_quantity = pillar_risk_dollars / signal.proposal.risk_per_unit
+                if signal.mode == "EXPERIMENTAL_PAPER":
+                    pillar_risk_dollars *= self.experiment.experimental_risk_scale
+                    pillar_risk_quantity = pillar_risk_dollars / signal.proposal.risk_per_unit
                 requested_quantity = min(decision.quantity, capacity_quantity, pillar_risk_quantity)
+                if signal.mode == "EXPERIMENTAL_PAPER":
+                    requested_quantity *= self.experiment.experimental_risk_scale
                 provider_quantity, provider_reason = crypto_quantity_for_notional(
                     signal.instrument.symbol,
                     signal.proposal.entry_price,
@@ -420,7 +504,8 @@ class AutonomousPaperTradingJob:
                     continue
                 broker = "alpaca-crypto-paper"
             else:
-                order_quantity = float(math.floor(min(decision.quantity, capacity_quantity)))
+                requested_quantity = decision.quantity * (self.experiment.experimental_risk_scale if signal.mode == "EXPERIMENTAL_PAPER" else 1.0)
+                order_quantity = float(math.floor(min(requested_quantity, capacity_quantity)))
                 if order_quantity < 1:
                     sizing.append(
                         {
@@ -480,7 +565,7 @@ class AutonomousPaperTradingJob:
                     "canonical_symbol": canonical_symbol,
                     "broker_symbol": signal.instrument.symbol,
                     "side": signal.proposal.side.value,
-                    "model_version": "five_pillar_baseline_v1",
+                    "model_version": "five_pillar_baseline_v1" if signal.mode == "BASELINE" else "paper_experiment_challenger_v1",
                     "strategy_version": signal.proposal.source,
                     "confidence": signal.proposal.confidence,
                     "regime": signal.proposal.rationale or None,
@@ -495,6 +580,8 @@ class AutonomousPaperTradingJob:
                     "risk_engine_decision": decision.reason,
                     "lifecycle_state": "approved_manifest",
                     "client_order_id_namespace": client_id,
+                    "lane": signal.mode,
+                    "edge": signal.edge.as_dict() if signal.edge else None,
                 }
                 manifest_payload["fingerprint"] = PortfolioLedger.manifest_fingerprint(manifest_payload)
                 manifest_id = manifest_payload["fingerprint"][:32]
@@ -507,7 +594,7 @@ class AutonomousPaperTradingJob:
                     canonical_symbol=manifest_payload["canonical_symbol"],
                     broker_symbol=manifest_payload["broker_symbol"],
                     side=signal.proposal.side.value,
-                    model_version="five_pillar_baseline_v1",
+                    model_version=manifest_payload["model_version"],
                     strategy_version=signal.proposal.source,
                     confidence=signal.proposal.confidence,
                     regime=manifest_payload["regime"],
@@ -523,7 +610,7 @@ class AutonomousPaperTradingJob:
                     lifecycle_state="approved_manifest",
                     client_order_id_namespace=client_id,
                     fingerprint=manifest_payload["fingerprint"],
-                    metadata={"signal": signal.votes, "manifest": manifest_payload},
+                    metadata={"signal": signal.votes, "manifest": manifest_payload, "lane": signal.mode, "edge": signal.edge.as_dict() if signal.edge else None},
                 )
                 protective_order_id = None
                 if signal.instrument.asset_class is AssetClass.CRYPTO:
@@ -576,7 +663,7 @@ class AutonomousPaperTradingJob:
                     canonical_symbol=manifest_payload["canonical_symbol"],
                     broker_symbol=manifest_payload["broker_symbol"],
                     side=signal.proposal.side.value,
-                    model_version="five_pillar_baseline_v1",
+                    model_version=manifest_payload["model_version"],
                     strategy_version=signal.proposal.source,
                     confidence=signal.proposal.confidence,
                     regime=manifest_payload["regime"],
@@ -594,7 +681,7 @@ class AutonomousPaperTradingJob:
                     fingerprint=manifest_payload["fingerprint"],
                     broker_order_id=broker_order_id,
                     submitted_quantity=order_quantity,
-                    metadata={"submission": result.details},
+                    metadata={"submission": result.details, "lane": signal.mode, "edge": signal.edge.as_dict() if signal.edge else None},
                 )
                 sync = _sync_submitted_position(
                     broker=sync_broker,
@@ -641,7 +728,7 @@ class AutonomousPaperTradingJob:
                             "reconciliation_tolerance": 0.005,
                             "reconciliation_status": sync.get("reconciliation_status"),
                             "strategy_version": signal.proposal.source,
-                            "model_version": "five_pillar_baseline_v1",
+                            "model_version": manifest_payload["model_version"],
                             "proposal_stop": signal.proposal.stop_price,
                             "proposal_entry": signal.proposal.entry_price,
                             "order_status": sync.get("order_status"),
@@ -672,7 +759,7 @@ class AutonomousPaperTradingJob:
                             "reconciliation_status": reconciliation_status,
                             "order_status": sync.get("order_status"),
                             "strategy_version": signal.proposal.source,
-                            "model_version": "five_pillar_baseline_v1",
+                            "model_version": manifest_payload["model_version"],
                             "proposal_stop": signal.proposal.stop_price,
                             "proposal_entry": signal.proposal.entry_price,
                         },
@@ -686,7 +773,7 @@ class AutonomousPaperTradingJob:
                     canonical_symbol=manifest_payload["canonical_symbol"],
                     broker_symbol=manifest_payload["broker_symbol"],
                     side=signal.proposal.side.value,
-                    model_version="five_pillar_baseline_v1",
+                    model_version=manifest_payload["model_version"],
                     strategy_version=signal.proposal.source,
                     confidence=signal.proposal.confidence,
                     regime=manifest_payload["regime"],
@@ -769,7 +856,7 @@ class AutonomousPaperTradingJob:
                             canonical_symbol=manifest_payload["canonical_symbol"],
                             broker_symbol=manifest_payload["broker_symbol"],
                             side=signal.proposal.side.value,
-                            model_version="five_pillar_baseline_v1",
+                            model_version=manifest_payload["model_version"],
                             strategy_version=signal.proposal.source,
                             confidence=signal.proposal.confidence,
                             regime=manifest_payload["regime"],
@@ -836,7 +923,7 @@ class AutonomousPaperTradingJob:
                         metadata={
                             "protection_order": protection.details,
                             "strategy_version": signal.proposal.source,
-                            "model_version": "five_pillar_baseline_v1",
+                            "model_version": manifest_payload["model_version"],
                             "proposal_stop": signal.proposal.stop_price,
                             "proposal_entry": signal.proposal.entry_price,
                         },
@@ -850,7 +937,7 @@ class AutonomousPaperTradingJob:
                         canonical_symbol=manifest_payload["canonical_symbol"],
                         broker_symbol=manifest_payload["broker_symbol"],
                         side=signal.proposal.side.value,
-                        model_version="five_pillar_baseline_v1",
+                        model_version=manifest_payload["model_version"],
                         strategy_version=signal.proposal.source,
                         confidence=signal.proposal.confidence,
                         regime=manifest_payload["regime"],
@@ -944,10 +1031,13 @@ class AutonomousPaperTradingJob:
         start = now - timedelta(days=max(self.config.lookback_days, 2))
         histories = {}
         etfs = {"SPY", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV"}
+        provider_crypto = tuple(symbol for symbol in alpaca_crypto_universe() if symbol.endswith("/USD"))
+        self.provider_crypto_universe = provider_crypto
+        crypto_symbols = tuple(dict.fromkeys((*self.config.crypto_universe, *provider_crypto)))
         instruments = [
             *(Instrument(s, AssetClass.ETF if s in etfs else AssetClass.STOCK) for s in self.config.alpaca_universe),
             *(Instrument(s, AssetClass.FOREX) for s in self.config.oanda_universe),
-            *(Instrument(s, AssetClass.CRYPTO) for s in self.config.crypto_universe),
+            *(Instrument(s, AssetClass.CRYPTO) for s in crypto_symbols),
         ]
         for instrument in instruments:
             try:

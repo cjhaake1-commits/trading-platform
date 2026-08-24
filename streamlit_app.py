@@ -1558,6 +1558,24 @@ def _render_dashboard_legacy() -> None:
             hide_index=True,
         )
 
+    crypto_cycles = [
+        row for row in activity
+        if isinstance(row, dict)
+        and str(row.get("job") or "") == "autonomous-paper-trading"
+        and row.get("paper_experiment_enabled") is not None
+        and isinstance(row.get("eligible_crypto_universe"), list)
+    ]
+    if crypto_cycles:
+        latest_crypto = crypto_cycles[0]
+        st.markdown("<div class='section-title'>Paper Learning Experiment</div>", unsafe_allow_html=True)
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Mode", "ENABLED" if latest_crypto.get("paper_experiment_enabled") else "BASELINE ONLY")
+        c2.metric("Provider Crypto", str(len(latest_crypto.get("provider_crypto_universe") or [])))
+        c3.metric("Eligible Crypto", str(len(latest_crypto.get("eligible_crypto_universe") or [])))
+        c4.metric("Baseline Candidates", str(latest_crypto.get("baseline_candidates") or 0))
+        c5.metric("Experimental Candidates", str(latest_crypto.get("experimental_candidates") or 0))
+        st.caption("Experimental entries are PAPER-only challengers with explicit cost-positive edge assumptions; baseline evidence remains separate.")
+
     st.markdown("<div class='section-title'>Capital & Cash Command Center</div>", unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Starting Strategy Capital", _money(original_capital))
