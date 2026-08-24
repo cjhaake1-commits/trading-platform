@@ -13,7 +13,13 @@ from .brokers.practice_orders import (
     submit_alpaca_paper_protected_order,
     submit_oanda_practice_market_order,
 )
-from .brokers.safety import alpaca_open_positions, close_alpaca_position, close_oanda_position, oanda_open_positions
+from .brokers.safety import (
+    alpaca_open_positions,
+    cancel_alpaca_open_orders_for_symbol,
+    close_alpaca_position,
+    close_oanda_position,
+    oanda_open_positions,
+)
 from .capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL, pillar_for_asset
 from .crypto_exit import AlpacaCryptoExitCoordinator
 from .execution_safety import IdempotencyStore
@@ -105,6 +111,7 @@ class AutonomousPaperConfig:
     oanda_universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
     crypto_universe: tuple[str, ...] = DEFAULT_CRYPTO_UNIVERSE
     crypto_exit_confirmation_cycles: int = 2
+    crypto_stale_order_seconds: int = 900
 
 
 @dataclass(frozen=True)
@@ -284,13 +291,15 @@ class AutonomousPaperTradingJob:
                 True, "Autonomous paper cycle found no usable market data", {"learned_parameters": learned}
             )
 
+        stale_orders = self._cancel_stale_crypto_orders(ledger, now)
+
         position_management, rotation_exits = self._manage_crypto_positions(preflight.portfolio, histories, ledger)
         exits = self._manage_take_profits(preflight.portfolio, histories)
         if rotation_exits or exits:
             return JobResult(
                 True,
                 "Autonomous paper cycle managed exits",
-                {"exits": [*rotation_exits, *exits], "position_management": position_management, "learned_parameters": learned},
+                {"exits": [*rotation_exits, *exits], "stale_orders": stale_orders, "position_management": position_management, "learned_parameters": learned},
             )
 
         loaded = ledger.load_portfolio()
@@ -382,6 +391,7 @@ class AutonomousPaperTradingJob:
                     "pillar_allocations": PILLAR_ALLOCATIONS,
                         "learned_parameters": learned,
                     "position_management": position_management,
+                    "stale_orders": stale_orders,
                 },
             )
 
@@ -1028,6 +1038,7 @@ class AutonomousPaperTradingJob:
                 "pillar_allocations": PILLAR_ALLOCATIONS,
                 "learned_parameters": learned,
                 "position_management": position_management,
+                "stale_orders": stale_orders,
             },
         )
 
@@ -1184,6 +1195,29 @@ class AutonomousPaperTradingJob:
                 ).close(symbol, stop_price=position.stop_price)
                 exits.append({"symbol": symbol, "decision": decision, "reason": reason, "ok": result.ok, "message": result.message})
         return decisions, exits
+
+    def _cancel_stale_crypto_orders(self, ledger: PortfolioLedger, now: datetime) -> list[dict[str, object]]:
+        actions: list[dict[str, object]] = []
+        for manifest in ledger.unresolved_entry_manifests(broker="alpaca-crypto-paper"):
+            if str(manifest.get("lifecycle_state")) != "order_pending":
+                continue
+            created = str(manifest.get("created_at") or "")
+            try:
+                age = max((now - datetime.fromisoformat(created.replace("Z", "+00:00"))).total_seconds(), 0.0)
+            except ValueError:
+                continue
+            if age < self.config.crypto_stale_order_seconds:
+                continue
+            symbol = str(manifest.get("canonical_symbol") or "")
+            result = cancel_alpaca_open_orders_for_symbol(symbol)
+            cancelled = list(result.details.get("cancelled_order_ids", []))
+            if cancelled:
+                ledger.mark_manifest_terminal(
+                    str(manifest.get("manifest_id")), lifecycle_state="cancelled_unfilled",
+                    metadata={"stale_order": True, "age_seconds": age, "cancelled_order_ids": cancelled, "reason": "provider accepted but did not fill within stale-order window"},
+                )
+            actions.append({"symbol": symbol, "age_seconds": age, "action": "CANCEL_STALE" if cancelled else "KEEP_WORKING", "order_ids": cancelled})
+        return actions
 
     def _sync_broker_flat_positions(self, ledger: PortfolioLedger) -> None:
         loaded = ledger.load_portfolio()

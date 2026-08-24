@@ -192,7 +192,11 @@ def alpaca_open_orders() -> BrokerSafetyResult:
 def cancel_alpaca_open_orders_for_symbol(symbol: str) -> BrokerSafetyResult:
     key, secret, base = _alpaca_auth()
     api_symbol = _alpaca_api_symbol(symbol)
-    query = urlencode({"status": "open", "symbols": api_symbol, "nested": "true", "limit": 500})
+    # Alpaca's Crypto order filter expects the slash form (ONDO/USD), while
+    # position endpoints accept the compact form (ONDOUSD). Fetch the bounded
+    # open-order set and canonicalize locally so stale-order cancellation
+    # cannot silently miss a valid Crypto order.
+    query = urlencode({"status": "open", "nested": "true", "limit": 500})
     payload, _ = _request(f"{base}/v2/orders?{query}", method="GET", headers=_alpaca_headers(key, secret))
     orders = payload if isinstance(payload, list) else []
     cancelled: list[str] = []

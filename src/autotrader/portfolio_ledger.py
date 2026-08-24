@@ -165,6 +165,14 @@ class PortfolioLedger:
                 (manifest_id, datetime.now(UTC).isoformat(), category, reason, json.dumps(evidence), row[0]),
             )
 
+    def mark_manifest_terminal(self, manifest_id: str, *, lifecycle_state: str, metadata: dict[str, object]) -> None:
+        """Record a terminal broker outcome without deleting the audit manifest."""
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE entry_manifests SET lifecycle_state=?, metadata_json=?, updated_at=? WHERE manifest_id=?",
+                (lifecycle_state, json.dumps(metadata, default=str), datetime.now(UTC).isoformat(), manifest_id),
+            )
+
     def save_portfolio(self, portfolio: PortfolioState, *, peak_equity: float) -> None:
         if peak_equity <= 0:
             raise ValueError("peak_equity must be positive")
