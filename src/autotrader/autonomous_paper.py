@@ -214,7 +214,7 @@ class AutonomousPaperTradingJob:
         portfolio = (
             PortfolioState(self.config.initial_equity, self.config.initial_equity) if loaded is None else loaded[0]
         )
-        strategy_portfolio = self._strategy_portfolio(portfolio)
+        strategy_portfolio = self._strategy_portfolio(portfolio, ledger)
         diagnostics, signals = [], []
         for instrument, bars in histories.items():
             if instrument.symbol in portfolio.positions:
@@ -288,7 +288,7 @@ class AutonomousPaperTradingJob:
             if not fresh.ready:
                 break
             portfolio = fresh.portfolio
-            strategy_portfolio = self._strategy_portfolio(portfolio)
+            strategy_portfolio = self._strategy_portfolio(portfolio, ledger)
             pillar = pillar_for_asset(signal.instrument.asset_class)
             if unresolved_by_pillar.get(pillar, 0) >= self.config.max_unresolved_v2_per_pillar:
                 rejections.append(
@@ -904,11 +904,19 @@ class AutonomousPaperTradingJob:
             },
         )
 
-    def _strategy_portfolio(self, portfolio: PortfolioState) -> PortfolioState:
+    def _strategy_portfolio(self, portfolio: PortfolioState, ledger: PortfolioLedger | None = None) -> PortfolioState:
+        manifest_symbols: set[str] = set()
+        if ledger is not None:
+            manifest_symbols = {
+                str(manifest.get("canonical_symbol") or "").upper()
+                for manifest in ledger.unresolved_entry_manifests()
+                if str(manifest.get("created_at") or "") >= self.experiment_baseline_start.isoformat()
+            }
         strategy_positions = {
             symbol: position
             for symbol, position in portfolio.positions.items()
             if position_is_experiment_eligible(position.opened_at, self.experiment_baseline_start)
+            or symbol.upper() in manifest_symbols
         }
         deployed = sum(abs(position.quantity * position.average_price) for position in strategy_positions.values())
         cash = max(self.config.initial_equity - deployed, 0.0)

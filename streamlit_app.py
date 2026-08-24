@@ -430,7 +430,7 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Available Capital</span><strong>{_money(data.get("available"))}</strong></div>
             <div><span>Utilization</span><strong>{_pct((_float(data.get("deployed")) + _float(data.get("pending"))) / _float(data.get("cap")) if _float(data.get("cap")) else 0.0)}</strong></div>
             <div><span>Position Cost Basis</span><strong>{_money(data.get("cost_basis", data.get("deployed")))}</strong></div>
-            <div><span>Position Market Value</span><strong>{_money(data.get("deployed"))}</strong></div>
+            <div><span>Position Market Value</span><strong>{_money(data.get("market_value", data.get("deployed")))}</strong></div>
             <div><span>Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
             <div><span>Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
             <div><span>Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
@@ -511,11 +511,11 @@ def fetch_live_broker_data() -> tuple[
         "alpaca_exposure": 0.0,
     }
     pillar_status = {
-        "US Stocks / ETFs": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
-        "Crypto": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
-        "Metals / Commodities": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
-        "Forex": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
-        "International": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "legacy_exposure": 0.0},
+        "US Stocks / ETFs": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
+        "Crypto": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
+        "Metals / Commodities": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
+        "Forex": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
+        "International": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
     }
     errors: list[str] = []
     eligible_symbols = _eligible_strategy_symbols()
@@ -572,8 +572,9 @@ def fetch_live_broker_data() -> tuple[
                 if strategy_position:
                     metrics["unrealized_pnl"] += unrealized
                     pillar_status[pillar]["unrealized_pnl"] += unrealized
-                    pillar_status[pillar]["strategy_deployed"] += market_value
+                    pillar_status[pillar]["strategy_deployed"] += abs(qty * avg)
                     pillar_status[pillar]["strategy_cost_basis"] += abs(qty * avg)
+                    pillar_status[pillar]["strategy_market_value"] += market_value
                     pillar_status[pillar]["positions"] += 1
                 else:
                     pillar_status[pillar]["legacy_exposure"] += market_value
@@ -633,6 +634,7 @@ def fetch_live_broker_data() -> tuple[
                 pillar_status["Forex"]["positions"] += 1
                 pillar_status["Forex"]["strategy_deployed"] += exposure
                 pillar_status["Forex"]["strategy_cost_basis"] += exposure
+                pillar_status["Forex"]["strategy_market_value"] += exposure
                 pillar_status["Forex"]["unrealized_pnl"] += unrealized
                 metrics["unrealized_pnl"] += unrealized
                 metrics["gross_exposure"] += exposure
@@ -1723,6 +1725,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "cap": PILLAR_BASE_CAPITAL,
                 "deployed": strategy_deployed,
                 "cost_basis": _float(broker_state.get("strategy_cost_basis", strategy_deployed)),
+                "market_value": _float(broker_state.get("strategy_market_value", strategy_deployed)),
                 "pending": 0.0,
                 "available": max(PILLAR_BASE_CAPITAL - strategy_deployed, 0.0),
                 "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
