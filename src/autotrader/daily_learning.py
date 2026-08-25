@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .crypto_challenger_v2 import analyze as analyze_challenger_v2
+from .crypto_strategy_discovery import discover as discover_crypto_strategies
 from .experiment_state import load_experiment_baseline_start
 from .learning import RealizedOutcomeLearner
 from .marketdata import YahooHistoricalData
@@ -92,6 +93,7 @@ class DailyLearningJob:
         counterfactual_counts = counterfactual.resolve_counterfactuals(bars_by_symbol, now=now)
         counterfactual_counts["backfilled"] = backfill["inserted"]
         challenger_v2 = analyze_challenger_v2()
+        discovery = discover_crypto_strategies()
         learning = RealizedOutcomeLearner(
             ledger_path=self.ledger_path,
             audit_path=self.audit_db,
@@ -112,6 +114,7 @@ class DailyLearningJob:
             "hard_guardrails_mutable": False,
             "counterfactual": counterfactual_counts,
             "challenger_v2": challenger_v2,
+            "crypto_discovery": discovery,
             "learning_status": learning["sample_status"],
             "performance": learning,
         }
@@ -145,6 +148,10 @@ class DailyLearningJob:
                 "challenger_v2": {
                     "promotion_state": challenger_v2["promotion_state"],
                     "oos": challenger_v2["oos_metrics"],
+                },
+                "crypto_discovery": {
+                    "promotion_state": discovery["promotion_state"],
+                    "strategy_count": discovery["strategy_count"],
                 },
             },
         )

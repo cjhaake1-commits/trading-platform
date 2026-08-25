@@ -1487,6 +1487,22 @@ def _render_crypto_strategy_health() -> None:
         f"</div><div class='small-note'>WHY V2 IS DIFFERENT: training-only net-edge, spread, and volatility filters over V1 candidates. V1 expectancy: {escape(_money(v1_metrics.get('expectancy')))} · Research/simulated outcomes only — not provider fills or fund P&amp;L.</div></div>",
         unsafe_allow_html=True,
     )
+    discovery = _safe_json(Path("var/autotrader/learning/crypto-strategy-discovery.json"))
+    tournament = discovery.get("ranked_tournament") if isinstance(discovery.get("ranked_tournament"), list) else []
+    top = tournament[0] if tournament else {}
+    top_oos = top.get("oos") if isinstance(top.get("oos"), dict) else {}
+    st.markdown(
+        f"<div class='panel' style='padding:1rem'><strong>CRYPTO STRATEGY DISCOVERY</strong><div class='status-grid'>"
+        f"<div class='status-card'><div class='status-label'>TOTAL STRATEGIES TESTED</div><div class='status-value'>{escape(str(discovery.get('strategy_count', 0)))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>SURVIVING VALIDATION</div><div class='status-value'>0</div></div>"
+        f"<div class='status-card'><div class='status-label'>POSITIVE OOS</div><div class='status-value'>0</div></div>"
+        f"<div class='status-card'><div class='status-label'>READY CONTROLLED PAPER</div><div class='status-value'>0</div></div>"
+        f"<div class='status-card'><div class='status-label'>CURRENT #1 RESEARCH STRATEGY</div><div class='status-value'>{escape(str(top.get('strategy_id') or 'NONE'))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>OOS EXPECTANCY</div><div class='status-value'>{escape(_money(top_oos.get('expectancy')))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>PROMOTION STATE</div><div class='status-value'>{escape(str(discovery.get('promotion_state') or 'NO_EDGE_FOUND'))}</div></div>"
+        f"</div><div class='small-note'>RESEARCH / COUNTERFACTUAL RESULTS — NOT PROVIDER FILLS OR FUND P&amp;L. {escape(str(discovery.get('no_edge_reason') or 'No discovery result available.'))}</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_overview(ctx: dict[str, object]) -> None:
