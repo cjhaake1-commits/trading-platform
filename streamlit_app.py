@@ -1505,7 +1505,7 @@ def _render_crypto_strategy_health() -> None:
     )
 
 
-def _render_overview(ctx: dict[str, object]) -> None:
+def _render_overview_legacy(ctx: dict[str, object]) -> None:
     runtime = ctx["runtime"]
     live_job_rows = ctx["live_job_rows"]
     unresolved = ctx["unresolved"]
@@ -1783,6 +1783,54 @@ def _render_overview(ctx: dict[str, object]) -> None:
             """,
             unsafe_allow_html=True,
             )
+
+
+def _render_performance_board(ctx: dict[str, object]) -> None:
+    daily = ctx.get("daily_performance") if isinstance(ctx.get("daily_performance"), dict) else {}
+    rows = _live_results_rows(ctx)
+    st.markdown("<div class='section-title'>READ-ONLY PERFORMANCE BOARD</div>", unsafe_allow_html=True)
+    st.caption("Observation only · Paper / Practice / Sim / Demo")
+    top = st.columns(4)
+    for col, label, value in zip(top, ("CURRENT FUND EQUITY", "TODAY'S P&L", "DAILY RETURN %", "CAPITAL DEPLOYED"), (_money(ctx.get("total_equity")), _money(daily.get("total_pnl")), _pct(daily.get("daily_return")), _money(ctx.get("deployed"))), strict=True):
+        col.metric(label, value)
+    second = st.columns(4)
+    for col, label, value in zip(second, ("AVAILABLE CASH", "REALIZED P&L TODAY", "UNREALIZED P&L", "TOTAL RETURN %"), (_money(ctx.get("available_cash")), _money(daily.get("realized_pnl")), _money(ctx.get("unrealized")), _pct(ctx.get("total_equity") / ctx.get("original_capital") - 1 if ctx.get("original_capital") else None)), strict=True):
+        col.metric(label, value)
+    st.markdown("### CAPITAL ACCOUNTING")
+    st.dataframe([{"Starting Capital": _money(ctx.get("original_capital")), "Current Equity": _money(ctx.get("total_equity")), "Deployed": _money(ctx.get("deployed")), "Available Cash": _money(ctx.get("available_cash")), "Pending Capital": _money(ctx.get("protected_cash")), "Utilization": _pct(_float(ctx.get("deployed")) / _float(ctx.get("original_capital")) if _float(ctx.get("original_capital")) else None), "Cumulative P&L": _money(ctx.get("net_cash"))}], hide_index=True, use_container_width=True)
+    st.markdown("### TODAY")
+    today = st.columns(6)
+    for col, label, value in zip(today, ("Daily Starting Equity", "Current Equity", "Realized P&L", "Unrealized P&L", "Net Daily P&L", "Daily Return"), (_money(daily.get("starting_equity")), _money(daily.get("current_equity")), _money(daily.get("realized_pnl")), _money(daily.get("unrealized_pnl")), _money(daily.get("total_pnl")), _pct(daily.get("daily_return"))), strict=True):
+        col.metric(label, value)
+    st.markdown("### CASH GENERATED")
+    cash = st.columns(5)
+    for col, label, value in zip(cash, ("Realized Profit Today", "Realized This Week", "Realized This Month", "Realized YTD", "Daily Cash Objective"), (_money(daily.get("harvested_profit")), "INSUFFICIENT DATA", "INSUFFICIENT DATA", _money(ctx.get("net_cash")), "$500 FLOOR / $1,000 STRETCH"), strict=True):
+        col.metric(label, value)
+    st.markdown("### SIX PILLAR PERFORMANCE")
+    pillar_cols = st.columns(3)
+    for index, row in enumerate(rows):
+        with pillar_cols[index % 3]:
+            st.markdown(f"**{row['pillar']}** · {row['status']}")
+            st.dataframe([{"Equity": _money((row.get("deployed") or 0) + (row.get("available") or 0)) if row.get("deployed") is not None and row.get("available") is not None else "N/A", "Authorized": _money((row.get("deployed") or 0) + (row.get("available") or 0)) if row.get("deployed") is not None and row.get("available") is not None else "N/A", "Deployed": _money(row.get("deployed")), "Available": _money(row.get("available")), "Today": "N/A", "Unrealized": _money(row.get("unrealized")), "Positions": row.get("positions") if row.get("positions") is not None else "N/A", "Orders": row.get("pending") if row.get("pending") is not None else "N/A"}], hide_index=True, use_container_width=True)
+    st.markdown("### PILLAR PERFORMANCE RANKING")
+    ranking = sorted(rows, key=lambda row: _float(row.get("realized")), reverse=True)
+    st.dataframe([{"Rank": i + 1, "Pillar": row["pillar"], "Today's P&L": _money(row.get("realized")), "Total P&L": _money((_float(row.get("realized")) + _float(row.get("unrealized"))))} for i, row in enumerate(ranking)], hide_index=True, use_container_width=True)
+    st.markdown("### CURRENT POSITIONS")
+    positions = ctx.get("positions") if isinstance(ctx.get("positions"), list) else []
+    st.dataframe([{"Pillar": p.get("pillar", "N/A"), "Asset": p.get("symbol", p.get("asset", "N/A")), "Side": p.get("side", "N/A"), "Current Value": p.get("market_value", p.get("value", "N/A")), "Unrealized P&L": p.get("unrealized_pnl", "N/A")} for p in positions], hide_index=True, use_container_width=True)
+    st.markdown("### RECENT CLOSED TRADES")
+    trades = ctx.get("trades") if isinstance(ctx.get("trades"), list) else []
+    st.dataframe([{"Time": t.get("timestamp", t.get("occurred_at", "N/A")), "Pillar": t.get("pillar", "N/A"), "Asset": t.get("symbol", "N/A"), "Realized P&L": t.get("realized_pnl", t.get("pnl", "N/A"))} for t in trades[:10]], hide_index=True, use_container_width=True)
+    st.markdown("### $250,000 ANNUAL REALIZED-INCOME OBJECTIVE")
+    st.dataframe([{"Goal": "$250,000", "YTD Realized": _money(ctx.get("net_cash")), "Projected": "INSUFFICIENT DATA", "Remaining": _money(max(250000 - _float(ctx.get("net_cash")), 0))}], hide_index=True, use_container_width=True)
+    discovery = _safe_json(Path("var/autotrader/learning/crypto-strategy-discovery.json"))
+    health = _safe_json(Path("var/autotrader/learning/crypto-data-health.json"))
+    historical = sum(int(item.get("bar_count") or 0) for tf in health.get("timeframes", {}).values() if isinstance(tf, dict) for item in tf.values() if isinstance(item, dict))
+    st.caption(f"LEARNING: ACTIVE · RESEARCH SOURCES: {len(_safe_json(Path('var/autotrader/learning/research-source-registry.json')).get('active_sources', []))} · CHALLENGERS: {len(discovery.get('strategy_families', []))} · HISTORICAL DATA: {historical} BARS · LAST UPDATE: {discovery.get('generated_at', 'N/A')}")
+
+
+def _render_overview(ctx: dict[str, object]) -> None:
+    _render_performance_board(ctx)
 
 
 def _render_dashboard_legacy() -> None:
