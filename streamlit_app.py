@@ -194,6 +194,29 @@ def _safe_json(path: Path) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
 
+def _latest_audit_cycle(job_name: str) -> dict[str, object] | None:
+    """Read the newest durable cycle result for dashboard status only."""
+    try:
+        with sqlite3.connect("var/autotrader/audit.db") as conn:
+            row = conn.execute(
+                "SELECT created_at, message, data_json FROM audit_events "
+                "WHERE data_json LIKE ? ORDER BY id DESC LIMIT 1",
+                (f'%"job": "{job_name}"%',),
+            ).fetchone()
+        if not row:
+            return None
+        data = json.loads(row[2]) if row[2] else {}
+        if not isinstance(data, dict):
+            return None
+        data = dict(data)
+        data.update({"job": job_name, "message": row[1], "created_at": row[0]})
+        if data.get("state") and not data.get("execution_state"):
+            data["execution_state"] = data["state"]
+        return data
+    except (OSError, sqlite3.Error, json.JSONDecodeError):
+        return None
+
+
 @st.cache_data(ttl=20)
 def _alpaca_crypto_history() -> dict[str, object]:
     """Read-side reconciliation for completed Alpaca PAPER crypto lifecycles.
@@ -1167,12 +1190,15 @@ def _build_dashboard_context() -> dict[str, object]:
         snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     )
     cash = dict(snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {})
-    activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
+    activity = list(snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else [])
+    for job_name in ("autonomous-paper-trading", "saxo-international-paper-trading"):
+        audit_cycle = _latest_audit_cycle(job_name)
+        if audit_cycle:
+            activity.insert(0, audit_cycle)
     legacy_cash = (
         snapshot.get("legacy_cash_dashboard") if isinstance(snapshot.get("legacy_cash_dashboard"), dict) else {}
     )
     broker_account = snapshot.get("broker_account") if isinstance(snapshot.get("broker_account"), dict) else {}
-    activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
     trades = list(snapshot.get("trades") if isinstance(snapshot.get("trades"), list) else [])
     orders = snapshot.get("orders") if isinstance(snapshot.get("orders"), list) else []
     crypto_history = _alpaca_crypto_history()
