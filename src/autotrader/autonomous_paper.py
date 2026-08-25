@@ -809,18 +809,23 @@ class AutonomousPaperTradingJob:
                     submitted_quantity=order_quantity,
                     metadata={"submission": result.details, "lane": signal.mode, "edge": signal.edge.as_dict() if signal.edge else None, "order_type": manifest_payload.get("order_type"), "time_in_force": manifest_payload.get("time_in_force")},
                 )
-                sync = _sync_submitted_position(
-                    broker=sync_broker,
-                    symbol=signal.instrument.symbol,
-                    stop_price=signal.proposal.stop_price,
-                    ledger_path=self.config.ledger_path,
-                    initial_equity=self.config.initial_equity,
-                    expected_quantity=order_quantity,
-                    asset_class=signal.instrument.asset_class,
-                    attempts=24,
-                    delay_seconds=0.25,
-                    broker_order_id=broker_order_id,
-                )
+                try:
+                    sync = _sync_submitted_position(
+                        broker=sync_broker,
+                        symbol=signal.instrument.symbol,
+                        stop_price=signal.proposal.stop_price,
+                        ledger_path=self.config.ledger_path,
+                        initial_equity=self.config.initial_equity,
+                        expected_quantity=order_quantity,
+                        asset_class=signal.instrument.asset_class,
+                        attempts=24,
+                        delay_seconds=0.25,
+                        broker_order_id=broker_order_id,
+                    )
+                except RuntimeError:
+                    if signal.instrument.asset_class is not AssetClass.CRYPTO:
+                        raise
+                    sync = {"reconciliation_status": "provider_terminal_pending", "quantity": None}
                 reconciliation_status = str(sync.get("reconciliation_status") or "broker_confirmed")
                 if signal.instrument.asset_class is AssetClass.CRYPTO and sync.get("quantity") is not None:
                     filled_qty = float(sync.get("quantity") or 0.0)
