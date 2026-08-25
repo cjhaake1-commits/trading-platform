@@ -2378,11 +2378,11 @@ def _render_fund_command_center(ctx: dict[str, object]) -> None:
 def _render_proof_of_concept(ctx: dict[str, object]) -> None:
     statuses = ctx.get("live_pillar_status") if isinstance(ctx.get("live_pillar_status"), dict) else {}
     kalshi = _kalshi_status()
-    connected = sum(1 for name in ("US Stocks / ETFs", "Crypto", "Forex", "Metals / Commodities", "International") if (statuses.get(name) or {}).get("connected"))
+    connected_non_kalshi = sum(1 for name in ("US Stocks / ETFs", "Crypto", "Forex", "Metals / Commodities", "International") if (statuses.get(name) or {}).get("connected"))
     predictions_operational = str(kalshi.get("predictions_provider_state")) == "CONNECTED"
     perps_operational = str(kalshi.get("perps_provider_state")) == "CONNECTED"
-    execution_engines = connected - (1 if str(kalshi.get("connection", "")).startswith("CONNECTED") else 0)
-    execution_engines += int(predictions_operational) + int(perps_operational)
+    connected = connected_non_kalshi + int(predictions_operational and perps_operational)
+    execution_engines = connected_non_kalshi + int(predictions_operational) + int(perps_operational)
     deployed_or_pending = sum(
         1 for name, state in statuses.items()
         if _float(state.get("strategy_deployed")) > 0 or _float(state.get("pending_capital")) > 0
