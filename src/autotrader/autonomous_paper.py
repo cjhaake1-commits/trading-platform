@@ -1234,7 +1234,7 @@ class AutonomousPaperTradingJob:
     def _cancel_stale_crypto_orders(self, ledger: PortfolioLedger, now: datetime) -> list[dict[str, object]]:
         actions: list[dict[str, object]] = []
         for manifest in ledger.unresolved_entry_manifests(broker="alpaca-crypto-paper"):
-            if str(manifest.get("lifecycle_state")) != "order_pending":
+            if str(manifest.get("lifecycle_state")) not in {"order_pending", "order_submitted"}:
                 continue
             created = str(manifest.get("created_at") or "")
             try:
