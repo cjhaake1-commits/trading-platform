@@ -355,7 +355,8 @@ def submit_alpaca_paper_protected_order(
 
 
 def submit_alpaca_paper_crypto_market_order(
-    symbol: str, *, qty: float, side: str = "buy", client_order_id: str | None = None
+    symbol: str, *, qty: float, side: str = "buy", client_order_id: str | None = None,
+    time_in_force: str = "ioc",
 ) -> PracticeOrderResult:
     key, secret, base_url = _alpaca_credentials()
     if not key or not secret:
@@ -367,7 +368,7 @@ def submit_alpaca_paper_crypto_market_order(
         "qty": f"{qty:.9f}".rstrip("0").rstrip("."),
         "side": side,
         "type": "market",
-        "time_in_force": "gtc",
+        "time_in_force": time_in_force,
     }
     if client_order_id:
         payload["client_order_id"] = client_order_id
@@ -391,6 +392,23 @@ def submit_alpaca_paper_crypto_market_order(
             "request_id": headers.get("X-Request-ID") or headers.get("x-request-id"),
         },
     )
+
+
+def alpaca_paper_order_status(order_id: str) -> PracticeOrderResult:
+    """Read one Alpaca PAPER order, including IOC terminal state."""
+    key, secret, base_url = _alpaca_credentials()
+    if not key or not secret:
+        return PracticeOrderResult("alpaca-crypto-paper", False, "Missing Alpaca paper credentials", {})
+    try:
+        response, headers = _request_json(
+            f"{base_url}/v2/orders/{order_id}", method="GET", headers=_alpaca_headers(key, secret), body=None
+        )
+    except RuntimeError as exc:
+        return PracticeOrderResult("alpaca-crypto-paper", False, str(exc), {})
+    return PracticeOrderResult("alpaca-crypto-paper", True, "Read Alpaca PAPER order", {
+        **(response if isinstance(response, dict) else {}),
+        "request_id": headers.get("X-Request-ID") or headers.get("x-request-id"),
+    })
 
 
 def submit_alpaca_paper_crypto_stop_limit(

@@ -394,16 +394,22 @@ class InternationalPaperTradingJob:
                 self.strategies.breakout(ranked_candidate.instrument, bars),
                 self.strategies.mean_reversion(ranked_candidate.instrument, bars),
             ) if p is not None and p.side is Side.BUY), None)
-            min_notional = ranked_candidate.last_price
+            provider_minimum_quantity = max(
+                float(source.minimum_trade_size or 0.0) if source else 0.0,
+                float(source.minimum_lot_size or 0.0) if source else 0.0,
+                1.0 if source is not None and source.asset_type.lower() == "stock" else 0.0,
+            )
+            provider_minimum_value = float(source.minimum_order_value or 0.0) if source else 0.0
+            min_notional = max(ranked_candidate.last_price * provider_minimum_quantity, provider_minimum_value)
             risk_capacity = self.service.policy.allocation_cap * self.service.policy.max_risk_per_trade_pct
-            affordable = proposal is not None and min_notional <= self.service.policy.allocation_cap * (1.0 - self.service.policy.min_cash_reserve_pct) and proposal.risk_per_unit <= risk_capacity
-            evaluation = {"symbol": candidate, "venue": source.exchange_id if source else None, "price": ranked_candidate.last_price, "minimum_quantity": 1, "minimum_notional": min_notional, "affordable": affordable, "score": ranked_candidate.score, "strategy": "NONE" if proposal is None else proposal.source, "precheck": "NOT_RUN", "qualified": False, "rejection": "NO_BUY_STRATEGY" if proposal is None else (None if affordable else "NOT_AFFORDABLE")}
+            affordable = proposal is not None and min_notional <= self.service.policy.allocation_cap * (1.0 - self.service.policy.min_cash_reserve_pct) and proposal.risk_per_unit * provider_minimum_quantity <= risk_capacity
+            evaluation = {"symbol": candidate, "venue": source.exchange_id if source else None, "price": ranked_candidate.last_price, "minimum_quantity": provider_minimum_quantity, "minimum_order_value": provider_minimum_value, "minimum_notional": min_notional, "affordable": affordable, "score": ranked_candidate.score, "strategy": "NONE" if proposal is None else proposal.source, "precheck": "NOT_RUN", "qualified": False, "rejection": "NO_BUY_STRATEGY" if proposal is None else (None if affordable else "NOT_AFFORDABLE")}
             if not affordable:
                 evaluations.append(evaluation)
                 continue
             if source is not None and summary.default_account_key and proposal is not None:
                 try:
-                    result = self.adapter.precheck_order({"AccountKey": summary.default_account_key, "Amount": 1, "AssetType": source.asset_type, "BuySell": "Buy", "ManualOrder": False, "FieldGroups": ["Costs", "MarginImpactBuySell"], "OrderDuration": {"DurationType": "DayOrder"}, "OrderType": "Market", "Uic": source.uic})
+                    result = self.adapter.precheck_order({"AccountKey": summary.default_account_key, "Amount": provider_minimum_quantity, "AssetType": source.asset_type, "BuySell": "Buy", "ManualOrder": False, "FieldGroups": ["Costs", "MarginImpactBuySell"], "OrderDuration": {"DurationType": "DayOrder"}, "OrderType": "Market", "Uic": source.uic})
                     evaluation["precheck"] = str(result.get("PreCheckResult") or "UNKNOWN")
                     evaluation["precheck_error"] = result.get("ErrorInfo")
                     if evaluation["precheck"] == "Ok":
@@ -413,7 +419,13 @@ class InternationalPaperTradingJob:
                         break
                 except Exception as exc:
                     evaluation["precheck"] = "ERROR"
-                    evaluation["rejection"] = str(exc)[:240]
+                    message = str(exc)
+                    if "HTTP 429" in message:
+                        evaluation["precheck"] = "RATE_LIMIT_DEFERRED"
+                        evaluation["rejection"] = "RATE_LIMIT_DEFERRED"
+                        evaluation["execution_state"] = "RATE LIMITED — RETRYING"
+                    else:
+                        evaluation["rejection"] = message[:240]
             evaluations.append(evaluation)
         candidate = selected[0].instrument.symbol if selected else ranked[0].instrument.symbol
         precheck = evaluations[0] if evaluations else {"state": "NOT_RUN"}

@@ -9,6 +9,7 @@ from pathlib import Path
 from .brokers.alpaca_crypto_exit import AlpacaCryptoExitPaperBroker
 from .brokers.practice_orders import (
     alpaca_crypto_universe,
+    alpaca_paper_order_status,
     crypto_quantity_for_notional,
     submit_alpaca_paper_crypto_market_order,
     submit_alpaca_paper_crypto_stop_limit,
@@ -96,10 +97,27 @@ DEFAULT_CRYPTO_UNIVERSE = (
 EXECUTION_QUALITY_PATH = Path("var/autotrader/learning/crypto-execution-quality.json")
 
 
-def _record_crypto_execution_quality(symbol: str, outcome: str, *, age_seconds: float | None = None) -> None:
+def _record_crypto_execution_quality(
+    symbol: str,
+    outcome: str,
+    *,
+    age_seconds: float | None = None,
+    order_id: str | None = None,
+    order_type: str | None = None,
+    time_in_force: str | None = None,
+    qty: float | None = None,
+    notional: float | None = None,
+    bid: float | None = None,
+    ask: float | None = None,
+    signal_score: float | None = None,
+    expected_edge: float | None = None,
+    filled_qty: float | None = None,
+    average_fill: float | None = None,
+    slippage: float | None = None,
+) -> None:
     try:
         payload = json.loads(EXECUTION_QUALITY_PATH.read_text()) if EXECUTION_QUALITY_PATH.exists() else {}
-        row = payload.setdefault(symbol, {"submitted": 0, "accepted": 0, "filled": 0, "partial": 0, "stale": 0, "canceled": 0, "rejected": 0, "latencies": []})
+        row = payload.setdefault(symbol, {"submitted": 0, "accepted": 0, "filled": 0, "partial": 0, "stale": 0, "canceled": 0, "rejected": 0, "events": [], "latencies": []})
         row[outcome] = int(row.get(outcome, 0)) + 1
         if age_seconds is not None:
             row.setdefault("latencies", []).append(round(age_seconds, 3))
@@ -108,6 +126,20 @@ def _record_crypto_execution_quality(symbol: str, outcome: str, *, age_seconds: 
         stale = int(row.get("stale", 0))
         filled = int(row.get("filled", 0))
         row["execution_quality_score"] = round(max(0.0, min(1.0, (filled + 0.5) / (submitted + 1) - 0.15 * stale / submitted)), 4)
+        event = {"event": outcome, "timestamp": datetime.now(UTC).isoformat(), "order_id": order_id,
+                 "order_type": order_type, "time_in_force": time_in_force, "qty": qty,
+                 "notional": notional, "bid": bid, "ask": ask, "spread": (ask - bid) if bid is not None and ask is not None else None,
+                 "signal_score": signal_score, "expected_edge": expected_edge, "age_seconds": age_seconds,
+                 "filled_qty": filled_qty, "average_fill": average_fill, "slippage": slippage}
+        row.setdefault("events", []).append(event)
+        row["events"] = row["events"][-200:]
+        if outcome in {"stale", "rejected", "provider_error"}:
+            prior = int(row.get("cooldown_events", 0)) + 1
+            row["cooldown_events"] = prior
+            row["cooldown_until"] = (datetime.now(UTC) + timedelta(seconds=min(900, 180 * prior))).isoformat()
+        elif outcome in {"filled", "partial"}:
+            row["cooldown_events"] = 0
+            row.pop("cooldown_until", None)
         EXECUTION_QUALITY_PATH.parent.mkdir(parents=True, exist_ok=True)
         EXECUTION_QUALITY_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True))
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
@@ -122,6 +154,17 @@ def _crypto_execution_penalty(symbol: str) -> float:
         return min(10.0, stale / submitted * 10.0)
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         return 0.0
+
+
+def _crypto_execution_cooldown_active(symbol: str, now: datetime) -> bool:
+    try:
+        row = json.loads(EXECUTION_QUALITY_PATH.read_text()).get(symbol, {})
+        until = row.get("cooldown_until")
+        if not until:
+            return False
+        return datetime.fromisoformat(str(until).replace("Z", "+00:00")) > now
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return False
 
 
 @dataclass(frozen=True)
@@ -343,6 +386,9 @@ class AutonomousPaperTradingJob:
         diagnostics, signals = [], []
         for instrument, bars in histories.items():
             if instrument.symbol in portfolio.positions:
+                continue
+            if instrument.asset_class is AssetClass.CRYPTO and _crypto_execution_cooldown_active(instrument.symbol, now):
+                diagnostics.append({"symbol": instrument.symbol, "rejection": "EXECUTION_COOLDOWN"})
                 continue
             candidate = self.scanner.score_instrument(instrument, bars)
             if candidate is not None:
@@ -654,6 +700,8 @@ class AutonomousPaperTradingJob:
                     "client_order_id_namespace": client_id,
                     "lane": signal.mode,
                     "edge": signal.edge.as_dict() if signal.edge else None,
+                    "order_type": "market",
+                    "time_in_force": "ioc",
                 }
                 manifest_payload["fingerprint"] = PortfolioLedger.manifest_fingerprint(manifest_payload)
                 manifest_id = manifest_payload["fingerprint"][:32]
@@ -687,7 +735,8 @@ class AutonomousPaperTradingJob:
                 protective_order_id = None
                 if signal.instrument.asset_class is AssetClass.CRYPTO:
                     result = submit_alpaca_paper_crypto_market_order(
-                        signal.instrument.symbol, side="buy", qty=order_quantity, client_order_id=client_id
+                        signal.instrument.symbol, side="buy", qty=order_quantity, client_order_id=client_id,
+                        time_in_force="ioc",
                     )
                     broker_order_id = str(result.details.get("id") or "") or None
                     sync_broker = "alpaca"
@@ -714,6 +763,8 @@ class AutonomousPaperTradingJob:
                     )
                     sync_broker = "oanda"
                 if not result.ok:
+                    if signal.instrument.asset_class is AssetClass.CRYPTO:
+                        _record_crypto_execution_quality(signal.instrument.symbol, "rejected", order_type="market", time_in_force="ioc", qty=order_quantity, notional=order_quantity * signal.proposal.entry_price, signal_score=signal.score, expected_edge=signal.edge.expected_net_edge if signal.edge else None)
                     self.idempotency.release(key)
                     failures.append(
                         {
@@ -726,6 +777,9 @@ class AutonomousPaperTradingJob:
                     )
                     continue
                 self.idempotency.mark_submitted(key, broker_order_id)
+                if signal.instrument.asset_class is AssetClass.CRYPTO:
+                    _record_crypto_execution_quality(signal.instrument.symbol, "submitted", order_id=broker_order_id, order_type="market", time_in_force="ioc", qty=order_quantity, notional=order_quantity * signal.proposal.entry_price, signal_score=signal.score, expected_edge=signal.edge.expected_net_edge if signal.edge else None)
+                    _record_crypto_execution_quality(signal.instrument.symbol, "accepted", order_id=broker_order_id, order_type="market", time_in_force="ioc", qty=order_quantity, notional=order_quantity * signal.proposal.entry_price, signal_score=signal.score, expected_edge=signal.edge.expected_net_edge if signal.edge else None)
                 ledger.save_entry_manifest(
                     manifest_id=manifest_id,
                     created_at=now,
@@ -768,6 +822,41 @@ class AutonomousPaperTradingJob:
                     broker_order_id=broker_order_id,
                 )
                 reconciliation_status = str(sync.get("reconciliation_status") or "broker_confirmed")
+                if signal.instrument.asset_class is AssetClass.CRYPTO and sync.get("quantity") is not None:
+                    filled_qty = float(sync.get("quantity") or 0.0)
+                    _record_crypto_execution_quality(
+                        signal.instrument.symbol,
+                        "filled" if filled_qty >= order_quantity else "partial",
+                        order_id=broker_order_id,
+                        order_type="market",
+                        time_in_force="ioc",
+                        qty=order_quantity,
+                        notional=order_quantity * signal.proposal.entry_price,
+                        signal_score=signal.score,
+                        expected_edge=signal.edge.expected_net_edge if signal.edge else None,
+                        filled_qty=filled_qty,
+                        average_fill=float(sync.get("entry_price") or signal.proposal.entry_price),
+                    )
+                if signal.instrument.asset_class is AssetClass.CRYPTO and not sync.get("quantity") and broker_order_id:
+                    terminal = alpaca_paper_order_status(broker_order_id)
+                    status = str(terminal.details.get("status") or "").lower()
+                    if terminal.ok and status in {"canceled", "expired", "rejected"}:
+                        _record_crypto_execution_quality(
+                            signal.instrument.symbol,
+                            "canceled" if status == "canceled" else status,
+                            order_id=broker_order_id,
+                            order_type="market",
+                            time_in_force="ioc",
+                            qty=order_quantity,
+                            notional=order_quantity * signal.proposal.entry_price,
+                            signal_score=signal.score,
+                            expected_edge=signal.edge.expected_net_edge if signal.edge else None,
+                        )
+                        ledger.mark_manifest_terminal(
+                            manifest_id,
+                            lifecycle_state=f"{status}_unfilled",
+                            metadata={"provider_terminal_status": status, "provider_order": terminal.details},
+                        )
                 if sync.get("quantity") is not None:
                     ledger.save_crypto_entry_state(
                         signal.instrument.symbol,
@@ -1253,6 +1342,7 @@ class AutonomousPaperTradingJob:
             cancelled = list(result.details.get("cancelled_order_ids", []))
             if cancelled:
                 _record_crypto_execution_quality(symbol, "stale", age_seconds=age)
+                _record_crypto_execution_quality(symbol, "canceled", age_seconds=age)
                 ledger.mark_manifest_terminal(
                     str(manifest.get("manifest_id")), lifecycle_state="cancelled_unfilled",
                     metadata={"stale_order": True, "order_type": order_type, "age_seconds": age, "stale_window_seconds": stale_window, "cancelled_order_ids": cancelled, "reason": "provider accepted but did not fill within order-type stale window"},

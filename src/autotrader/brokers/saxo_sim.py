@@ -205,6 +205,16 @@ class SaxoInstrumentSummary:
     description: str
     exchange_id: str | None
     primary_listing: int | None
+    minimum_trade_size: float | None = None
+    minimum_order_value: float | None = None
+    minimum_lot_size: float | None = None
+    lot_size_type: str | None = None
+    amount_decimals: int | None = None
+    order_settings: object | None = None
+    max_order_size: float | None = None
+    max_order_value: float | None = None
+    currency: str | None = None
+    tradable: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -502,6 +512,16 @@ class SaxoSimAdapter:
                     description=description,
                     exchange_id=_optional_string(row.get("ExchangeId")),
                     primary_listing=_optional_int(row.get("PrimaryListing")),
+                    minimum_trade_size=_optional_float(row.get("MinimumTradeSize")),
+                    minimum_order_value=_optional_float(row.get("MinimumOrderValue")),
+                    minimum_lot_size=_optional_float(row.get("MinimumLotSize")),
+                    lot_size_type=_optional_string(row.get("LotSizeType")),
+                    amount_decimals=_optional_int(row.get("AmountDecimals")),
+                    order_settings=row.get("OrderSettings"),
+                    max_order_size=_optional_float(row.get("MaxOrderSize")),
+                    max_order_value=_optional_float(row.get("MaxOrderValue")),
+                    currency=_optional_string(row.get("Currency")),
+                    tradable=row.get("Tradable") if isinstance(row.get("Tradable"), bool) else None,
                 )
             )
         return tuple(instruments)

@@ -1801,6 +1801,26 @@ def _render_dashboard_legacy() -> None:
             st.caption("Positions evaluated this cycle: {} · exit candidates: {} · rotation decisions: {}".format(
                 len(managed), sum(1 for row in managed if str(row.get("decision", "")).startswith("EXIT")), len(managed)))
         st.caption("Experimental entries are PAPER-only challengers with explicit cost-positive edge assumptions; baseline evidence remains separate.")
+        quality = _safe_json(Path("var/autotrader/learning/crypto-execution-quality.json"))
+        if isinstance(quality, dict):
+            quality_rows = []
+            for symbol, row in quality.items():
+                if not isinstance(row, dict):
+                    continue
+                quality_rows.append({
+                    "Symbol": symbol,
+                    "Execution Quality": row.get("execution_quality_score", "—"),
+                    "Cooldown": row.get("cooldown_until") or "—",
+                    "Submitted": row.get("submitted", 0),
+                    "Filled": row.get("filled", 0),
+                    "Partial": row.get("partial", 0),
+                    "Stale": row.get("stale", 0),
+                    "Rejected": row.get("rejected", 0),
+                    "Last Event": (row.get("events") or [{}])[-1].get("event", "—") if isinstance((row.get("events") or [{}])[-1], dict) else "—",
+                })
+            if quality_rows:
+                st.caption("Crypto execution quality and cooldown")
+                st.dataframe(quality_rows, use_container_width=True, hide_index=True)
     crypto_live = [row for row in live_positions if isinstance(row, dict) and str(row.get("pillar") or "") == "Crypto"]
     crypto_deployed = sum(_float(row.get("market_value")) for row in crypto_live)
     largest_crypto = max((_float(row.get("market_value")) for row in crypto_live), default=0.0)
