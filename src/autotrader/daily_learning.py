@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from .crypto_challenger_v2 import analyze as analyze_challenger_v2
 from .experiment_state import load_experiment_baseline_start
 from .learning import RealizedOutcomeLearner
 from .marketdata import YahooHistoricalData
@@ -90,6 +91,7 @@ class DailyLearningJob:
                 bars_by_symbol[symbol] = []
         counterfactual_counts = counterfactual.resolve_counterfactuals(bars_by_symbol, now=now)
         counterfactual_counts["backfilled"] = backfill["inserted"]
+        challenger_v2 = analyze_challenger_v2()
         learning = RealizedOutcomeLearner(
             ledger_path=self.ledger_path,
             audit_path=self.audit_db,
@@ -109,6 +111,7 @@ class DailyLearningJob:
             "sizing_skips": sizing_skips,
             "hard_guardrails_mutable": False,
             "counterfactual": counterfactual_counts,
+            "challenger_v2": challenger_v2,
             "learning_status": learning["sample_status"],
             "performance": learning,
         }
@@ -139,5 +142,9 @@ class DailyLearningJob:
                 "parameter_changes": learning["changes"],
                 "hard_guardrails_mutable": False,
                 "counterfactual": counterfactual_counts,
+                "challenger_v2": {
+                    "promotion_state": challenger_v2["promotion_state"],
+                    "oos": challenger_v2["oos_metrics"],
+                },
             },
         )

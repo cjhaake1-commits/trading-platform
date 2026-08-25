@@ -1445,6 +1445,7 @@ def _render_crypto_strategy_health() -> None:
     autopsy = _safe_json(Path("var/autotrader/learning/crypto-active-v2-autopsy.json"))
     registry = autopsy.get("registry") if isinstance(autopsy.get("registry"), dict) else {}
     summary = registry.get("summary") if isinstance(registry.get("summary"), dict) else {}
+    v2_analysis = _safe_json(Path("var/autotrader/learning/crypto-challenger-v2-analysis.json"))
     cf_summary = {}
     try:
         from autotrader.paper_experiment import PaperExperimentLedger
@@ -1469,6 +1470,21 @@ def _render_crypto_strategy_health() -> None:
         f"<div class='status-card'><div class='status-label'>CHAMPION COUNTERFACTUAL WIN RATE</div><div class='status-value'>{escape(_pct(champion_cf.get('win_rate')))}</div></div>"
         f"<div class='status-card'><div class='status-label'>CHALLENGER COUNTERFACTUAL WIN RATE</div><div class='status-value'>{escape(_pct(challenger_cf.get('win_rate')))}</div></div>"
         f"</div><div class='small-note'>COUNTERFACTUAL RESULTS ARE SIMULATED RESEARCH OUTCOMES AND ARE NOT PROVIDER FILLS OR FUND P&amp;L.</div></div>",
+        unsafe_allow_html=True,
+    )
+    v2_metrics = v2_analysis.get("v2") if isinstance(v2_analysis.get("v2"), dict) else {}
+    oos_metrics = v2_analysis.get("oos_metrics") if isinstance(v2_analysis.get("oos_metrics"), dict) else {}
+    v1_metrics = v2_analysis.get("v1") if isinstance(v2_analysis.get("v1"), dict) else {}
+    st.markdown(
+        f"<div class='panel' style='padding:1rem'><strong>CHALLENGER V2 RESEARCH</strong><div class='status-grid'>"
+        f"<div class='status-card'><div class='status-label'>V2 ACTUAL TRADES</div><div class='status-value'>0</div></div>"
+        f"<div class='status-card'><div class='status-label'>V2 COUNTERFACTUAL OBSERVATIONS</div><div class='status-value'>{escape(str(v2_metrics.get('sample', 0)))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>V2 WIN RATE</div><div class='status-value'>{escape(_pct(v2_metrics.get('win_rate')))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>V2 EXPECTANCY</div><div class='status-value'>{escape(_money(v2_metrics.get('expectancy')))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>V2 OOS EXPECTANCY</div><div class='status-value'>{escape(_money(oos_metrics.get('expectancy')))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>V2 EVIDENCE CONFIDENCE</div><div class='status-value'>{escape(str(v2_analysis.get('evidence_confidence') or 'LOW'))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>PROMOTION STATE</div><div class='status-value'>{escape(str(v2_analysis.get('promotion_state') or 'RESEARCH_ONLY'))}</div></div>"
+        f"</div><div class='small-note'>WHY V2 IS DIFFERENT: training-only net-edge, spread, and volatility filters over V1 candidates. V1 expectancy: {escape(_money(v1_metrics.get('expectancy')))} · Research/simulated outcomes only — not provider fills or fund P&amp;L.</div></div>",
         unsafe_allow_html=True,
     )
 
