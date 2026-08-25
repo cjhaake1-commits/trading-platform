@@ -318,6 +318,31 @@ def _kalshi_status() -> dict[str, object]:
     return status
 
 
+def _kalshi_parent_state(status: dict[str, object]) -> tuple[str, str]:
+    """Derive the parent state from the two independent Kalshi engines."""
+    perps_positions = int(_float(status.get("perps_positions")))
+    perps_orders = int(_float(status.get("perps_open_orders", status.get("perps_orders"))))
+    predictions = status.get("predictions_funnel") if isinstance(status.get("predictions_funnel"), dict) else {}
+    predictions_positions = int(_float(status.get("predictions_positions")))
+    predictions_orders = int(_float(status.get("predictions_open_orders")))
+    if perps_positions or predictions_positions:
+        return "ACTIVE — POSITION MANAGEMENT", "Kalshi child position active"
+    if perps_orders or predictions_orders:
+        return "ACTIVE — ORDER WORKING", "Kalshi child order working"
+    if str(status.get("connection", "")).startswith("DEGRADED"):
+        return "DEGRADED — CHILD ENGINE", str(status.get("connection"))
+    if str(status.get("predictions_auth")) != "CONNECTED":
+        return "DEGRADED — CHILD ENGINE", "Predictions child authentication/data unavailable"
+    if str(status.get("perps_rest")) != "CONNECTED":
+        return "DEGRADED — CHILD ENGINE", "Perps child provider unavailable"
+    if int(_float(predictions.get("scanned"))) or int(_float((status.get("perps_funnel") or {}).get("scanned"))):
+        return "READY — EVALUATING OPPORTUNITIES", (
+            f"Predictions: {status.get('predictions_rejection', '—')} · "
+            f"Perps: {status.get('perps_rejection', '—')}"
+        )
+    return "READY — EVALUATING OPPORTUNITIES", "Both Kalshi child engines healthy"
+
+
 @st.cache_data(ttl=20)
 def load_snapshot() -> dict[str, object]:
     return _safe_json(DATA_PATH)
@@ -1625,6 +1650,7 @@ def _render_dashboard_legacy() -> None:
             }
         )
         if name == "Kalshi":
+            kalshi_state, kalshi_blocker = _kalshi_parent_state(kalshi_status)
             pillar_view[-1].update(
                 {
                     "connection": kalshi_status["connection"],
@@ -1645,8 +1671,8 @@ def _render_dashboard_legacy() -> None:
                     "last_research": kalshi_status["last_data"],
                     "last_learning": kalshi_status["last_learning"],
                     "execution": "NO QUALIFYING OPPORTUNITY",
-                    "blocker": f"Perps {kalshi_status['perps_account']} · {kalshi_status['perps_markets']} markets",
-                    "state": "OBSERVING",
+                    "blocker": f"{kalshi_blocker} · Perps {kalshi_status['perps_account']} · {kalshi_status['perps_markets']} markets",
+                    "state": kalshi_state,
                 }
             )
 
@@ -2006,8 +2032,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
             blocker = "CRV/USD PAPER position active"
         if name == "Kalshi":
             connection = str(kalshi_status["connection"])
-            current_state = "OBSERVING"
-            blocker = f"Perps {kalshi_status['perps_margin']} · {kalshi_status['perps_markets']} markets"
+            current_state, kalshi_blocker = _kalshi_parent_state(kalshi_status)
+            blocker = f"{kalshi_blocker} · Perps {kalshi_status['perps_margin']} · {kalshi_status['perps_markets']} markets"
         connection_class = "good" if connection == "CONNECTED" else ("warn" if connection in {"AUTH REQUIRED", "ERROR"} else "neutral")
         pillar_rows.append(
             {
@@ -2074,8 +2100,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "positions": kalshi_status["perps_positions"],
                 "available": max(KALSHI_BASE_CAPITAL - kalshi_status["perps_deployed"], 0.0),
                 "last_rejection": f"Predictions {kalshi_status['predictions_rejection']} · Perps {kalshi_status['perps_rejection']}",
-                "execution": "ACTIVE — POSITION OPEN" if kalshi_status["perps_positions"] else "READY / EVALUATING",
-                "state": "ACTIVE — POSITION OPEN" if kalshi_status["perps_positions"] else "READY / EVALUATING",
+                "execution": current_state,
+                "state": current_state,
                 "last_scan": kalshi_status["perps_cycle"],
                 "last_decision": "POSITION ACTIVE" if kalshi_status["perps_positions"] else "HOLD CASH",
             })

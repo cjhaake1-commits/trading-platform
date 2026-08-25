@@ -61,6 +61,38 @@ def test_crypto_broker_symbol_normalization_preserves_position_ownership():
     assert rows[0]["market_value"] == 985.27
 
 
+def test_crypto_working_orders_override_flat_snapshot_state():
+    module = importlib.import_module("streamlit_app")
+    state, connection, reason = module._derive_pillar_state(
+        "Crypto",
+        {"last_finished_at": "fresh"},
+        {"connected": True, "positions": 0, "working_orders": 2, "state": "FLAT"},
+        [{"job": "autonomous-paper-trading", "crypto_scanned": 30, "crypto_qualified": 0}],
+    )
+    assert state == "ACTIVE — ORDER WORKING"
+    assert connection == "CONNECTED"
+    assert "pending" in reason.lower()
+
+
+def test_kalshi_parent_state_is_derived_from_child_engines():
+    module = importlib.import_module("streamlit_app")
+    state, reason = module._kalshi_parent_state({
+        "connection": "CONNECTED",
+        "predictions_auth": "CONNECTED",
+        "perps_rest": "CONNECTED",
+        "predictions_funnel": {"scanned": 100},
+        "perps_funnel": {"scanned": 34},
+        "predictions_rejection": "INSUFFICIENT_SPREAD_OR_LIQUIDITY",
+        "perps_rejection": "PROVIDER_SUBMISSION_REJECTED",
+        "perps_positions": 0,
+        "perps_open_orders": 0,
+        "predictions_positions": 0,
+        "predictions_open_orders": 0,
+    })
+    assert state == "READY — EVALUATING OPPORTUNITIES"
+    assert "Predictions" in reason and "Perps" in reason
+
+
 def test_return_and_cash_harvest_objectives_are_separate():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     assert "TOTAL DAILY RETURN" in source
