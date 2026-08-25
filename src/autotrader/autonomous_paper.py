@@ -1334,10 +1334,25 @@ class AutonomousPaperTradingJob:
             # the longer working window.  Provider state is rechecked by the
             # guarded cancellation coordinator before any action is taken.
             order_type = str(manifest.get("order_type") or "market").lower()
+            symbol = str(manifest.get("canonical_symbol") or "")
+            time_in_force = str(manifest.get("time_in_force") or "gtc").lower()
+            broker_order_id = str(manifest.get("broker_order_id") or "")
+            if order_type == "market" and time_in_force == "ioc" and broker_order_id:
+                terminal = alpaca_paper_order_status(broker_order_id)
+                status = str(terminal.details.get("status") or "").lower()
+                if terminal.ok and status in {"canceled", "expired", "rejected", "filled", "partially_filled"}:
+                    outcome = {"canceled": "canceled", "expired": "expired", "rejected": "rejected", "filled": "filled", "partially_filled": "partial"}[status]
+                    _record_crypto_execution_quality(symbol, outcome, order_id=broker_order_id, order_type=order_type, time_in_force=time_in_force, age_seconds=age)
+                    ledger.mark_manifest_terminal(
+                        str(manifest.get("manifest_id")),
+                        lifecycle_state=f"{status}_unfilled" if status in {"canceled", "expired", "rejected"} else "reconciled",
+                        metadata={"provider_terminal_status": status, "provider_order": terminal.details},
+                    )
+                    actions.append({"symbol": symbol, "age_seconds": age, "action": "RECONCILE_TERMINAL", "status": status})
+                    continue
             stale_window = self.config.crypto_market_order_seconds if order_type == "market" else self.config.crypto_stale_order_seconds
             if age < stale_window:
                 continue
-            symbol = str(manifest.get("canonical_symbol") or "")
             result = cancel_alpaca_open_orders_for_symbol(symbol)
             cancelled = list(result.details.get("cancelled_order_ids", []))
             if cancelled:
