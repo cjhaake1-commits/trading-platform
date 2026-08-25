@@ -2391,6 +2391,15 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
         """,
         unsafe_allow_html=True,
     )
+    discovery = _safe_json(Path("var/autotrader/learning/crypto-strategy-discovery.json"))
+    source_registry = _safe_json(Path("var/autotrader/learning/research-source-registry.json"))
+    source_count = len(source_registry.get("active_sources", [])) if isinstance(source_registry.get("active_sources"), list) else 0
+    challenger_count = len(discovery.get("strategy_families", [])) if isinstance(discovery.get("strategy_families"), list) else 0
+    last_update = discovery.get("generated_at", "UNKNOWN")
+    st.markdown(
+        f"<div class='small-note'>LEARNING: <strong>ACTIVE</strong> · RESEARCH SOURCES: <strong>{source_count}</strong> · CHALLENGERS: <strong>{challenger_count}</strong> · LAST RESEARCH UPDATE: <strong>{escape(str(last_update))}</strong></div>",
+        unsafe_allow_html=True,
+    )
     st.markdown(
         "<div class='small-note'>Current view: <strong>{}</strong></div>".format(escape(selected_view)),
         unsafe_allow_html=True,

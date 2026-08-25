@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
 
+from .crypto_market_archive import data_health
+
 FAMILIES = (
     ("momentum_continuation", "MOMENTUM_CONTINUATION"),
     ("breakout_volatility_expansion", "BREAKOUT_VOLATILITY_EXPANSION"),
@@ -218,6 +220,15 @@ def discover(
     output: str | Path = "var/autotrader/learning/crypto-strategy-discovery.json",
 ) -> dict[str, object]:
     rows = _rows(path)
+    archive_health = data_health()
+    health_timeframes = archive_health.get("timeframes", {})
+    historical_bars = sum(
+        int(item.get("bar_count") or 0)
+        for timeframe in health_timeframes.values()
+        if isinstance(timeframe, dict)
+        for item in timeframe.values()
+        if isinstance(item, dict)
+    )
     evaluated = []
     symbols = set()
     for row in rows:
@@ -264,15 +275,16 @@ def discover(
             "symbols": sorted(symbols),
             "counterfactual_observations": len(rows),
             "evaluated_observations": len(evaluated),
-            "historical_bars": 0,
+            "historical_bars": historical_bars,
             "bar_intervals": [],
+            "archive_quality": archive_health,
             "oldest": rows[0]["occurred_at"] if rows else None,
             "newest": rows[-1]["occurred_at"] if rows else None,
             "data_quality": "LIMITED",
         },
         "feature_inventory": {
             "point_in_time_features": sorted({"returns", "momentum", "volatility", "volume", "range", "time_of_day"}),
-            "missing": ["raw_quote_spread", "historical_bars", "ATR", "relative_volume"],
+            "missing": ["raw_quote_spread", "ATR", "relative_volume"] if historical_bars else ["raw_quote_spread", "historical_bars", "ATR", "relative_volume"],
         },
         "strategy_families": [candidate.__dict__ for candidate in strategy_catalog()],
         "strategy_count": len(tournament),

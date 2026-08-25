@@ -10,6 +10,7 @@ from .alpaca_backlog import load_backlog_checkpoint, reconcile_alpaca_equity_bac
 from .audit import SQLiteAuditStore
 from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
 from .capital_allocations import TOTAL_PAPER_CAPITAL
+from .crypto_market_archive import AlpacaCryptoArchiveCollector
 from .daily_learning import DailyLearningJob
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
 from .pillar_jobs import InternationalPaperTradingJob, MetalsPaperTradingJob
@@ -58,6 +59,24 @@ class ActiveV2ReconciliationJob:
         )
         state = "RECONCILING" if result.unresolved_after else "CLEAR"
         return JobResult(True, "Active v2 reconciliation completed", {"state": state, "unresolved_before": result.unresolved_before, "unresolved_after": result.unresolved_after, **result.telemetry})
+
+
+@dataclass
+class CryptoMarketDataArchiveJob:
+    name: str = "crypto-market-data-archive"
+    cadence_seconds: float = 900.0
+    collector: AlpacaCryptoArchiveCollector = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.collector is None:
+            self.collector = AlpacaCryptoArchiveCollector()
+
+    def run(self, now: datetime) -> JobResult:
+        try:
+            result = self.collector.run_once(lookback_hours=24, max_symbols=8)
+            return JobResult(True, "Crypto market-data archive refreshed", {"refreshed_at": now.isoformat(), **result})
+        except Exception as exc:  # archive failure must not affect execution jobs
+            return JobResult(True, "Crypto market-data archive unavailable", {"state": "PROVIDER_DEGRADED", "error": str(exc), "refreshed_at": now.isoformat()})
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -119,6 +138,7 @@ def main() -> None:
         jobs.append(InternationalPaperTradingJob())
         jobs.append(DailyLearningJob(audit_db=args.audit_db))
         jobs.append(ResearchRefreshJob())
+        jobs.append(CryptoMarketDataArchiveJob())
         jobs.append(DailyReportJob())
 
     runtime = AutonomousRuntime(
