@@ -71,6 +71,9 @@ class KalshiReadOnlyClient:
                 self.telemetry.last_latency_ms = (time.monotonic() - started) * 1000
                 self.telemetry.last_retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 self.telemetry.last_error = f"HTTP {exc.code}"
+                if exc.code in {500, 502, 503, 504} and attempt < self.max_retries:
+                    time.sleep(min(2 ** attempt, 4))
+                    continue
                 if exc.code != 429 or attempt >= self.max_retries:
                     raise
                 self.telemetry.rate_limited += 1

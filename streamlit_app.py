@@ -589,14 +589,14 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Deployed Capital</span><strong>{_money(data.get("deployed"))}</strong></div>
             <div><span>Pending Capital</span><strong>{_money(data.get("pending"))}</strong></div>
             <div><span>Available Capital</span><strong>{_money(data.get("available"))}</strong></div>
-            <div><span>Utilization</span><strong>{_pct((_float(data.get("deployed")) + _float(data.get("pending"))) / _float(data.get("cap")) if _float(data.get("cap")) else 0.0)}</strong></div>
+            <div><span>Utilization</span><strong>{"UNKNOWN / PROVIDER READ DEGRADED" if data.get("capital_unknown") else _pct((_float(data.get("deployed")) + _float(data.get("pending"))) / _float(data.get("cap")) if _float(data.get("cap")) else 0.0)}</strong></div>
             <div><span>Position Cost Basis</span><strong>{_money(data.get("cost_basis", data.get("deployed")))}</strong></div>
             <div><span>Position Market Value</span><strong>{_money(data.get("market_value", data.get("deployed")))}</strong></div>
             <div><span>Gross Notional</span><strong>{_money(data.get("gross_notional"))}</strong></div>
             <div><span>Committed Margin</span><strong>{_money(data.get("margin_used"))}</strong></div>
             <div><span>Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
             <div><span>Unrealized P&amp;L</span><strong>{_money(data.get("unrealized_pnl"))}</strong></div>
-            <div><span>Positions</span><strong>{int(_float(data.get("positions")))}</strong></div>
+            <div><span>Positions</span><strong>{"UNKNOWN / PROVIDER READ DEGRADED" if data.get("positions_unknown") else int(_float(data.get("positions")))}</strong></div>
             <div><span>Trades</span><strong>{int(_float(data.get("completed_trades")))}</strong></div>
             <div><span>Win Rate</span><strong>{escape(str(data.get("win_rate") or "—"))}</strong></div>
           </div>
@@ -1996,6 +1996,7 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
     )
     st.caption("CHRIS HAAKE CAPITAL SYSTEMS")
     _render_fund_command_center(ctx)
+    _render_proof_of_concept(ctx)
     st.markdown(
         f"""
         <div class="small-note">Runtime source: <strong>{escape(str(live_runtime))}</strong> · freshness: <strong>{escape(str(ctx["runtime_source_age"]))}</strong></div>
@@ -2050,6 +2051,45 @@ def _render_fund_command_center(ctx: dict[str, object]) -> None:
     )
 
 
+def _render_proof_of_concept(ctx: dict[str, object]) -> None:
+    statuses = ctx.get("live_pillar_status") if isinstance(ctx.get("live_pillar_status"), dict) else {}
+    kalshi = _kalshi_status()
+    connected = sum(1 for name in ("US Stocks / ETFs", "Crypto", "Forex", "Metals / Commodities", "International") if (statuses.get(name) or {}).get("connected"))
+    connected += 1 if str(kalshi.get("connection", "")).startswith("CONNECTED") else 0
+    deployed_or_pending = sum(
+        1 for name, state in statuses.items()
+        if _float(state.get("strategy_deployed")) > 0 or _float(state.get("pending_capital")) > 0
+    )
+    positions = sum(int(_float(state.get("positions"))) for state in statuses.values())
+    trades = ctx.get("trades") if isinstance(ctx.get("trades"), list) else []
+    st.markdown("<div class='section-title'>Proof of Concept Status</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='small-note'>Top-level pillars operational: <strong>{connected}/6</strong> · "
+        f"Execution engines operational: <strong>{connected + 1}/7</strong> · "
+        f"Pillars with deployed/pending capital: <strong>{deployed_or_pending}/6</strong> · "
+        f"Orders today: <strong>provider-polled</strong> · Fills today: <strong>{kalshi.get('perps_fills', 0)}</strong> · "
+        f"Positions: <strong>{positions}</strong> · Realized P&amp;L today: <strong>{_money(ctx.get('daily_realized'))}</strong> · "
+        f"Provider truth synchronized: <strong>{'YES' if kalshi.get('perps_provider_state') != 'DEGRADED' else 'NO — KALSHI MARGIN READ'}</strong> · "
+        f"Learning Health: <strong>{'ACTIVE' if kalshi.get('learning') == 'ACTIVE' else 'DEGRADED'}</strong></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='section-title'>Recent Transactions</div>", unsafe_allow_html=True)
+    rows = []
+    for trade in trades[-20:]:
+        if isinstance(trade, dict):
+            rows.append({
+                "Time": trade.get("timestamp") or trade.get("closed_at") or trade.get("opened_at"),
+                "Pillar": trade.get("pillar"), "Engine": trade.get("broker"),
+                "Symbol": trade.get("symbol"), "Side": trade.get("side"),
+                "Action": trade.get("exit_reason") or trade.get("lifecycle_state") or "TRADE",
+                "Quantity": trade.get("quantity"), "Price": trade.get("exit_price") or trade.get("fill_price"),
+                "Status": trade.get("status") or trade.get("lifecycle_state"),
+                "Realized P&L": trade.get("realized_pnl"), "Source": "provider/ledger",
+            })
+    if rows:
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("No completed provider transactions are currently available in the local trade view; live child-provider counts remain visible in the pillar cards.")
 def _render_pillars_view(ctx: dict[str, object]) -> None:
     pillar_rows: list[dict[str, object]] = []
     live_pillar_status = ctx["live_pillar_status"] if isinstance(ctx["live_pillar_status"], dict) else {}
@@ -2144,18 +2184,25 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "last_learning": kalshi_status["last_learning"],
                 "perps_rest": kalshi_status["perps_rest"],
                 "perps_margin": kalshi_status["perps_margin"],
-                "deployed": kalshi_status["perps_deployed"],
-                "cost_basis": kalshi_status["perps_deployed"],
-                "margin_used": kalshi_status["perps_deployed"],
-                "market_value": kalshi_status["perps_deployed"] + kalshi_status["perps_unrealized_pnl"],
-                "unrealized_pnl": kalshi_status["perps_unrealized_pnl"],
-                "positions": kalshi_status["perps_positions"],
-                "available": max(KALSHI_BASE_CAPITAL - kalshi_status["perps_deployed"], 0.0),
+                "deployed": None if kalshi_status["perps_provider_state"] == "DEGRADED" else kalshi_status["perps_deployed"],
+                "cost_basis": None if kalshi_status["perps_provider_state"] == "DEGRADED" else kalshi_status["perps_deployed"],
+                "margin_used": None if kalshi_status["perps_provider_state"] == "DEGRADED" else kalshi_status["perps_deployed"],
+                "market_value": None if kalshi_status["perps_provider_state"] == "DEGRADED" else kalshi_status["perps_deployed"] + kalshi_status["perps_unrealized_pnl"],
+                "unrealized_pnl": None if kalshi_status["perps_provider_state"] == "DEGRADED" else kalshi_status["perps_unrealized_pnl"],
+                "positions": None if kalshi_status["perps_provider_state"] == "DEGRADED" else kalshi_status["perps_positions"],
+                "positions_unknown": kalshi_status["perps_provider_state"] == "DEGRADED",
+                "capital_unknown": kalshi_status["perps_provider_state"] == "DEGRADED",
+                "available": None if kalshi_status["perps_provider_state"] == "DEGRADED" else max(KALSHI_BASE_CAPITAL - kalshi_status["perps_deployed"], 0.0),
                 "last_rejection": f"Predictions {kalshi_status['predictions_rejection']} · Perps {kalshi_status['perps_rejection']}",
                 "execution": current_state,
                 "state": current_state,
                 "last_scan": kalshi_status["perps_cycle"],
-                "last_decision": "POSITION ACTIVE" if kalshi_status["perps_positions"] else "HOLD CASH",
+                "last_decision": (
+                    f"LAST CONFIRMED PROVIDER FILL COUNT: {kalshi_status['perps_fills']} · "
+                    f"READ ERROR: {kalshi_status['perps_provider_error']}"
+                    if kalshi_status["perps_provider_state"] == "DEGRADED"
+                    else ("POSITION ACTIVE" if kalshi_status["perps_positions"] else "HOLD CASH")
+                ),
             })
     st.markdown("<div class='section-title'>Six Pillars</div>", unsafe_allow_html=True)
     for row in (pillar_rows[:2], pillar_rows[2:4], pillar_rows[4:]):
