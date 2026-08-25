@@ -388,7 +388,7 @@ class AutonomousPaperTradingJob:
             if instrument.symbol in portfolio.positions:
                 continue
             if instrument.asset_class is AssetClass.CRYPTO and _crypto_execution_cooldown_active(instrument.symbol, now):
-                diagnostics.append({"symbol": instrument.symbol, "rejection": "EXECUTION_COOLDOWN"})
+                diagnostics.append({"symbol": instrument.symbol, "score": 0.0, "rejection": "EXECUTION_COOLDOWN"})
                 continue
             candidate = self.scanner.score_instrument(instrument, bars)
             if candidate is not None:
