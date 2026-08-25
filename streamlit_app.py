@@ -2068,6 +2068,14 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
         positions_count = int(broker_state.get("positions", (v2_metrics.get(name) or {}).get("positions", 0)) or 0)
         strategy_deployed = _float(broker_state.get("strategy_deployed", (v2_metrics.get(name) or {}).get("deployed", 0.0)))
         current_state, connection, blocker = _derive_pillar_state(name, job, broker_state, activity)
+        if name == "International" and isinstance(job, dict):
+            discovered = job.get("instruments_discovered")
+            evaluated = job.get("instruments_evaluated")
+            venues = job.get("venues_open")
+            if discovered is not None:
+                blocker = (
+                    f"{venues or 0} foreign venues open · {evaluated or 0}/{discovered} instruments evaluated"
+                )
         if name == "Metals / Commodities" and positions_count > 0 and strategy_deployed > 0:
             current_state = "ACTIVE — POSITION OPEN"
             blocker = "SIL PAPER position active"

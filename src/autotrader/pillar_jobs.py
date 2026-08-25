@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from math import ceil
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from .brokers.alpaca_metals_paper import AlpacaMetalsConfigurationError
 from .brokers.saxo_sim import SaxoSimAdapter
@@ -280,6 +281,27 @@ class InternationalPaperTradingJob:
     # Keep discovery bounded, but do not truncate the provider's eligible
     # SIM listings to the first five results.
     search_top: int = 20
+    discovery_queries: tuple[str, ...] = ("Stock", "Europe", "Australia", "London", "Japan", "Asia")
+
+    @staticmethod
+    def _venue_session(exchange_id: str, now: datetime) -> str:
+        exchange = exchange_id.upper()
+        if exchange == "ASX":
+            zone, start, end = "Australia/Sydney", (10, 0), (16, 0)
+        elif exchange in {"TSE", "TYO", "HKEX", "SEHK"}:
+            zone, start, end = "Asia/Tokyo", (9, 0), (15, 0)
+        elif exchange in {"LSE_SETS", "LSE_SEAQ", "FSE", "MIL", "FFT", "WSE", "VIE", "BME", "OSE"}:
+            zone, start, end = "Europe/Berlin", (9, 0), (17, 30)
+        elif exchange in {"NASDAQ", "NYSE", "ARCA"}:
+            zone, start, end = "America/New_York", (9, 30), (16, 0)
+        else:
+            return "UNKNOWN"
+        local = now.astimezone(ZoneInfo(zone))
+        return "OPEN" if local.weekday() < 5 and (start <= (local.hour, local.minute) < end) else "CLOSED"
+
+    @staticmethod
+    def _is_foreign(exchange_id: str) -> bool:
+        return exchange_id.upper() not in {"NASDAQ", "NYSE", "ARCA"}
 
     def __post_init__(self) -> None:
         try:
@@ -311,11 +333,11 @@ class InternationalPaperTradingJob:
             auth_level = str(session_capabilities.get("AuthenticationLevel") or "")
             provider_can_trade = auth_level.lower() == "authenticated" and trade_level in {"OrdersOnly", "FullTradingAndChat"}
             read_only = False if provider_can_trade else True
-            instruments = self.adapter.search_instruments(
-                self.search_keywords,
-                asset_types=("Stock",),
-                top=self.search_top,
-            )
+            discovered = {}
+            for query in self.discovery_queries:
+                for item in self.adapter.search_instruments(query, asset_types=("Stock",), top=self.search_top):
+                    discovered[(item.uic, item.asset_type)] = item
+            instruments = tuple(discovered.values())
         except Exception as exc:
             error = str(exc)
             if "401" in error or "unauthorized" in error.lower():
@@ -328,8 +350,23 @@ class InternationalPaperTradingJob:
             return JobResult(True, "International data probe failed", {"state": "DEGRADED", "error": error})
         if not instruments:
             return JobResult(True, "International cycle found no instruments", {})
+        open_instruments = tuple(
+            item for item in instruments
+            if self._is_foreign(item.exchange_id or "")
+            and self._venue_session(item.exchange_id or "", now) == "OPEN"
+        )
+        discovery = {
+            "venues_discovered": len({item.exchange_id for item in instruments if item.exchange_id}),
+            "venues_open": len({item.exchange_id for item in open_instruments if item.exchange_id}),
+            "instruments_discovered": len(instruments),
+            "instruments_evaluated": len(open_instruments),
+        }
+        if not open_instruments:
+            return JobResult(True, "International waiting for open foreign venue", {
+                **discovery, "state": "READY — WAITING FOR ELIGIBLE MARKET SESSION"
+            })
         histories: dict[Instrument, list[MarketBar]] = {}
-        for item in instruments:
+        for item in open_instruments:
             instrument = Instrument(item.symbol.replace(".", "-"), AssetClass.STOCK)
             try:
                 samples = self.adapter.chart_samples(item, count=30)
@@ -339,13 +376,15 @@ class InternationalPaperTradingJob:
             if len(bars) >= 8:
                 histories[instrument] = bars
         if not histories:
-            return JobResult(True, "International cycle found no usable market data", {})
+            return JobResult(True, "International open venues had no usable market data", {
+                **discovery, "state": "DEGRADED — DATA"
+            })
         ranked = self.scanner.rank(histories, top_n=1)
         if not ranked:
             _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, capabilities=capabilities, session_capabilities=session_capabilities)
             return JobResult(True, "International cycle found no qualifying entry", {})
         candidate = ranked[0].instrument.symbol
-        source = next((item for item in instruments if item.symbol.replace('.', '-') == candidate), None)
+        source = next((item for item in open_instruments if item.symbol.replace('.', '-') == candidate), None)
         precheck: dict[str, object] = {"state": "NOT_RUN"}
         if source is not None and summary.default_account_key:
             try:
@@ -368,4 +407,6 @@ class InternationalPaperTradingJob:
         _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, shadow_candidate=candidate, precheck=precheck, capabilities=capabilities, session_capabilities=session_capabilities)
         if read_only is not False:
             return JobResult(True, "International shadow candidate blocked by Saxo SIM permissions", {"candidate": candidate, "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK", "rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION"})
-        return JobResult(True, "International cycle scanned successfully", {"candidate": candidate, "execution_state": "READY / EVALUATING"})
+        return JobResult(True, "International cycle scanned successfully", {
+            **discovery, "candidate": candidate, "execution_state": "READY / EVALUATING"
+        })

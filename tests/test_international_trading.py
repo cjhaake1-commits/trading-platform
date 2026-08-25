@@ -11,6 +11,7 @@ from autotrader.international_trading import (
 )
 from autotrader.learning import RealizedOutcomeLearner
 from autotrader.models import AssetClass, PortfolioState, Position, Side, TradeProposal
+from autotrader.pillar_jobs import InternationalPaperTradingJob
 
 
 class FakeSaxoBroker:
@@ -108,6 +109,12 @@ def test_approved_order_respects_risk_and_allocation_caps(tmp_path):
 def test_model_cannot_configure_risk_above_global_limit():
     with pytest.raises(ValueError, match="global limit"):
         InternationalExecutionPolicy(max_risk_per_trade_pct=0.50)
+
+
+def test_international_discovery_classifies_foreign_sessions():
+    now = datetime(2026, 8, 25, 14, 0, tzinfo=UTC)
+    assert InternationalPaperTradingJob._venue_session("LSE_SETS", now) == "OPEN"
+    assert InternationalPaperTradingJob._venue_session("ASX", now) == "CLOSED"
 
 
 def test_executed_and_closed_trade_feeds_trade_history_and_learning(tmp_path):
