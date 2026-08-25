@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/home/cjhaake1/trading-platform
 EnvironmentFile=-/home/cjhaake1/trading-platform/.env
+EnvironmentFile=-/home/cjhaake1/.config/trading-platform/kalshi-research.env
 ExecStart=/home/cjhaake1/trading-platform/.venv/bin/streamlit run /home/cjhaake1/trading-platform/streamlit_app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
 Restart=always
 RestartSec=5

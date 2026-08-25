@@ -41,8 +41,7 @@ def _prediction_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
 
 def _perps_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
     active = [m for m in markets if str(m.get("status") or "active").lower() in {"active", "open"}]
-    valid_quotes = [m for m in active if _number(m.get("bid")) is not None and _number(m.get("ask")) is not None
-                    and _number(m.get("bid")) > 0 and _number(m.get("ask")) > 0]
+    valid_quotes = [m for m in active if _valid_perps_quote(m)]
     liquid = [m for m in valid_quotes if _number(m.get("volume_24h")) is not None and _number(m.get("volume_24h")) > 0]
     spread_valid = [m for m in liquid if _number(m.get("ask")) >= _number(m.get("bid"))]
     tick_valid = [m for m in spread_valid if _number(m.get("tick_size")) == 0.0001]
@@ -176,7 +175,7 @@ def _perps_baseline(market: dict[str, object]) -> dict[str, float | str] | None:
     ask = _number(market.get("ask"))
     mark = market.get("settlement_mark_price")
     mark_price = _number(mark.get("price")) if isinstance(mark, dict) else None
-    if bid is None or ask is None or mark_price is None or mark_price <= 0 or ask < bid:
+    if not _valid_perps_quote(market) or mark_price is None or mark_price <= 0:
         return None
     mid = (bid + ask) / 2.0
     momentum = (mid / mark_price) - 1.0
@@ -199,6 +198,18 @@ def _number(value: object) -> float | None:
         return number if number == number else None
     except (TypeError, ValueError):
         return None
+
+
+def _valid_perps_quote(market: dict[str, object]) -> bool:
+    """Accept executable provider quotes only, excluding Kalshi sentinels.
+
+    The Demo API uses zero and the signed 64-bit maximum as no-liquidity
+    markers. Treating those values as prices creates fabricated edge and can
+    overflow the shared risk calculation.
+    """
+    bid = _number(market.get("bid"))
+    ask = _number(market.get("ask"))
+    return bid is not None and ask is not None and 0 < bid <= ask < 1_000_000.0
 
 
 def cycle() -> dict[str, object]:
