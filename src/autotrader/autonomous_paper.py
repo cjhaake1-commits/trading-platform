@@ -133,7 +133,7 @@ def _record_crypto_execution_quality(
                  "filled_qty": filled_qty, "average_fill": average_fill, "slippage": slippage}
         row.setdefault("events", []).append(event)
         row["events"] = row["events"][-200:]
-        if outcome in {"stale", "rejected", "provider_error"}:
+        if outcome in {"stale", "canceled", "rejected", "provider_error"}:
             prior = int(row.get("cooldown_events", 0)) + 1
             row["cooldown_events"] = prior
             row["cooldown_until"] = (datetime.now(UTC) + timedelta(seconds=min(900, 180 * prior))).isoformat()
@@ -807,7 +807,7 @@ class AutonomousPaperTradingJob:
                     fingerprint=manifest_payload["fingerprint"],
                     broker_order_id=broker_order_id,
                     submitted_quantity=order_quantity,
-                    metadata={"submission": result.details, "lane": signal.mode, "edge": signal.edge.as_dict() if signal.edge else None},
+                    metadata={"submission": result.details, "lane": signal.mode, "edge": signal.edge.as_dict() if signal.edge else None, "order_type": manifest_payload.get("order_type"), "time_in_force": manifest_payload.get("time_in_force")},
                 )
                 sync = _sync_submitted_position(
                     broker=sync_broker,
@@ -1337,7 +1337,7 @@ class AutonomousPaperTradingJob:
             symbol = str(manifest.get("canonical_symbol") or "")
             time_in_force = str(manifest.get("time_in_force") or "gtc").lower()
             broker_order_id = str(manifest.get("broker_order_id") or "")
-            if order_type == "market" and time_in_force == "ioc" and broker_order_id:
+            if order_type == "market" and broker_order_id:
                 terminal = alpaca_paper_order_status(broker_order_id)
                 status = str(terminal.details.get("status") or "").lower()
                 if terminal.ok and status in {"canceled", "expired", "rejected", "filled", "partially_filled"}:
