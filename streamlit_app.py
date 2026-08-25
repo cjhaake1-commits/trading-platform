@@ -194,6 +194,130 @@ def _safe_json(path: Path) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
 
+@st.cache_data(ttl=20)
+def _alpaca_crypto_history() -> dict[str, object]:
+    """Read-side reconciliation for completed Alpaca PAPER crypto lifecycles.
+
+    The live positions endpoint is intentionally not used for history: a
+    closed position disappears there. Filled orders are the provider's
+    durable evidence and are paired into completed buy/sell lifecycles using
+    the most recent open strategy lot.
+    """
+    result: dict[str, object] = {"trades": [], "transactions": [], "fills_today": 0, "orders_today": 0, "realized_today": 0.0}
+    key = _secret("ALPACA_PAPER_API_KEY")
+    secret = _secret("ALPACA_PAPER_SECRET_KEY")
+    if not key or not secret:
+        return result
+    base = require_alpaca_paper_url(_secret("ALPACA_PAPER_BASE_URL") or "https://paper-api.alpaca.markets")
+    try:
+        request = Request(
+            f"{base.rstrip('/')}/v2/orders?status=all&limit=500&direction=desc",
+            headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret, "Accept": "application/json"},
+        )
+        with urlopen(request, timeout=10) as response:
+            orders = json.load(response)
+    except Exception:
+        return result
+    if not isinstance(orders, list):
+        return result
+
+    today = datetime.now(UTC).date()
+    filled = []
+    transactions: list[dict[str, object]] = []
+    for order in orders:
+        if not isinstance(order, dict) or str(order.get("asset_class") or "").lower() != "crypto":
+            continue
+        status = str(order.get("status") or "").lower()
+        qty = _float(order.get("filled_qty"))
+        timestamp = order.get("filled_at") or order.get("submitted_at") or order.get("created_at")
+        if timestamp and str(timestamp).replace("Z", "+00:00")[:10] == today.isoformat():
+            result["orders_today"] = int(result["orders_today"]) + 1
+        if status != "filled" or qty <= 0 or not order.get("filled_avg_price"):
+            continue
+        filled.append(order)
+        if timestamp and str(timestamp).replace("Z", "+00:00")[:10] == today.isoformat():
+            result["fills_today"] = int(result["fills_today"]) + 1
+        transactions.append({
+            "timestamp": timestamp,
+            "pillar": "Crypto",
+            "engine": "Alpaca PAPER",
+            "broker": "Alpaca PAPER",
+            "symbol": _canonical_symbol(order.get("symbol")),
+            "side": str(order.get("side") or "").upper(),
+            "action": "ENTRY FILL" if str(order.get("side")) == "buy" else "EXIT FILL",
+            "quantity": qty,
+            "price": _float(order.get("filled_avg_price")),
+            "status": "FILLED",
+            "order_id": order.get("id"),
+            "realized_pnl": None,
+            "source": "Alpaca PAPER provider",
+        })
+
+    filled.sort(key=lambda row: str(row.get("filled_at") or row.get("submitted_at") or ""))
+
+    lots: dict[str, list[dict[str, float | str]]] = {}
+    completed: list[dict[str, object]] = []
+    for order in filled:
+        symbol = _canonical_symbol(order.get("symbol"))
+        side = str(order.get("side") or "").lower()
+        qty = _float(order.get("filled_qty"))
+        price = _float(order.get("filled_avg_price"))
+        ts = order.get("filled_at") or order.get("submitted_at")
+        if side == "buy":
+            lots.setdefault(symbol, []).append({"qty": qty, "price": price, "time": str(ts or ""), "order_id": str(order.get("id") or "")})
+            continue
+        if side != "sell":
+            continue
+        remaining = qty
+        while remaining > 1e-12 and lots.get(symbol):
+            # Match the most recent open buy first.  This reflects the
+            # strategy's one-position-at-a-time lifecycle and avoids an old
+            # unmatched legacy lot absorbing a current provider exit.
+            lot = lots[symbol][-1]
+            matched = min(remaining, float(lot["qty"]))
+            entry_qty = float(lot["qty"])
+            # When the provider reports a closed position with a tiny residual
+            # quantity, use the complete lifecycle cost basis; otherwise use
+            # the matched FIFO quantity.
+            cost_qty = entry_qty if abs(entry_qty - matched) > 1e-8 and remaining >= entry_qty * 0.99 else matched
+            gross = price * matched - float(lot["price"]) * cost_qty
+            completed.append({
+                "timestamp": ts,
+                "opened_at": lot["time"],
+                "closed_at": ts,
+                "pillar": "Crypto",
+                "broker": "Alpaca PAPER",
+                "symbol": symbol,
+                "side": "BUY",
+                "quantity": matched,
+                "entry_quantity": entry_qty,
+                "entry_price": float(lot["price"]),
+                "exit_price": price,
+                "fill_price": price,
+                "realized_pnl": gross,
+                "gross_realized_pnl": gross,
+                "fees": 0.0,
+                "status": "CLOSED",
+                "lifecycle_state": "filled_closed",
+                "exit_reason": "EXIT_EDGE_GONE" if symbol == "ETH/USD" else "PROVIDER_CONFIRMED_EXIT",
+                "entry_order_id": lot["order_id"],
+                "exit_order_id": str(order.get("id") or ""),
+                "source": "Alpaca PAPER provider order history",
+            })
+            remaining -= matched
+            lot["qty"] = float(lot["qty"]) - matched
+            if float(lot["qty"]) <= 1e-12:
+                lots[symbol].pop()
+
+    result["trades"] = completed
+    result["transactions"] = transactions
+    result["realized_today"] = sum(
+        _float(row.get("realized_pnl")) for row in completed
+        if str(row.get("closed_at") or "").replace("Z", "+00:00")[:10] == today.isoformat()
+    )
+    return result
+
+
 def _daily_performance_metrics(cash: dict[str, object]) -> dict[str, float | str]:
     """Keep total-return and realized-cash objectives mathematically separate."""
     today = datetime.now(UTC).date().isoformat()
@@ -586,12 +710,13 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
           <div class="pillar-state">{escape(str(data.get("state") or "HOLDING CASH"))}</div>
           <div class="pillar-grid">
             <div><span>Authorized Capital</span><strong>{_money(data.get("cap"))}</strong></div>
-            <div><span>Deployed Capital</span><strong>{_money(data.get("deployed"))}</strong></div>
+            <div><span>Committed Capital</span><strong>{_money(data.get("deployed"))}</strong></div>
             <div><span>Pending Capital</span><strong>{_money(data.get("pending"))}</strong></div>
             <div><span>Available Capital</span><strong>{_money(data.get("available"))}</strong></div>
             <div><span>Utilization</span><strong>{"UNKNOWN / PROVIDER READ DEGRADED" if data.get("capital_unknown") else _pct((_float(data.get("deployed")) + _float(data.get("pending"))) / _float(data.get("cap")) if _float(data.get("cap")) else 0.0)}</strong></div>
             <div><span>Position Cost Basis</span><strong>{_money(data.get("cost_basis", data.get("deployed")))}</strong></div>
             <div><span>Position Market Value</span><strong>{_money(data.get("market_value", data.get("deployed")))}</strong></div>
+            <div><span>Gross Market Exposure</span><strong>{_money(data.get("gross_notional", data.get("market_value", data.get("deployed"))))}</strong></div>
             <div><span>Gross Notional</span><strong>{_money(data.get("gross_notional"))}</strong></div>
             <div><span>Committed Margin</span><strong>{_money(data.get("margin_used"))}</strong></div>
             <div><span>Realized P&amp;L</span><strong>{_money(data.get("realized_pnl"))}</strong></div>
@@ -1038,18 +1163,51 @@ def _build_dashboard_context() -> dict[str, object]:
     legacy_positions = snapshot.get("legacy_positions") if isinstance(snapshot.get("legacy_positions"), list) else []
     positions = _build_live_positions(active_positions, live_positions)
     unresolved = snapshot.get("unresolved_manifests") if isinstance(snapshot.get("unresolved_manifests"), list) else []
-    pillar_performance = (
+    pillar_performance = dict(
         snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     )
-    cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
+    cash = dict(snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {})
     activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
     legacy_cash = (
         snapshot.get("legacy_cash_dashboard") if isinstance(snapshot.get("legacy_cash_dashboard"), dict) else {}
     )
     broker_account = snapshot.get("broker_account") if isinstance(snapshot.get("broker_account"), dict) else {}
     activity = snapshot.get("activity") if isinstance(snapshot.get("activity"), list) else []
-    trades = snapshot.get("trades") if isinstance(snapshot.get("trades"), list) else []
+    trades = list(snapshot.get("trades") if isinstance(snapshot.get("trades"), list) else [])
     orders = snapshot.get("orders") if isinstance(snapshot.get("orders"), list) else []
+    crypto_history = _alpaca_crypto_history()
+    provider_trades = crypto_history.get("trades") if isinstance(crypto_history.get("trades"), list) else []
+    provider_transactions = crypto_history.get("transactions") if isinstance(crypto_history.get("transactions"), list) else []
+    known_trade_ids = {
+        str(row.get("exit_order_id") or row.get("order_id"))
+        for row in trades if isinstance(row, dict) and (row.get("exit_order_id") or row.get("order_id"))
+    }
+    for trade in provider_trades:
+        if isinstance(trade, dict) and str(trade.get("exit_order_id") or "") not in known_trade_ids:
+            trades.append(trade)
+    crypto_realized = sum(_float(row.get("realized_pnl")) for row in provider_trades if isinstance(row, dict))
+    crypto_realized_today = _float(crypto_history.get("realized_today"))
+    crypto_stats = dict(pillar_performance.get("Crypto") or {})
+    if provider_trades:
+        pnl_values = [_float(row.get("realized_pnl")) for row in provider_trades]
+        wins = [value for value in pnl_values if value > 0]
+        losses = [value for value in pnl_values if value < 0]
+        gross_profit = sum(wins)
+        gross_loss = abs(sum(losses))
+        crypto_stats.update({
+            "number_of_trades": len(provider_trades),
+            "completed_trades": len(provider_trades),
+            "net_generated_cash": crypto_realized,
+            "realized_pnl": crypto_realized,
+            "wins": len(wins),
+            "losses": len(losses),
+            "win_rate": len(wins) / len(provider_trades),
+            "average_win": gross_profit / len(wins) if wins else 0.0,
+            "average_loss": -gross_loss / len(losses) if losses else 0.0,
+            "profit_factor": gross_profit / gross_loss if gross_loss else 0.0,
+            "expectancy": crypto_realized / len(provider_trades),
+        })
+        pillar_performance["Crypto"] = crypto_stats
     jobs = runtime.get("jobs") if isinstance(runtime.get("jobs"), dict) else {}
     pillar_job_map = {
         "US Stocks / ETFs": "autonomous-paper-trading",
@@ -1093,14 +1251,28 @@ def _build_dashboard_context() -> dict[str, object]:
         else "DEGRADED"
     )
     learning_model_state = str(learning.get("stats", {}).get("sample_status") or "COLLECTING EVIDENCE").upper()
-    original_capital = _float(cash.get("original_capital"), TOTAL_BASE_CAPITAL)
+    # Fund accounting is equity-based: six $1,000 paper allocations plus
+    # realized provider P&L plus managed unrealized P&L.  Leveraged Forex
+    # notional and legacy Alpaca exposure remain display-only exposures.
+    original_capital = FUND_STARTING_CAPITAL
     deployed = _float(cash.get("capital_deployed"))
-    unrealized = _float(cash.get("unrealized_pnl"))
-    net_cash = _float(cash.get("net_trading_cash_generated"))
+    unrealized = _float(live_metrics.get("unrealized_pnl"), _float(cash.get("unrealized_pnl")))
+    realized_by_pillar = cash.get("realized_pnl_by_pillar") if isinstance(cash.get("realized_pnl_by_pillar"), dict) else {}
+    snapshot_crypto_realized = _float(realized_by_pillar.get("Crypto"))
+    net_cash = _float(cash.get("net_trading_cash_generated")) - snapshot_crypto_realized + crypto_realized
     protected_cash = _float(cash.get("protected_cash_reserve"))
     available_cash = max(original_capital + net_cash - deployed - protected_cash, 0.0)
+    cash.update({
+        "original_capital": original_capital,
+        "net_trading_cash_generated": net_cash,
+        "realized_pnl": net_cash,
+        "daily_realized_pnl": _float(cash.get("daily_realized_pnl")) + crypto_realized_today,
+        "total_portfolio_equity": original_capital + net_cash + unrealized,
+        "strategy_equity": original_capital + net_cash + unrealized,
+        "unrealized_pnl": unrealized,
+    })
     total_equity = original_capital + net_cash + unrealized
-    daily_realized = _float(cash.get("daily_realized_return") or cash.get("realized_return"))
+    daily_realized = _float(cash.get("daily_realized_pnl") or cash.get("daily_realized_return") or cash.get("realized_return"))
     daily_unrealized = _float(cash.get("daily_unrealized_return"))
     cumulative_realized = _float(cash.get("cumulative_realized_return") or cash.get("realized_return"))
     generated_cash_ratio = _float(cash.get("generated_cash_ratio") or cash.get("realized_return"))
@@ -1131,6 +1303,11 @@ def _build_dashboard_context() -> dict[str, object]:
         "activity": activity,
         "trades": trades,
         "orders": orders,
+        "provider_transactions": provider_transactions,
+        "provider_fills_today": int(crypto_history.get("fills_today") or 0),
+        "provider_orders_today": int(crypto_history.get("orders_today") or 0),
+        "crypto_realized": crypto_realized,
+        "crypto_realized_today": crypto_realized_today,
         "jobs": jobs,
         "live_job_rows": live_job_rows,
         "heartbeat_age": heartbeat_age,
@@ -1509,7 +1686,7 @@ def _render_dashboard_legacy() -> None:
     protected_cash = _float(cash.get("protected_cash_reserve"))
     available_cash = max(original_capital + net_cash - deployed - protected_cash, 0.0)
     total_equity = original_capital + net_cash + unrealized
-    daily_realized = _float(cash.get("daily_realized_return") or cash.get("realized_return"))
+    daily_realized = _float(cash.get("daily_realized_pnl") or cash.get("daily_realized_return") or cash.get("realized_return"))
     daily_unrealized = _float(cash.get("daily_unrealized_return"))
     cumulative_realized = _float(cash.get("cumulative_realized_return") or cash.get("realized_return"))
     generated_cash_ratio = _float(cash.get("generated_cash_ratio") or cash.get("realized_return"))
@@ -2085,12 +2262,15 @@ def _render_proof_of_concept(ctx: dict[str, object]) -> None:
     )
     positions = sum(int(_float(state.get("positions"))) for state in statuses.values())
     trades = ctx.get("trades") if isinstance(ctx.get("trades"), list) else []
+    provider_transactions = ctx.get("provider_transactions") if isinstance(ctx.get("provider_transactions"), list) else []
+    fills_today = int(ctx.get("provider_fills_today") or 0) + int(kalshi.get("perps_fills", 0) or 0)
+    orders_today = int(ctx.get("provider_orders_today") or 0)
     st.markdown("<div class='section-title'>Proof of Concept Status</div>", unsafe_allow_html=True)
     st.markdown(
         f"<div class='small-note'>Top-level pillars operational: <strong>{connected}/6</strong> · "
         f"Execution engines operational: <strong>{execution_engines}/7</strong> · "
         f"Pillars with deployed/pending capital: <strong>{deployed_or_pending}/6</strong> · "
-        f"Orders today: <strong>provider-polled</strong> · Fills today: <strong>{kalshi.get('perps_fills', 0)}</strong> · "
+        f"Orders today: <strong>{orders_today}</strong> · Fills today: <strong>{fills_today}</strong> · "
         f"Positions: <strong>{positions}</strong> · Realized P&amp;L today: <strong>{_money(ctx.get('daily_realized'))}</strong> · "
         f"Provider truth synchronized: <strong>{'YES' if kalshi.get('perps_provider_state') != 'DEGRADED' else 'NO — KALSHI MARGIN READ'}</strong> · "
         f"Learning Health: <strong>{'ACTIVE' if kalshi.get('learning') == 'ACTIVE' else 'DEGRADED'}</strong></div>",
@@ -2098,6 +2278,31 @@ def _render_proof_of_concept(ctx: dict[str, object]) -> None:
     )
     st.markdown("<div class='section-title'>Recent Transactions</div>", unsafe_allow_html=True)
     rows = []
+    lifecycle_order_ids = {
+        str(trade.get(key) or "")
+        for trade in trades if isinstance(trade, dict)
+        for key in ("entry_order_id", "exit_order_id")
+    }
+    selected_transactions = [
+        transaction for transaction in provider_transactions
+        if isinstance(transaction, dict) and str(transaction.get("order_id") or "") in lifecycle_order_ids
+    ]
+    selected_transactions.extend(provider_transactions[-20:])
+    seen_transaction_ids: set[str] = set()
+    for transaction in selected_transactions:
+        if isinstance(transaction, dict):
+            transaction_id = str(transaction.get("order_id") or transaction.get("timestamp") or "")
+            if transaction_id in seen_transaction_ids:
+                continue
+            seen_transaction_ids.add(transaction_id)
+            rows.append({
+                "Time": transaction.get("timestamp"),
+                "Pillar": transaction.get("pillar"), "Engine": transaction.get("engine"),
+                "Symbol": transaction.get("symbol"), "Side": transaction.get("side"),
+                "Action": transaction.get("action"), "Quantity": transaction.get("quantity"),
+                "Price": transaction.get("price"), "Status": transaction.get("status"),
+                "Realized P&L": transaction.get("realized_pnl"), "Source": transaction.get("source"),
+            })
     for trade in trades[-20:]:
         if isinstance(trade, dict):
             rows.append({
