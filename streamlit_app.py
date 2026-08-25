@@ -2552,6 +2552,26 @@ def _render_learning_view(ctx: dict[str, object]) -> None:
         """,
         unsafe_allow_html=True,
     )
+    autopsy = _safe_json(Path("var/autotrader/learning/crypto-active-v2-autopsy.json"))
+    autopsy_registry = autopsy.get("registry") if isinstance(autopsy.get("registry"), dict) else {}
+    autopsy_summary = autopsy_registry.get("summary") if isinstance(autopsy_registry.get("summary"), dict) else {}
+    if autopsy_summary:
+        st.markdown("<div class='section-title'>Crypto ACTIVE-V2 Learning</div>", unsafe_allow_html=True)
+        a1, a2, a3, a4, a5, a6 = st.columns(6)
+        a1.metric("ACTIVE-V2 Sample", str(autopsy_summary.get("trades", 0)))
+        a2.metric("Win Rate", f"{_float(autopsy_summary.get('win_rate')) * 100:.1f}%")
+        a3.metric("Expectancy", _money(autopsy_summary.get("expectancy")))
+        a4.metric("Profit Factor", f"{_float(autopsy_summary.get('profit_factor')):.2f}")
+        a5.metric("Average Win", _money(autopsy_summary.get("average_win")))
+        a6.metric("Average Loss", _money(autopsy_summary.get("average_loss")))
+        st.markdown(
+            f"<div class='small-note'>Champion: <strong>{escape(str(autopsy_registry.get('champion_version') or '—'))}</strong> · "
+            f"Challenger: <strong>{escape(str(autopsy_registry.get('challenger_version') or '—'))}</strong> · "
+            f"State: <strong>{escape(str(autopsy_registry.get('state') or 'OBSERVING'))}</strong> · "
+            f"Promotion: <strong>{escape(str(autopsy_registry.get('promotion_status') or 'NOT_PROMOTED'))}</strong> · "
+            f"Requirement: {escape(str(autopsy_registry.get('promotion_requirement') or '—'))}</div>",
+            unsafe_allow_html=True,
+        )
     telemetry = {}
     learning_db = Path("var/kalshi/research.db")
     if learning_db.exists():
