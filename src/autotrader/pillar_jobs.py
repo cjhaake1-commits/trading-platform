@@ -394,7 +394,13 @@ class InternationalPaperTradingJob:
                 self.strategies.breakout(ranked_candidate.instrument, bars),
                 self.strategies.mean_reversion(ranked_candidate.instrument, bars),
             ) if p is not None and p.side is Side.BUY), None)
-            evaluation = {"symbol": candidate, "venue": source.exchange_id if source else None, "score": ranked_candidate.score, "strategy": "NONE" if proposal is None else proposal.source, "precheck": "NOT_RUN", "qualified": False, "rejection": "NO_BUY_STRATEGY" if proposal is None else None}
+            min_notional = ranked_candidate.last_price
+            risk_capacity = self.service.policy.allocation_cap * self.service.policy.max_risk_per_trade_pct
+            affordable = proposal is not None and min_notional <= self.service.policy.allocation_cap * (1.0 - self.service.policy.min_cash_reserve_pct) and proposal.risk_per_unit <= risk_capacity
+            evaluation = {"symbol": candidate, "venue": source.exchange_id if source else None, "price": ranked_candidate.last_price, "minimum_quantity": 1, "minimum_notional": min_notional, "affordable": affordable, "score": ranked_candidate.score, "strategy": "NONE" if proposal is None else proposal.source, "precheck": "NOT_RUN", "qualified": False, "rejection": "NO_BUY_STRATEGY" if proposal is None else (None if affordable else "NOT_AFFORDABLE")}
+            if not affordable:
+                evaluations.append(evaluation)
+                continue
             if source is not None and summary.default_account_key and proposal is not None:
                 try:
                     result = self.adapter.precheck_order({"AccountKey": summary.default_account_key, "Amount": 1, "AssetType": source.asset_type, "BuySell": "Buy", "ManualOrder": False, "FieldGroups": ["Costs", "MarginImpactBuySell"], "OrderDuration": {"DurationType": "DayOrder"}, "OrderType": "Market", "Uic": source.uic})

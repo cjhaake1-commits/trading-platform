@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from .brokers.alpaca_crypto_exit import AlpacaCryptoExitPaperBroker
 from .brokers.practice_orders import (
@@ -90,6 +92,36 @@ DEFAULT_CRYPTO_UNIVERSE = (
     "LTC/USD",
     "BCH/USD",
 )
+
+EXECUTION_QUALITY_PATH = Path("var/autotrader/learning/crypto-execution-quality.json")
+
+
+def _record_crypto_execution_quality(symbol: str, outcome: str, *, age_seconds: float | None = None) -> None:
+    try:
+        payload = json.loads(EXECUTION_QUALITY_PATH.read_text()) if EXECUTION_QUALITY_PATH.exists() else {}
+        row = payload.setdefault(symbol, {"submitted": 0, "accepted": 0, "filled": 0, "partial": 0, "stale": 0, "canceled": 0, "rejected": 0, "latencies": []})
+        row[outcome] = int(row.get(outcome, 0)) + 1
+        if age_seconds is not None:
+            row.setdefault("latencies", []).append(round(age_seconds, 3))
+            row["latencies"] = row["latencies"][-50:]
+        submitted = max(int(row.get("submitted", 0)), 1)
+        stale = int(row.get("stale", 0))
+        filled = int(row.get("filled", 0))
+        row["execution_quality_score"] = round(max(0.0, min(1.0, (filled + 0.5) / (submitted + 1) - 0.15 * stale / submitted)), 4)
+        EXECUTION_QUALITY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        EXECUTION_QUALITY_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return
+
+
+def _crypto_execution_penalty(symbol: str) -> float:
+    try:
+        row = json.loads(EXECUTION_QUALITY_PATH.read_text()).get(symbol, {})
+        stale = float(row.get("stale", 0))
+        submitted = max(float(row.get("submitted", 0)), 1.0)
+        return min(10.0, stale / submitted * 10.0)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return 0.0
 
 
 @dataclass(frozen=True)
@@ -358,7 +390,9 @@ class AutonomousPaperTradingJob:
             [s for s in signals if s.instrument.asset_class is AssetClass.FOREX], key=lambda x: x.score, reverse=True
         )
         crypto = sorted(
-            [s for s in signals if s.instrument.asset_class is AssetClass.CRYPTO], key=lambda x: x.score, reverse=True
+            [s for s in signals if s.instrument.asset_class is AssetClass.CRYPTO],
+            key=lambda x: x.score - _crypto_execution_penalty(x.instrument.symbol),
+            reverse=True,
         )
         equities = sorted(
             [s for s in signals if s.instrument.asset_class not in {AssetClass.FOREX, AssetClass.CRYPTO}],
@@ -1218,6 +1252,7 @@ class AutonomousPaperTradingJob:
             result = cancel_alpaca_open_orders_for_symbol(symbol)
             cancelled = list(result.details.get("cancelled_order_ids", []))
             if cancelled:
+                _record_crypto_execution_quality(symbol, "stale", age_seconds=age)
                 ledger.mark_manifest_terminal(
                     str(manifest.get("manifest_id")), lifecycle_state="cancelled_unfilled",
                     metadata={"stale_order": True, "order_type": order_type, "age_seconds": age, "stale_window_seconds": stale_window, "cancelled_order_ids": cancelled, "reason": "provider accepted but did not fill within order-type stale window"},
