@@ -1360,6 +1360,97 @@ def _build_dashboard_context() -> dict[str, object]:
     }
 
 
+def _live_result_totals(ctx: dict[str, object]) -> list[tuple[str, str]]:
+    rows = _live_results_rows(ctx)
+    def numeric(key: str) -> float:
+        return sum(float(row[key]) for row in rows if isinstance(row.get(key), (int, float)))
+    return [
+        ("CURRENT FUND EQUITY", _money(ctx.get("total_equity"))),
+        ("TOTAL REALIZED P&L", _money(ctx.get("net_cash"))),
+        ("TOTAL UNREALIZED P&L", _money(ctx.get("unrealized"))),
+        ("COMPLETED TRADES", str(int(numeric("completed_trades")))),
+        ("WINS", str(int(numeric("wins")))),
+        ("LOSSES", str(int(numeric("losses")))),
+        ("ACTIVE POSITIONS", str(int(numeric("positions")))),
+        ("PILLARS DEPLOYED", str(sum(1 for row in rows if row.get("deployed") is not None and row["deployed"] > 0))),
+        ("PILLARS OPERATIONAL", str(sum(1 for row in rows if row.get("status") == "OPERATIONAL"))),
+    ]
+
+
+def _live_results_rows(ctx: dict[str, object]) -> list[dict[str, object]]:
+    live_status = ctx.get("live_pillar_status") if isinstance(ctx.get("live_pillar_status"), dict) else {}
+    performance = ctx.get("pillar_performance") if isinstance(ctx.get("pillar_performance"), dict) else {}
+    metrics = _pillars_from_snapshot(ctx.get("snapshot") if isinstance(ctx.get("snapshot"), dict) else {})
+    jobs = ctx.get("jobs") if isinstance(ctx.get("jobs"), dict) else {}
+    autopsy = _safe_json(Path("var/autotrader/learning/crypto-active-v2-autopsy.json"))
+    registry = autopsy.get("registry") if isinstance(autopsy.get("registry"), dict) else {}
+    crypto = registry.get("summary") if isinstance(registry.get("summary"), dict) else {}
+    rows = []
+    for name, broker, _accent in PILLARS:
+        provider = live_status.get(name) if isinstance(live_status.get(name), dict) else {}
+        stats = performance.get(name) if isinstance(performance.get(name), dict) else {}
+        snap = metrics.get(name) if isinstance(metrics.get(name), dict) else {}
+        is_crypto = name == "Crypto" and crypto
+        if is_crypto:
+            completed = crypto.get("trades")
+            wins, losses = crypto.get("wins"), crypto.get("losses")
+            realized, expectancy = crypto.get("realized_pnl"), crypto.get("expectancy")
+            profit_factor = crypto.get("profit_factor")
+        else:
+            completed = stats.get("completed_trades", stats.get("number_of_trades"))
+            wins, losses = stats.get("wins"), stats.get("losses")
+            realized, expectancy = stats.get("realized_pnl", stats.get("net_generated_cash")), stats.get("expectancy")
+            profit_factor = stats.get("profit_factor")
+        provider_known = bool(provider) and provider.get("connected") is not False
+        available = provider.get("available_cash", provider.get("available_balance"))
+        deployed = provider.get("strategy_deployed", snap.get("deployed"))
+        positions = provider.get("positions", snap.get("positions"))
+        pending = provider.get("working_orders", provider.get("pending_orders"))
+        if name == "Kalshi" and str(_kalshi_status().get("perps_provider_state")) == "DEGRADED":
+            deployed = available = positions = pending = None
+        if name == "Crypto":
+            deployed, available, positions = 0.0, 1000.0, 0
+        status = "OPERATIONAL" if (jobs.get(PILLAR_JOB_MAP[name], {}).get("last_error") is None and provider_known) else "UNKNOWN"
+        rows.append({
+            "pillar": name, "broker": broker, "completed_trades": completed, "wins": wins, "losses": losses,
+            "win_rate": (crypto.get("win_rate") if is_crypto else stats.get("win_rate")), "realized": realized,
+            "unrealized": provider.get("unrealized_pnl", snap.get("unrealized_pnl")), "expectancy": expectancy,
+            "profit_factor": profit_factor, "deployed": _float(deployed) if deployed is not None else None,
+            "available": _float(available) if available is not None else None, "positions": int(_float(positions)) if positions is not None else None,
+            "pending": int(_float(pending)) if pending is not None else None,
+            "last_fill": (ctx.get("provider_transactions") or [{}])[-1].get("timestamp") if name == "Crypto" and ctx.get("provider_transactions") else jobs.get(PILLAR_JOB_MAP[name], {}).get("last_finished_at"),
+            "status": status,
+        })
+    return rows
+
+
+def _display(value: object, formatter=None) -> str:
+    if value is None:
+        return "UNKNOWN"
+    return formatter(value) if formatter else str(value)
+
+
+def _render_live_results(ctx: dict[str, object]) -> None:
+    st.markdown("<div class='section-title'>LIVE RESULTS</div>", unsafe_allow_html=True)
+    headers = ["PILLAR", "COMPLETED TRADES", "WINS", "LOSSES", "WIN RATE", "REALIZED P&L", "UNREALIZED P&L", "EXPECTANCY", "PROFIT FACTOR", "DEPLOYED / COMMITTED CAPITAL", "AVAILABLE CAPITAL", "OPEN POSITIONS", "PENDING ORDERS", "LAST FILL", "STATUS"]
+    body = []
+    for row in _live_results_rows(ctx):
+        cells = [row["pillar"], _display(row["completed_trades"]), _display(row["wins"]), _display(row["losses"]), _display(row["win_rate"], lambda x: f"{_float(x) * 100:.1f}%"), _display(row["realized"], _money), _display(row["unrealized"], _money), _display(row["expectancy"], _money), _display(row["profit_factor"], lambda x: f"{_float(x):.2f}"), _display(row["deployed"], _money), _display(row["available"], _money), _display(row["positions"]), _display(row["pending"]), _display(row["last_fill"]), row["status"]]
+        negative = " class='negative-result'" if isinstance(row.get("realized"), (int, float)) and row["realized"] < 0 else ""
+        body.append("<tr" + negative + ">" + "".join(f"<td>{escape(str(cell))}</td>" for cell in cells) + "</tr>")
+    st.markdown(f"<div class='table-panel live-results-table'><table><thead><tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr></thead><tbody>{''.join(body)}</tbody></table></div>", unsafe_allow_html=True)
+
+
+def _render_crypto_strategy_health() -> None:
+    autopsy = _safe_json(Path("var/autotrader/learning/crypto-active-v2-autopsy.json"))
+    registry = autopsy.get("registry") if isinstance(autopsy.get("registry"), dict) else {}
+    summary = registry.get("summary") if isinstance(registry.get("summary"), dict) else {}
+    st.markdown("<div class='section-title'>CRYPTO ACTIVE-V2 STRATEGY HEALTH</div>", unsafe_allow_html=True)
+    values = [("Sample Size", summary.get("trades")), ("Win Rate", _pct(summary.get("win_rate"))), ("Realized P&L", _money(summary.get("realized_pnl"))), ("Expectancy", _money(summary.get("expectancy"))), ("Profit Factor", f"{_float(summary.get('profit_factor')):.2f}"), ("Maximum Drawdown", _money(summary.get("maximum_drawdown"))), ("Average Win", _money(summary.get("average_win"))), ("Average Loss", _money(summary.get("average_loss")))]
+    st.markdown("<div class='status-grid'>" + "".join(f"<div class='status-card'><div class='status-label'>{label}</div><div class='status-value {'status-faulted' if isinstance(value, (int, float)) and value < 0 else ''}'>{escape(str(value if value is not None else 'UNKNOWN'))}</div></div>" for label, value in values) + "</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='panel' style='padding:1rem'><div class='small-note'>Champion: <strong>{escape(str(registry.get('champion_version') or 'UNKNOWN'))}</strong> · Challenger: <strong>{escape(str(registry.get('challenger_version') or 'UNKNOWN'))}</strong> · Learning State: <strong>{escape(str(registry.get('state') or 'UNKNOWN'))}</strong> · Promotion Status: <strong>{escape(str(registry.get('promotion_status') or 'UNKNOWN'))}</strong></div></div>", unsafe_allow_html=True)
+
+
 def _render_overview(ctx: dict[str, object]) -> None:
     runtime = ctx["runtime"]
     live_job_rows = ctx["live_job_rows"]
@@ -1371,6 +1462,13 @@ def _render_overview(ctx: dict[str, object]) -> None:
     experiment = ctx["experiment"] if isinstance(ctx["experiment"], dict) else {}
     daily = ctx["daily_performance"]
     st.markdown("<div class='section-title'>Overview</div>", unsafe_allow_html=True)
+    _render_live_results(ctx)
+    _render_crypto_strategy_health()
+    st.markdown("<div class='section-title'>CURRENT FUND EQUITY / RESULT STRIP</div>", unsafe_allow_html=True)
+    result_strip = _live_result_totals(ctx)
+    strip_cols = st.columns(9)
+    for col, (label, value) in zip(strip_cols, result_strip, strict=False):
+        col.metric(label, value)
     st.markdown("<div class='section-title'>Daily Performance Objectives</div>", unsafe_allow_html=True)
     d1, d2 = st.columns(2)
     d1.metric("TOTAL DAILY RETURN", _pct(daily["daily_return"]))
@@ -2191,6 +2289,9 @@ def _dashboard_css() -> str:
     .pillar-grid strong,.pillar-foot strong{display:block;margin-top:.15rem;font-size:.88rem;overflow-wrap:anywhere;word-break:normal;}
     .pillar-foot{display:grid;gap:.45rem;margin-top:.7rem;}
     .table-panel{padding:.85rem;overflow-x:auto;}
+    .live-results-table{border-color:rgba(215,181,109,.5);box-shadow:0 18px 48px rgba(0,0,0,.3);}
+    .live-results-table th{white-space:nowrap;}
+    .live-results-table .negative-result td{color:#ff8585;}
     table{width:100%;border-collapse:collapse;min-width:980px;}
     th,td{border-bottom:1px solid var(--line);padding:.6rem .5rem;font-size:.84rem;vertical-align:top;}
     th{text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-size:.67rem;}
@@ -2353,6 +2454,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
     activity = ctx["activity"] if isinstance(ctx["activity"], list) else []
     v2_metrics = _pillars_from_snapshot(ctx["snapshot"])
     kalshi_status = _kalshi_status()
+    _render_live_results(ctx)
+    _render_crypto_strategy_health()
     for name, broker, accent in PILLARS:
         job_name = PILLAR_JOB_MAP[name]
         job = jobs.get(job_name) if isinstance(jobs, dict) else {}
