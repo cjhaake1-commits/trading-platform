@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from .brokers.alpaca_metals_paper import AlpacaMetalsConfigurationError
 from .brokers.saxo_sim import SaxoSimAdapter
 from .capital_allocations import PILLAR_METALS
-from .international_trading import InternationalExecutionService
+from .international_trading import InternationalExecutionService, InternationalOrderSpec
 from .marketdata import YahooHistoricalData
 from .metals_trading import MetalsExecutionService, MetalsOrderSpec
 from .models import AssetClass, Instrument, MarketBar, PortfolioState, Side
@@ -379,34 +379,46 @@ class InternationalPaperTradingJob:
             return JobResult(True, "International open venues had no usable market data", {
                 **discovery, "state": "DEGRADED — DATA"
             })
-        ranked = self.scanner.rank(histories, top_n=1)
+        ranked = self.scanner.rank(histories, top_n=min(10, len(histories)))
         if not ranked:
             _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, capabilities=capabilities, session_capabilities=session_capabilities)
             return JobResult(True, "International cycle found no qualifying entry", {})
-        candidate = ranked[0].instrument.symbol
-        source = next((item for item in open_instruments if item.symbol.replace('.', '-') == candidate), None)
-        precheck: dict[str, object] = {"state": "NOT_RUN"}
-        if source is not None and summary.default_account_key:
-            try:
-                result = self.adapter.precheck_order(
-                    {
-                        "AccountKey": summary.default_account_key,
-                        "Amount": 1,
-                        "AssetType": source.asset_type,
-                        "BuySell": "Buy",
-                        "ManualOrder": False,
-                        "FieldGroups": ["Costs", "MarginImpactBuySell"],
-                        "OrderDuration": {"DurationType": "DayOrder"},
-                        "OrderType": "Market",
-                        "Uic": source.uic,
-                    }
-                )
-                precheck = {"state": str(result.get("PreCheckResult") or "UNKNOWN"), "estimated_cash_required": result.get("EstimatedCashRequired"), "estimated_total_cost": result.get("EstimatedTotalCost"), "error": result.get("ErrorInfo"), "disclaimer": bool(result.get("PreTradeDisclaimers"))}
-            except Exception as exc:
-                precheck = {"state": "ERROR", "error": str(exc)[:240]}
+        evaluations = []
+        selected = None
+        for ranked_candidate in ranked:
+            candidate = ranked_candidate.instrument.symbol
+            source = next((item for item in open_instruments if item.symbol.replace('.', '-') == candidate), None)
+            bars = histories[ranked_candidate.instrument]
+            proposal = next((p for p in (
+                self.strategies.sma_cross(ranked_candidate.instrument, bars),
+                self.strategies.breakout(ranked_candidate.instrument, bars),
+                self.strategies.mean_reversion(ranked_candidate.instrument, bars),
+            ) if p is not None and p.side is Side.BUY), None)
+            evaluation = {"symbol": candidate, "venue": source.exchange_id if source else None, "score": ranked_candidate.score, "strategy": "NONE" if proposal is None else proposal.source, "precheck": "NOT_RUN", "qualified": False, "rejection": "NO_BUY_STRATEGY" if proposal is None else None}
+            if source is not None and summary.default_account_key and proposal is not None:
+                try:
+                    result = self.adapter.precheck_order({"AccountKey": summary.default_account_key, "Amount": 1, "AssetType": source.asset_type, "BuySell": "Buy", "ManualOrder": False, "FieldGroups": ["Costs", "MarginImpactBuySell"], "OrderDuration": {"DurationType": "DayOrder"}, "OrderType": "Market", "Uic": source.uic})
+                    evaluation["precheck"] = str(result.get("PreCheckResult") or "UNKNOWN")
+                    evaluation["precheck_error"] = result.get("ErrorInfo")
+                    if evaluation["precheck"] == "Ok":
+                        evaluation["qualified"] = True
+                        selected = (ranked_candidate, source, proposal)
+                        evaluations.append(evaluation)
+                        break
+                except Exception as exc:
+                    evaluation["precheck"] = "ERROR"
+                    evaluation["rejection"] = str(exc)[:240]
+            evaluations.append(evaluation)
+        candidate = selected[0].instrument.symbol if selected else ranked[0].instrument.symbol
+        precheck = evaluations[0] if evaluations else {"state": "NOT_RUN"}
         _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, shadow_candidate=candidate, precheck=precheck, capabilities=capabilities, session_capabilities=session_capabilities)
         if read_only is not False:
-            return JobResult(True, "International shadow candidate blocked by Saxo SIM permissions", {"candidate": candidate, "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK", "rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION"})
+            return JobResult(True, "International shadow candidate blocked by Saxo SIM permissions", {**discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK", "rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION"})
+        if selected is not None:
+            ranked_candidate, source, proposal = selected
+            spec = InternationalOrderSpec(proposal=proposal, account_key=summary.default_account_key, uic=source.uic, saxo_asset_type=source.asset_type, target_price=None, strategy_version="international-top10-v1")
+            execution = self.service.execute(spec, PortfolioState(equity=1000.0, cash=1000.0), international_deployed=0.0, now=now)
+            return JobResult(True, "International candidate reached SIM execution", {**discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "ACTIVE — DEPLOYING CAPITAL" if execution.submitted else "BLOCKED — SAXO EXECUTION", "order_id": execution.order_id, "execution_reason": execution.reason})
         return JobResult(True, "International cycle scanned successfully", {
-            **discovery, "candidate": candidate, "execution_state": "READY / EVALUATING"
+            **discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "READY / EVALUATING"
         })

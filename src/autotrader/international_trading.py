@@ -383,12 +383,18 @@ class InternationalExecutionService:
         reserve = portfolio.equity * self.policy.min_cash_reserve_pct
         cash_room = max(portfolio.cash - reserve, 0.0)
         pillar_risk = self.policy.allocation_cap * self.policy.max_risk_per_trade_pct
-        return min(
+        approved = min(
             decision.quantity,
             allocation_room / spec.proposal.entry_price,
             cash_room / spec.proposal.entry_price,
             pillar_risk / spec.proposal.risk_per_unit,
         )
+        # Saxo SIM stock orders do not accept fractional share quantities.
+        # Round down within the already-approved risk/capital envelope; a
+        # result below one share remains rejected by the normal capacity path.
+        if spec.saxo_asset_type.lower() == "stock":
+            return float(int(approved))
+        return approved
 
 
 def _env_float(name: str, default: float) -> float:

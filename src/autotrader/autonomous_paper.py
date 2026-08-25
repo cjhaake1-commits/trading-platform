@@ -112,6 +112,7 @@ class AutonomousPaperConfig:
     crypto_universe: tuple[str, ...] = DEFAULT_CRYPTO_UNIVERSE
     crypto_exit_confirmation_cycles: int = 2
     crypto_stale_order_seconds: int = 900
+    crypto_market_order_seconds: int = 90
 
 
 @dataclass(frozen=True)
@@ -1206,7 +1207,12 @@ class AutonomousPaperTradingJob:
                 age = max((now - datetime.fromisoformat(created.replace("Z", "+00:00"))).total_seconds(), 0.0)
             except ValueError:
                 continue
-            if age < self.config.crypto_stale_order_seconds:
+            # Market orders have a short execution SLA; limit orders retain
+            # the longer working window.  Provider state is rechecked by the
+            # guarded cancellation coordinator before any action is taken.
+            order_type = str(manifest.get("order_type") or "market").lower()
+            stale_window = self.config.crypto_market_order_seconds if order_type == "market" else self.config.crypto_stale_order_seconds
+            if age < stale_window:
                 continue
             symbol = str(manifest.get("canonical_symbol") or "")
             result = cancel_alpaca_open_orders_for_symbol(symbol)
@@ -1214,7 +1220,7 @@ class AutonomousPaperTradingJob:
             if cancelled:
                 ledger.mark_manifest_terminal(
                     str(manifest.get("manifest_id")), lifecycle_state="cancelled_unfilled",
-                    metadata={"stale_order": True, "age_seconds": age, "cancelled_order_ids": cancelled, "reason": "provider accepted but did not fill within stale-order window"},
+                    metadata={"stale_order": True, "order_type": order_type, "age_seconds": age, "stale_window_seconds": stale_window, "cancelled_order_ids": cancelled, "reason": "provider accepted but did not fill within order-type stale window"},
                 )
             actions.append({"symbol": symbol, "age_seconds": age, "action": "CANCEL_STALE" if cancelled else "KEEP_WORKING", "order_ids": cancelled})
         return actions
