@@ -4,10 +4,13 @@ import json
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .models import AssetClass, ScanCandidate, TradeProposal
+
+COUNTERFACTUAL_HORIZONS_MINUTES = (1, 3, 5, 10, 15, 30, 60)
+COUNTERFACTUAL_RETENTION_DAYS = 90
 
 
 @dataclass(frozen=True)
@@ -82,6 +85,23 @@ class PaperExperimentLedger:
                     outcome_json TEXT
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS counterfactual_observations (
+                    observation_id TEXT PRIMARY KEY,
+                    occurred_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    champion_decision TEXT NOT NULL,
+                    challenger_decision TEXT NOT NULL,
+                    entry_price REAL NOT NULL,
+                    quantity REAL NOT NULL,
+                    stop_price REAL,
+                    target_price REAL,
+                    features_json TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'PENDING_OUTCOME',
+                    outcomes_json TEXT NOT NULL DEFAULT '{}',
+                    updated_at TEXT NOT NULL
+                )"""
+            )
 
     def record_decision(self, *, pillar: str, symbol: str, strategy: str, timeframe: str, lane: str, decision: str, entry_price: float | None, edge: EdgeEstimate | None, features: dict[str, object]) -> int:
         with sqlite3.connect(self.path) as connection:
@@ -94,6 +114,140 @@ class PaperExperimentLedger:
     def record_outcome(self, decision_id: int, outcome: dict[str, object]) -> None:
         with sqlite3.connect(self.path) as connection:
             connection.execute("UPDATE experiment_decisions SET outcome_json=? WHERE id=?", (json.dumps(outcome, default=str), decision_id))
+
+    def record_counterfactual(
+        self, *, symbol: str, occurred_at: datetime, champion_decision: str,
+        challenger_decision: str, entry_price: float, quantity: float,
+        stop_price: float | None, target_price: float | None,
+        features: dict[str, object], candidate_identity: str,
+    ) -> str:
+        """Insert one deduplicated research observation; never a broker trade."""
+        bucket = occurred_at.astimezone(UTC).replace(second=0, microsecond=0).isoformat()
+        observation_id = __import__("hashlib").sha256(
+            f"five_pillar_baseline_v1|paper_experiment_challenger_v1|{symbol}|{bucket}|{candidate_identity}".encode()
+        ).hexdigest()[:32]
+        now = datetime.now(UTC).isoformat()
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO counterfactual_observations
+                (observation_id,occurred_at,symbol,champion_decision,challenger_decision,
+                 entry_price,quantity,stop_price,target_price,features_json,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (observation_id, occurred_at.astimezone(UTC).isoformat(), symbol,
+                 champion_decision, challenger_decision, entry_price, quantity,
+                 stop_price, target_price, json.dumps(features, default=str), now),
+            )
+        return observation_id
+
+    def resolve_counterfactuals(self, bars_by_symbol: dict[str, list[object]], *, now: datetime | None = None) -> dict[str, int]:
+        """Resolve horizons from real bars; unavailable prices remain UNKNOWN."""
+        now = (now or datetime.now(UTC)).astimezone(UTC)
+        counts = {"evaluated": 0, "partially_evaluated": 0, "pending": 0, "insufficient_data": 0, "expired": 0}
+        with sqlite3.connect(self.path) as connection:
+            rows = connection.execute("SELECT * FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')").fetchall()
+            for row in rows:
+                (oid, occurred, symbol, champ, chall, entry, qty, stop, target, raw_features, state, raw_outcomes, _updated) = row
+                observed_at = datetime.fromisoformat(occurred.replace("Z", "+00:00")).astimezone(UTC)
+                bars = sorted(bars_by_symbol.get(symbol, []), key=lambda bar: bar.timestamp)
+                outcomes = json.loads(raw_outcomes or "{}")
+                for minutes in COUNTERFACTUAL_HORIZONS_MINUTES:
+                    key = str(minutes)
+                    if key in outcomes:
+                        continue
+                    due = observed_at + timedelta(minutes=minutes)
+                    if due > now:
+                        continue
+                    bar = next((candidate for candidate in bars if candidate.timestamp >= due), None)
+                    if bar is None:
+                        outcomes[key] = {"status": "UNKNOWN", "reason": "provider price history unavailable"}
+                        continue
+                    gross = (bar.close - entry) * qty
+                    costs = abs(entry * qty) * float(json.loads(raw_features or "{}").get("estimated_cost_rate", 0.004))
+                    outcomes[key] = {"status": "EVALUATED", "timestamp": bar.timestamp.isoformat(), "gross_pnl": gross, "estimated_costs": costs, "net_pnl": gross - costs, "mfe": (bar.high - entry) * qty, "mae": (bar.low - entry) * qty, "stop_hit": bool(stop and bar.low <= stop), "target_hit": bool(target and bar.high >= target), "price": bar.close}
+                evaluable = [value for value in outcomes.values() if value.get("status") == "EVALUATED"]
+                due_count = sum(1 for minutes in COUNTERFACTUAL_HORIZONS_MINUTES if observed_at + timedelta(minutes=minutes) <= now)
+                if len(outcomes) == len(COUNTERFACTUAL_HORIZONS_MINUTES):
+                    new_state = "EVALUATED" if evaluable else "INSUFFICIENT_DATA"
+                elif due_count >= len(COUNTERFACTUAL_HORIZONS_MINUTES) and not evaluable:
+                    new_state = "INSUFFICIENT_DATA"
+                elif evaluable:
+                    new_state = "PARTIALLY_EVALUATED"
+                elif now - observed_at > timedelta(days=COUNTERFACTUAL_RETENTION_DAYS):
+                    new_state = "EXPIRED"
+                else:
+                    new_state = "PENDING_OUTCOME"
+                connection.execute("UPDATE counterfactual_observations SET state=?, outcomes_json=?, updated_at=? WHERE observation_id=?", (new_state, json.dumps(outcomes, default=str), now.isoformat(), oid))
+                counts[new_state.lower()] = counts.get(new_state.lower(), 0) + 1
+        return counts
+
+    def pending_counterfactual_symbols(self) -> list[str]:
+        with sqlite3.connect(self.path) as connection:
+            rows = connection.execute("SELECT DISTINCT symbol FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')").fetchall()
+        return [str(row[0]) for row in rows]
+
+    def backfill_experimental_decisions(self) -> dict[str, int]:
+        """Convert existing Challenger-only decisions into explicit research rows.
+
+        The runtime only selected the experimental lane when Champion rejected
+        the same candidate, so this preserves that recorded decision without
+        claiming an order, fill, or outcome.
+        """
+        inserted = 0
+        existing = 0
+        with sqlite3.connect(self.path) as connection:
+            rows = connection.execute(
+                "SELECT id,occurred_at,symbol,entry_price,edge_json,features_json FROM experiment_decisions WHERE lane='EXPERIMENTAL_PAPER'"
+            ).fetchall()
+            for decision_id, occurred, symbol, entry, raw_edge, raw_features in rows:
+                edge = json.loads(raw_edge or "{}")
+                features = json.loads(raw_features or "{}")
+                entry = float(entry or 0)
+                if entry <= 0:
+                    continue
+                stop_distance = float(edge.get("stop_distance") or 0.005)
+                stop = entry * max(1.0 - stop_distance, 0.0001)
+                bucket = datetime.fromisoformat(str(occurred).replace("Z", "+00:00")).astimezone(UTC).replace(second=0, microsecond=0).isoformat()
+                candidate_identity = f"backfill-{decision_id}"
+                observation_id = __import__("hashlib").sha256(
+                    f"five_pillar_baseline_v1|paper_experiment_challenger_v1|{symbol}|{bucket}|{candidate_identity}".encode()
+                ).hexdigest()[:32]
+                exists = connection.execute("SELECT 1 FROM counterfactual_observations WHERE observation_id=?", (observation_id,)).fetchone()
+                self.record_counterfactual(
+                    symbol=str(symbol), occurred_at=datetime.fromisoformat(str(occurred).replace("Z", "+00:00")),
+                    champion_decision="REJECT", challenger_decision="ACCEPT", entry_price=entry,
+                    quantity=1000.0 / entry, stop_price=stop, target_price=entry + 2 * (entry - stop),
+                    features={**features, "challenger_edge": edge, "tag": "COUNTERFACTUAL_ONLY", "backfilled_from_decision_id": decision_id},
+                    candidate_identity=candidate_identity,
+                )
+                if exists is None:
+                    inserted += 1
+                else:
+                    existing += 1
+        return {"inserted": inserted, "existing": existing}
+
+    def counterfactual_summary(self) -> dict[str, object]:
+        with sqlite3.connect(self.path) as connection:
+            rows = connection.execute("SELECT champion_decision,challenger_decision,state,outcomes_json FROM counterfactual_observations").fetchall()
+        summary = {"observations": len(rows), "evaluated": 0, "pending": 0, "partially_evaluated": 0, "insufficient_data": 0, "expired": 0, "champion": {"observations": 0, "accepts": 0, "pnl": 0.0, "wins": 0}, "challenger": {"observations": 0, "accepts": 0, "pnl": 0.0, "wins": 0}}
+        for champ, chall, state, raw in rows:
+            key = state.lower()
+            summary[key] = summary.get(key, 0) + 1
+            outcomes = json.loads(raw or "{}")
+            evaluated = [v for v in outcomes.values() if v.get("status") == "EVALUATED"]
+            for name, decision in (("champion", champ), ("challenger", chall)):
+                bucket = summary[name]
+                bucket["observations"] += 1
+                if decision == "ACCEPT":
+                    bucket["accepts"] += 1
+                if evaluated and decision == "ACCEPT":
+                    pnl = evaluated[-1].get("net_pnl", 0.0)
+                    bucket["pnl"] += pnl
+                    bucket["wins"] += int(pnl > 0)
+        for name in ("champion", "challenger"):
+            bucket = summary[name]
+            bucket["win_rate"] = bucket["wins"] / bucket["observations"] if bucket["observations"] else None
+            bucket["expectancy"] = bucket["pnl"] / bucket["observations"] if bucket["observations"] else None
+        return summary
 
 
 def experimental_position_quantity_cap(*, pillar_capital: float, entry_price: float, config: PaperExperimentConfig) -> float:

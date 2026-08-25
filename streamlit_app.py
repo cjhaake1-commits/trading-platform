@@ -1445,10 +1445,32 @@ def _render_crypto_strategy_health() -> None:
     autopsy = _safe_json(Path("var/autotrader/learning/crypto-active-v2-autopsy.json"))
     registry = autopsy.get("registry") if isinstance(autopsy.get("registry"), dict) else {}
     summary = registry.get("summary") if isinstance(registry.get("summary"), dict) else {}
+    cf_summary = {}
+    try:
+        from autotrader.paper_experiment import PaperExperimentLedger
+        cf_summary = PaperExperimentLedger().counterfactual_summary()
+    except (OSError, sqlite3.Error):
+        cf_summary = {}
     st.markdown("<div class='section-title'>CRYPTO ACTIVE-V2 STRATEGY HEALTH</div>", unsafe_allow_html=True)
     values = [("Sample Size", summary.get("trades")), ("Win Rate", _pct(summary.get("win_rate"))), ("Realized P&L", _money(summary.get("realized_pnl"))), ("Expectancy", _money(summary.get("expectancy"))), ("Profit Factor", f"{_float(summary.get('profit_factor')):.2f}"), ("Maximum Drawdown", _money(summary.get("maximum_drawdown"))), ("Average Win", _money(summary.get("average_win"))), ("Average Loss", _money(summary.get("average_loss")))]
     st.markdown("<div class='status-grid'>" + "".join(f"<div class='status-card'><div class='status-label'>{label}</div><div class='status-value {'status-faulted' if isinstance(value, (int, float)) and value < 0 else ''}'>{escape(str(value if value is not None else 'UNKNOWN'))}</div></div>" for label, value in values) + "</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='panel' style='padding:1rem'><div class='small-note'>Champion: <strong>{escape(str(registry.get('champion_version') or 'UNKNOWN'))}</strong> · Challenger: <strong>{escape(str(registry.get('challenger_version') or 'UNKNOWN'))}</strong> · Learning State: <strong>{escape(str(registry.get('state') or 'UNKNOWN'))}</strong> · Promotion Status: <strong>{escape(str(registry.get('promotion_status') or 'UNKNOWN'))}</strong></div></div>", unsafe_allow_html=True)
+    champion_cf = cf_summary.get("champion", {}) if isinstance(cf_summary, dict) else {}
+    challenger_cf = cf_summary.get("challenger", {}) if isinstance(cf_summary, dict) else {}
+    st.markdown(
+        f"<div class='panel' style='padding:1rem'><strong>COUNTERFACTUAL LEARNING EVIDENCE</strong><div class='status-grid'>"
+        f"<div class='status-card'><div class='status-label'>CHAMPION ACTUAL TRADES</div><div class='status-value'>{escape(str(summary.get('trades', 0)))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>CHALLENGER ACTUAL TRADES</div><div class='status-value'>0</div></div>"
+        f"<div class='status-card'><div class='status-label'>COUNTERFACTUAL OBSERVATIONS</div><div class='status-value'>{escape(str(cf_summary.get('observations', 0)))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>COUNTERFACTUAL EVALUATED</div><div class='status-value'>{escape(str(cf_summary.get('evaluated', 0)))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>COUNTERFACTUAL PENDING</div><div class='status-value'>{escape(str(cf_summary.get('pending', 0)))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>CHAMPION COUNTERFACTUAL EXPECTANCY</div><div class='status-value'>{escape(_money(champion_cf.get('expectancy')))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>CHALLENGER COUNTERFACTUAL EXPECTANCY</div><div class='status-value'>{escape(_money(challenger_cf.get('expectancy')))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>CHAMPION COUNTERFACTUAL WIN RATE</div><div class='status-value'>{escape(_pct(champion_cf.get('win_rate')))}</div></div>"
+        f"<div class='status-card'><div class='status-label'>CHALLENGER COUNTERFACTUAL WIN RATE</div><div class='status-value'>{escape(_pct(challenger_cf.get('win_rate')))}</div></div>"
+        f"</div><div class='small-note'>COUNTERFACTUAL RESULTS ARE SIMULATED RESEARCH OUTCOMES AND ARE NOT PROVIDER FILLS OR FUND P&amp;L.</div></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_overview(ctx: dict[str, object]) -> None:

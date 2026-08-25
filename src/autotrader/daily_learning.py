@@ -8,6 +8,9 @@ from pathlib import Path
 
 from .experiment_state import load_experiment_baseline_start
 from .learning import RealizedOutcomeLearner
+from .marketdata import YahooHistoricalData
+from .models import AssetClass, Instrument
+from .paper_experiment import PaperExperimentLedger
 from .runtime import JobResult
 
 
@@ -75,6 +78,18 @@ class DailyLearningJob:
             duplicate_skips.extend(data.get("duplicate_skips") or [])
             sizing_skips.extend(data.get("sizing_skips") or [])
 
+        counterfactual = PaperExperimentLedger()
+        backfill = counterfactual.backfill_experimental_decisions()
+        bars_by_symbol = {}
+        for symbol in counterfactual.pending_counterfactual_symbols():
+            try:
+                bars_by_symbol[symbol] = YahooHistoricalData().history(
+                    Instrument(symbol, AssetClass.CRYPTO), now - timedelta(days=7), now, interval="1m"
+                )
+            except Exception:
+                bars_by_symbol[symbol] = []
+        counterfactual_counts = counterfactual.resolve_counterfactuals(bars_by_symbol, now=now)
+        counterfactual_counts["backfilled"] = backfill["inserted"]
         learning = RealizedOutcomeLearner(
             ledger_path=self.ledger_path,
             audit_path=self.audit_db,
@@ -93,6 +108,7 @@ class DailyLearningJob:
             "duplicate_skips": duplicate_skips,
             "sizing_skips": sizing_skips,
             "hard_guardrails_mutable": False,
+            "counterfactual": counterfactual_counts,
             "learning_status": learning["sample_status"],
             "performance": learning,
         }
@@ -122,5 +138,6 @@ class DailyLearningJob:
                 "learning_status": learning["sample_status"],
                 "parameter_changes": learning["changes"],
                 "hard_guardrails_mutable": False,
+                "counterfactual": counterfactual_counts,
             },
         )

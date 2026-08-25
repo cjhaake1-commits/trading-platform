@@ -34,10 +34,10 @@ from .order_test_app import _sync_submitted_position
 from .paper_experiment import (
     EdgeEstimate,
     PaperExperimentConfig,
-    PaperExperimentLedger,
+        PaperExperimentLedger,
     estimate_edge,
     experimental_candidate,
-    experimental_position_quantity_cap,
+        experimental_position_quantity_cap,
 )
 from .portfolio_ledger import PortfolioLedger
 from .preflight import run_preflight
@@ -401,7 +401,7 @@ class AutonomousPaperTradingJob:
                         "last_price": candidate.last_price,
                     }
                 )
-            signal = choose_long_signal(
+            champion_signal = choose_long_signal(
                 instrument,
                 bars,
                 scanner=self.scanner,
@@ -409,14 +409,39 @@ class AutonomousPaperTradingJob:
                 minimum_score=minimum_score,
                 momentum_only_score=momentum_score,
             )
-            if signal is None and instrument.asset_class is AssetClass.CRYPTO:
-                signal = choose_experimental_long_signal(
+            challenger_signal = None
+            if instrument.asset_class is AssetClass.CRYPTO:
+                challenger_signal = choose_experimental_long_signal(
                     instrument,
                     bars,
                     scanner=self.scanner,
                     strategies=self.strategies,
                     config=self.experiment,
                 )
+                if candidate is not None:
+                    reference = champion_signal or challenger_signal
+                    entry = reference.proposal.entry_price if reference else candidate.last_price
+                    stop = reference.proposal.stop_price if reference else candidate.suggested_stop
+                    target = entry + 2.0 * abs(entry - stop) if stop and stop < entry else None
+                    self.experiment_ledger.record_counterfactual(
+                        symbol=instrument.symbol, occurred_at=bars[-1].timestamp,
+                        champion_decision="ACCEPT" if champion_signal else "REJECT",
+                        challenger_decision="ACCEPT" if challenger_signal else "REJECT",
+                        entry_price=entry, quantity=1000.0 / entry if entry > 0 else 0.0,
+                        stop_price=stop, target_price=target,
+                        candidate_identity=f"{bars[-1].timestamp.isoformat()}|{candidate.score:.6f}",
+                        features={
+                            "score": candidate.score, "momentum_pct": candidate.momentum_pct,
+                            "volatility": candidate.average_range_pct / 100.0,
+                            "estimated_cost_rate": 0.004,
+                            "champion_edge": champion_signal.edge.as_dict() if champion_signal else None,
+                            "challenger_edge": challenger_signal.edge.as_dict() if challenger_signal else None,
+                            "tag": "COUNTERFACTUAL_ONLY",
+                        },
+                    )
+            signal = champion_signal
+            if signal is None:
+                signal = challenger_signal
             if signal is not None:
                 self.experiment_ledger.record_decision(
                     pillar="alpaca_crypto" if instrument.asset_class is AssetClass.CRYPTO else "alpaca_equities",
