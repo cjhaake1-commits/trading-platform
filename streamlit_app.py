@@ -255,6 +255,9 @@ def _kalshi_status() -> dict[str, object]:
         "perps_deployed": 0.0, "perps_positions": 0, "perps_orders": 0, "perps_fills": 0,
         "perps_open_orders": 0, "perps_available_balance": 0.0, "perps_unrealized_pnl": 0.0,
         "perps_cycle": "UNAVAILABLE", "predictions_cycle": "UNAVAILABLE",
+        "predictions_provider_state": "UNAVAILABLE", "perps_provider_state": "UNAVAILABLE",
+        "predictions_provider_error": None, "perps_provider_error": None,
+        "provider_read_at": datetime.now(UTC).isoformat(),
     }
     if not db.exists():
         return status
@@ -315,6 +318,43 @@ def _kalshi_status() -> dict[str, object]:
         status["perps_rest"] = "CONNECTED" if status["perps_markets"] else "DEGRADED"
     except sqlite3.Error:
         status["connection"] = "DEGRADED"
+
+    # Provider reads are authoritative for exposure.  Runtime JSON is only a
+    # model/funnel enrichment and must never turn a provider read failure into
+    # a false flat account.
+    try:
+        from autotrader.kalshi.client import KalshiReadOnlyClient
+        from autotrader.kalshi.config import KalshiConfig
+
+        provider = KalshiReadOnlyClient(KalshiConfig.from_env())
+        predictions_positions = provider.positions()
+        predictions_orders = provider.orders_read_only(status="resting")
+        predictions_fills = provider.fills(limit="100")
+        status["predictions_provider_state"] = "CONNECTED"
+        status["predictions_positions"] = len(predictions_positions.get("market_positions", [])) + len(predictions_positions.get("event_positions", []))
+        status["predictions_open_orders"] = len(predictions_orders.get("orders", []))
+        status["predictions_fills"] = len(predictions_fills.get("fills", []))
+    except Exception as exc:
+        status["predictions_provider_state"] = "DEGRADED"
+        status["predictions_provider_error"] = f"{type(exc).__name__}: {exc}"
+    try:
+        from autotrader.kalshi.client import KalshiReadOnlyClient
+        from autotrader.kalshi.config import KalshiConfig
+
+        provider = KalshiReadOnlyClient(KalshiConfig.from_env())
+        perps_balance = provider.perps_balance()
+        perps_positions = provider.perps_positions()
+        perps_orders = provider.perps("orders", status="open")
+        perps_fills = provider.perps_fills(limit="100")
+        status["perps_provider_state"] = "CONNECTED"
+        status["perps_balance_raw"] = perps_balance
+        status["perps_positions_raw"] = perps_positions
+        status["perps_positions"] = len(perps_positions.get("positions", []))
+        status["perps_open_orders"] = len(perps_orders.get("orders", []))
+        status["perps_fills"] = len(perps_fills.get("fills", []))
+    except Exception as exc:
+        status["perps_provider_state"] = "DEGRADED"
+        status["perps_provider_error"] = f"{type(exc).__name__}: {exc}"
     return status
 
 
@@ -331,6 +371,10 @@ def _kalshi_parent_state(status: dict[str, object]) -> tuple[str, str]:
         return "ACTIVE — ORDER WORKING", "Kalshi child order working"
     if str(status.get("connection", "")).startswith("DEGRADED"):
         return "DEGRADED — CHILD ENGINE", str(status.get("connection"))
+    if str(status.get("predictions_provider_state")) == "DEGRADED":
+        return "DEGRADED — CHILD ENGINE", f"Predictions provider read failed: {status.get('predictions_provider_error')}"
+    if str(status.get("perps_provider_state")) == "DEGRADED":
+        return "DEGRADED — CHILD ENGINE", f"Perps/Margin provider read failed: {status.get('perps_provider_error')}"
     if str(status.get("predictions_auth")) != "CONNECTED":
         return "DEGRADED — CHILD ENGINE", "Predictions child authentication/data unavailable"
     if str(status.get("perps_rest")) != "CONNECTED":
@@ -2567,6 +2611,7 @@ def render_dashboard() -> None:
     )
     st.session_state["dashboard_refresh_interval"] = refresh_interval
     if st.sidebar.button("Refresh Now", use_container_width=True):
+        fetch_live_broker_data.clear()
         st.rerun()
     if auto_refresh:
         interval_seconds = {"30 seconds": 30, "60 seconds": 60, "120 seconds": 120}.get(refresh_interval, 60)

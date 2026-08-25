@@ -93,6 +93,22 @@ def test_kalshi_parent_state_is_derived_from_child_engines():
     assert "Predictions" in reason and "Perps" in reason
 
 
+def test_kalshi_provider_read_failure_is_not_rendered_as_flat_healthy():
+    module = importlib.import_module("streamlit_app")
+    state, reason = module._kalshi_parent_state({
+        "connection": "CONNECTED",
+        "predictions_auth": "CONNECTED",
+        "perps_rest": "CONNECTED",
+        "predictions_provider_state": "CONNECTED",
+        "perps_provider_state": "DEGRADED",
+        "perps_provider_error": "HTTPError: HTTP 500",
+        "predictions_funnel": {"scanned": 100},
+        "perps_funnel": {"scanned": 34},
+    })
+    assert state == "DEGRADED — CHILD ENGINE"
+    assert "HTTP 500" in reason
+
+
 def test_return_and_cash_harvest_objectives_are_separate():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     assert "TOTAL DAILY RETURN" in source
