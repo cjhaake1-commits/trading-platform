@@ -67,37 +67,126 @@ def first_number(mapping, keys, default=0.0):
     return default
 
 
-def provider_state(name, broker_state, kalshi):
+def provider_state(name, broker_state, kalshi, broker_positions=0, working_orders=0):
     if name == "Kalshi":
         conn = str(kalshi.get("connection") or "")
         if conn.startswith("CONNECTED"):
+            if broker_positions > 0:
+                return "ACTIVE"
+            if working_orders > 0:
+                return "ORDER WORKING"
             return "OPERATIONAL"
         return conn or "UNAVAILABLE"
     if broker_state.get("connected"):
-        if f(broker_state.get("positions")) > 0:
+        if broker_positions > 0 or f(broker_state.get("positions")) > 0:
             return "ACTIVE"
-        if f(broker_state.get("working_orders")) > 0:
+        if working_orders > 0 or f(broker_state.get("working_orders")) > 0:
             return "ORDER WORKING"
         return "OPERATIONAL"
     return "UNAVAILABLE"
 
 
-def build_pillars(snapshot, live_status, kalshi):
+def _live_position_totals(live_positions):
+    totals = {name: {"deployed": 0.0, "market_value": 0.0, "unrealized": 0.0, "positions": 0} for name in PILLAR_ORDER}
+    for row in live_positions if isinstance(live_positions, list) else []:
+        if not isinstance(row, dict):
+            continue
+        pillar = str(row.get("pillar") or "")
+        if pillar not in totals:
+            continue
+        qty = abs(f(row.get("quantity")))
+        avg = abs(f(row.get("average_price")))
+        market_value = abs(f(row.get("market_value"), qty * avg))
+        cost_basis = qty * avg if qty and avg else market_value
+        totals[pillar]["deployed"] += cost_basis
+        totals[pillar]["market_value"] += market_value
+        totals[pillar]["unrealized"] += f(row.get("unrealized_pnl"))
+        totals[pillar]["positions"] += 1
+    return totals
+
+
+@st.cache_data(ttl=15)
+def _saxo_live_truth():
+    """Read current Saxo SIM positions directly for display-only broker truth."""
+    result = {
+        "connected": False,
+        "deployed": 0.0,
+        "market_value": 0.0,
+        "unrealized": 0.0,
+        "positions": 0,
+        "working_orders": 0,
+        "error": "",
+    }
+    try:
+        from autotrader.brokers.saxo_sim import SaxoSimAdapter
+
+        adapter = SaxoSimAdapter.from_env()
+        summary = adapter.account_summary()
+        account_key = str(summary.default_account_key or "").strip()
+        if not account_key:
+            result["error"] = "Saxo SIM default account key unavailable"
+            return result
+        result["connected"] = True
+        payload = adapter.list_positions(account_key=account_key)
+        rows = payload.get("Data", []) if isinstance(payload, dict) else []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            base = row.get("PositionBase") if isinstance(row.get("PositionBase"), dict) else row
+            view = row.get("PositionView") if isinstance(row.get("PositionView"), dict) else {}
+            amount = abs(first_number(base, ["Amount", "Quantity", "PositionAmount"], 0.0))
+            open_price = abs(first_number(base, ["OpenPrice", "ExecutionPrice", "Price"], 0.0))
+            exposure = abs(first_number(view, ["Exposure", "MarketValue", "PositionValue"], 0.0))
+            pnl = first_number(view, ["ProfitLossOnTrade", "ProfitLossOnTradeInBaseCurrency", "UnrealizedProfitLoss"], 0.0)
+            cost_basis = amount * open_price if amount and open_price else exposure
+            result["deployed"] += cost_basis
+            result["market_value"] += exposure if exposure else max(cost_basis + pnl, 0.0)
+            result["unrealized"] += pnl
+            result["positions"] += 1
+        orders = adapter.list_orders(account_key=account_key)
+        order_rows = orders.get("Data", []) if isinstance(orders, dict) else []
+        result["working_orders"] = len(order_rows) if isinstance(order_rows, list) else 0
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
     perf = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+    broker_totals = _live_position_totals(live_positions)
     rows = []
     for name in PILLAR_ORDER:
         p = perf.get(name) if isinstance(perf.get(name), dict) else {}
         state = live_status.get(name) if isinstance(live_status.get(name), dict) else {}
+        broker = broker_totals.get(name, {})
+        broker_positions = int(f(broker.get("positions")))
+        working_orders = int(f(state.get("working_orders")))
+
         if name == "Kalshi":
             deployed = first_number(kalshi, ["v2_deployed", "perps_deployed", "deployed"], 0.0)
             pending = first_number(kalshi, ["pending_capital", "pending"], 0.0)
             unrealized = first_number(kalshi, ["v2_unrealized_pnl", "perps_unrealized_pnl", "unrealized_pnl"], 0.0)
             realized = first_number(kalshi, ["v2_realized_pnl", "perps_realized_pnl", "realized_pnl"], first_number(p, ["net_generated_cash", "realized_pnl"], 0.0))
-        else:
-            deployed = first_number(state, ["strategy_cost_basis", "strategy_deployed"], 0.0)
-            pending = first_number(state, ["pending_capital"], 0.0)
-            unrealized = first_number(state, ["unrealized_pnl"], first_number(p, ["unrealized_pnl"], 0.0))
+            broker_positions = int(first_number(kalshi, ["perps_positions", "predictions_positions", "positions"], 0.0))
+            working_orders = int(first_number(kalshi, ["perps_open_orders", "predictions_open_orders", "open_orders"], 0.0))
+        elif name == "International" and saxo_live.get("connected"):
+            deployed = f(saxo_live.get("deployed"))
+            pending = 0.0
+            unrealized = f(saxo_live.get("unrealized"))
             realized = first_number(p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0)
+            broker_positions = int(f(saxo_live.get("positions")))
+            working_orders = int(f(saxo_live.get("working_orders")))
+        else:
+            # Display broker-confirmed positions first. Strategy accounting is a
+            # fallback only; the observation board must never hide an open
+            # position because a manifest/classification record is stale.
+            broker_deployed = f(broker.get("deployed"))
+            deployed = broker_deployed if broker_positions > 0 else first_number(state, ["strategy_cost_basis", "strategy_deployed"], 0.0)
+            pending = first_number(state, ["pending_capital"], 0.0)
+            broker_unrealized = f(broker.get("unrealized"))
+            unrealized = broker_unrealized if broker_positions > 0 else first_number(state, ["unrealized_pnl"], first_number(p, ["unrealized_pnl"], 0.0))
+            realized = first_number(p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0)
+
         today_pnl = first_number(p, ["today_pnl", "daily_pnl", "total_today", "realized_today"], realized + unrealized)
         total_pnl = first_number(p, ["total_pnl", "net_pnl", "net_generated_cash"], realized) + unrealized
         available = max(BASE_CAPITAL - deployed - pending, 0.0)
@@ -106,7 +195,7 @@ def build_pillars(snapshot, live_status, kalshi):
         rows.append({
             "name": name,
             "display": DISPLAY_NAMES.get(name, name),
-            "state": provider_state(name, state, kalshi),
+            "state": provider_state(name, state, kalshi, broker_positions, working_orders),
             "equity": equity,
             "deployed": deployed,
             "pending": pending,
@@ -116,7 +205,8 @@ def build_pillars(snapshot, live_status, kalshi):
             "realized": realized,
             "unrealized": unrealized,
             "total_pnl": total_pnl,
-            "positions": int(first_number(state, ["positions"], first_number(kalshi, ["perps_positions", "positions"], 0))),
+            "positions": broker_positions,
+            "working_orders": working_orders,
         })
     return rows
 
@@ -153,9 +243,10 @@ def main():
     )
 
     snapshot = core.load_snapshot()
-    _, _, live_status, live_errors = core.fetch_live_broker_data()
+    live_positions, _, live_status, live_errors = core.fetch_live_broker_data()
     kalshi = core._kalshi_status()
-    pillars = build_pillars(snapshot, live_status, kalshi)
+    saxo_live = _saxo_live_truth()
+    pillars = build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live)
 
     fund_equity = sum(row["equity"] for row in pillars)
     deployed = sum(row["deployed"] for row in pillars)
@@ -168,10 +259,13 @@ def main():
     daily_return = today_pnl / FUND_STARTING_CAPITAL if FUND_STARTING_CAPITAL else 0.0
 
     st.markdown('<div class="board-title">AUTONOMOUS FUND PERFORMANCE</div>', unsafe_allow_html=True)
-    st.markdown('<div class="board-sub">Read-only live performance board · six pillars · no trading controls</div>', unsafe_allow_html=True)
+    st.markdown('<div class="board-sub">Read-only live performance board · direct broker/provider position truth · no trading controls</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="live">● LIVE · refreshed {datetime.now(UTC).strftime("%H:%M:%S UTC")} · auto-refresh 20s</div>', unsafe_allow_html=True)
-    if live_errors:
-        st.warning("Some provider reads are degraded: " + " · ".join(live_errors))
+    provider_errors = list(live_errors)
+    if saxo_live.get("error") and not saxo_live.get("connected"):
+        provider_errors.append("International: " + str(saxo_live.get("error")))
+    if provider_errors:
+        st.warning("Some provider reads are degraded: " + " · ".join(provider_errors))
 
     a = st.columns(4)
     a[0].metric("Current Equity", money(fund_equity))
@@ -209,7 +303,7 @@ def main():
               <div><div class="k">Total P&L</div><div class="v {total_class}">{signed_money(row["total_pnl"])}</div></div>
               <div><div class="k">Realized</div><div class="v">{signed_money(row["realized"])}</div></div>
               <div><div class="k">Unrealized</div><div class="v">{signed_money(row["unrealized"])}</div></div>
-              <div><div class="k">Positions</div><div class="v">{row["positions"]}</div></div>
+              <div><div class="k">Positions / Orders</div><div class="v">{row["positions"]} / {row["working_orders"]}</div></div>
             </div></div>''',
             unsafe_allow_html=True,
         )
