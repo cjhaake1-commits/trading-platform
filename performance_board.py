@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import streamlit as st
 
@@ -75,6 +77,17 @@ def first_number(mapping, keys, default=0.0):
             except (TypeError, ValueError):
                 pass
     return default
+
+
+def load_authoritative_reconciliation() -> dict:
+    path = Path("dashboard/capital-reconciliation.json")
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) and value.get("invariant") else {}
 
 
 def provider_state(name, broker_state, kalshi, broker_positions=0, working_orders=0):
@@ -182,14 +195,22 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
             deployed = first_number(kalshi, ["v2_deployed", "perps_deployed", "deployed"], 0.0)
             pending = first_number(kalshi, ["pending_capital", "pending"], 0.0)
             unrealized = first_number(kalshi, ["v2_unrealized_pnl", "perps_unrealized_pnl", "unrealized_pnl"], 0.0)
-            realized = first_number(kalshi, ["v2_realized_pnl", "perps_realized_pnl", "realized_pnl"], first_number(p, ["net_generated_cash", "realized_pnl"], 0.0))
+            realized = first_number(
+                kalshi,
+                ["v2_realized_pnl", "perps_realized_pnl", "realized_pnl"],
+                first_number(p, ["net_generated_cash", "realized_pnl"], 0.0),
+            )
             broker_positions = int(first_number(kalshi, ["perps_positions", "predictions_positions", "positions"], 0.0))
-            working_orders = int(first_number(kalshi, ["perps_open_orders", "predictions_open_orders", "open_orders"], 0.0))
+            working_orders = int(
+                first_number(kalshi, ["perps_open_orders", "predictions_open_orders", "open_orders"], 0.0)
+            )
         elif name == "International" and saxo_live.get("connected"):
             deployed = f(saxo_live.get("deployed"))
             pending = 0.0
             unrealized = f(saxo_live.get("unrealized"))
-            realized = first_number(p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0)
+            realized = first_number(
+                p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0
+            )
             broker_positions = int(f(saxo_live.get("positions")))
             working_orders = int(f(saxo_live.get("working_orders")))
         else:
@@ -197,11 +218,21 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
             # fallback only; the observation board must never hide an open
             # position because a manifest/classification record is stale.
             broker_deployed = f(broker.get("deployed"))
-            deployed = broker_deployed if broker_positions > 0 else first_number(state, ["strategy_cost_basis", "strategy_deployed"], 0.0)
+            deployed = (
+                broker_deployed
+                if broker_positions > 0
+                else first_number(state, ["strategy_cost_basis", "strategy_deployed"], 0.0)
+            )
             pending = first_number(state, ["pending_capital"], 0.0)
             broker_unrealized = f(broker.get("unrealized"))
-            unrealized = broker_unrealized if broker_positions > 0 else first_number(state, ["unrealized_pnl"], first_number(p, ["unrealized_pnl"], 0.0))
-            realized = first_number(p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0)
+            unrealized = (
+                broker_unrealized
+                if broker_positions > 0
+                else first_number(state, ["unrealized_pnl"], first_number(p, ["unrealized_pnl"], 0.0))
+            )
+            realized = first_number(
+                p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0
+            )
 
         completed_today = int(first_number(p, ["completed_trades_today", "completed_today", "completed_trades"], 0.0))
         if name == "International":
@@ -215,31 +246,33 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
         display_state = provider_state(name, state, kalshi, broker_positions, working_orders)
         if completed_today and broker_positions == 0 and working_orders == 0 and display_state == "OPERATIONAL":
             display_state = "FLAT — CAPITAL AVAILABLE"
-        rows.append({
-            "name": name,
-            "display": DISPLAY_NAMES.get(name, name),
-            "state": display_state,
-            "equity": equity,
-            "deployed": deployed,
-            "pending": pending,
-            "available": available,
-            "today_pnl": today_pnl,
-            "daily_return": daily_return,
-            "realized": realized,
-            "unrealized": unrealized,
-            "total_pnl": total_pnl,
-            "positions": broker_positions,
-            "working_orders": working_orders,
-            "completed_today": completed_today,
-            "provider_available": bool(
-                (name == "Kalshi" and str(kalshi.get("connection") or "").startswith("CONNECTED"))
-                or (name != "Kalshi" and state.get("connected"))
-                or (name == "International" and saxo_live.get("connected"))
-            ),
-            "legacy_exposure": f(state.get("legacy_exposure")),
-            "allocation": BASE_CAPITAL,
-            "allocation_breach": name == "US Stocks / ETFs" and deployed > BASE_CAPITAL,
-        })
+        rows.append(
+            {
+                "name": name,
+                "display": DISPLAY_NAMES.get(name, name),
+                "state": display_state,
+                "equity": equity,
+                "deployed": deployed,
+                "pending": pending,
+                "available": available,
+                "today_pnl": today_pnl,
+                "daily_return": daily_return,
+                "realized": realized,
+                "unrealized": unrealized,
+                "total_pnl": total_pnl,
+                "positions": broker_positions,
+                "working_orders": working_orders,
+                "completed_today": completed_today,
+                "provider_available": bool(
+                    (name == "Kalshi" and str(kalshi.get("connection") or "").startswith("CONNECTED"))
+                    or (name != "Kalshi" and state.get("connected"))
+                    or (name == "International" and saxo_live.get("connected"))
+                ),
+                "legacy_exposure": f(state.get("legacy_exposure")),
+                "allocation": BASE_CAPITAL,
+                "allocation_breach": name == "US Stocks / ETFs" and deployed > BASE_CAPITAL,
+            }
+        )
     return rows
 
 
@@ -279,31 +312,42 @@ def main():
     kalshi = core._kalshi_status()
     saxo_live = _saxo_live_truth()
     pillars = build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live)
-
-    fund_equity = sum(row["equity"] for row in pillars)
-    deployed = sum(row["deployed"] for row in pillars)
-    pending = sum(row["pending"] for row in pillars)
-    available = sum(row["available"] for row in pillars)
-    today_pnl = sum(row["today_pnl"] for row in pillars)
-    realized_today = sum(row["realized"] for row in pillars)
-    unrealized = sum(row["unrealized"] for row in pillars)
+    reconciliation = load_authoritative_reconciliation()
+    fund_equity = float(reconciliation.get("equity", sum(row["equity"] for row in pillars)))
+    deployed = float(reconciliation.get("deployed", sum(row["deployed"] for row in pillars)))
+    pending = float(reconciliation.get("pending", sum(row["pending"] for row in pillars)))
+    available = float(reconciliation.get("available", sum(row["available"] for row in pillars)))
+    realized_today = float(reconciliation.get("realized", sum(row["realized"] for row in pillars)))
+    unrealized = float(reconciliation.get("unrealized", sum(row["unrealized"] for row in pillars)))
+    today_pnl = realized_today + unrealized
     total_pnl = fund_equity - FUND_STARTING_CAPITAL
     daily_return = today_pnl / FUND_STARTING_CAPITAL if FUND_STARTING_CAPITAL else 0.0
 
     st.markdown('<div class="board-title">AUTONOMOUS FUND PERFORMANCE</div>', unsafe_allow_html=True)
-    st.markdown('<div class="board-sub">Read-only live performance board · direct broker/provider position truth · no trading controls</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="live">● LIVE PROVIDER SNAPSHOT · Last loaded: {datetime.now(UTC).strftime("%H:%M:%S UTC")} · Reload page for current data</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="board-sub">Read-only live performance board · direct broker/provider position truth · no trading controls</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="live">● LIVE PROVIDER SNAPSHOT · Last loaded: {datetime.now(UTC).strftime("%H:%M:%S UTC")} · Reload page for current data</div>',
+        unsafe_allow_html=True,
+    )
     provider_errors = list(live_errors)
     if saxo_live.get("error"):
         provider_errors.append("International: " + str(saxo_live.get("error")))
     if provider_errors:
         st.warning("Some provider reads are degraded: " + " · ".join(provider_errors))
     breaches = [
-        f'{row["display"]}: deployed {money(row["deployed"])} exceeds {money(row["allocation"])} paper allocation'
-        for row in pillars if row.get("allocation_breach")
+        f"{row['display']}: deployed {money(row['deployed'])} exceeds {money(row['allocation'])} paper allocation"
+        for row in pillars
+        if row.get("allocation_breach")
     ]
     if breaches:
-        st.error("Paper allocation/accounting defect: " + " · ".join(breaches) + ". Legacy/external exposure is reported separately in provider truth.")
+        st.error(
+            "Paper allocation/accounting defect: "
+            + " · ".join(breaches)
+            + ". Legacy/external exposure is reported separately in provider truth."
+        )
 
     a = st.columns(4)
     a[0].metric("Current Equity", money(fund_equity))
@@ -321,7 +365,7 @@ def main():
 
     cash_progress = min(max(realized_today / DAILY_CASH_STRETCH, 0.0), 1.0)
     st.markdown(
-        f'<div class="goal"><div class="goal-top"><div><small>DAILY REALIZED CASH</small><br><strong>{signed_money(realized_today)}</strong></div><div><small>FLOOR / STRETCH</small><br><strong>$500 / $1,000</strong></div></div><div class="bar"><div style="width:{cash_progress*100:.1f}%"></div></div></div>',
+        f'<div class="goal"><div class="goal-top"><div><small>DAILY REALIZED CASH</small><br><strong>{signed_money(realized_today)}</strong></div><div><small>FLOOR / STRETCH</small><br><strong>$500 / $1,000</strong></div></div><div class="bar"><div style="width:{cash_progress * 100:.1f}%"></div></div></div>',
         unsafe_allow_html=True,
     )
 
@@ -330,7 +374,7 @@ def main():
         pnl_class = "pos" if row["today_pnl"] > 0 else "neg" if row["today_pnl"] < 0 else "neutral"
         total_class = "pos" if row["total_pnl"] > 0 else "neg" if row["total_pnl"] < 0 else "neutral"
         st.markdown(
-            f'''<div class="pillar-card">
+            f"""<div class="pillar-card">
             <div class="pillar-head"><div class="pillar-name">{row["display"]}</div><div class="pillar-state">{row["state"]}</div></div>
             <div class="pillar-grid">
               <div><div class="k">Equity</div><div class="v">{row_money(row, "equity")}</div></div>
@@ -341,14 +385,18 @@ def main():
               <div><div class="k">Total P&L</div><div class="v {total_class}">{row_money(row, "total_pnl", True)}</div></div>
               <div><div class="k">Realized</div><div class="v">{row_money(row, "realized", True)}</div></div>
               <div><div class="k">Unrealized</div><div class="v">{row_money(row, "unrealized", True)}</div></div>
-              <div><div class="k">Positions / Orders</div><div class="v">{"UNAVAILABLE" if not row["provider_available"] else f'{row["positions"]} / {row["working_orders"]}'}</div></div>
+              <div><div class="k">Positions / Orders</div><div class="v">{"UNAVAILABLE" if not row["provider_available"] else f"{row['positions']} / {row['working_orders']}"}</div></div>
               <div><div class="k">Completed Today</div><div class="v">{"UNAVAILABLE" if not row["provider_available"] else row["completed_today"]}</div></div>
-            </div></div>''',
+            </div></div>""",
             unsafe_allow_html=True,
         )
 
     st.markdown('<div class="section">Annual Income Objective</div>', unsafe_allow_html=True)
-    yearly_realized = first_number(snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}, ["net_trading_cash_generated", "cumulative_realized_pnl"], 0.0)
+    yearly_realized = first_number(
+        snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {},
+        ["net_trading_cash_generated", "cumulative_realized_pnl"],
+        0.0,
+    )
     goal_progress = min(max(yearly_realized / ANNUAL_GOAL, 0.0), 1.0)
     d = st.columns(4)
     d[0].metric("Annual Goal", money(ANNUAL_GOAL))
@@ -356,7 +404,9 @@ def main():
     d[2].metric("Remaining", money(max(ANNUAL_GOAL - yearly_realized, 0.0)))
     d[3].metric("Goal Progress", pct(goal_progress))
 
-    st.caption("Observation board only. Strategy, risk, execution, research and learning continue in the existing autonomous services.")
+    st.caption(
+        "Observation board only. Strategy, risk, execution, research and learning continue in the existing autonomous services."
+    )
 
 
 if __name__ == "__main__":
