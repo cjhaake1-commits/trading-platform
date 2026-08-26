@@ -1,0 +1,215 @@
+name: Deploy GCP Paper Platform
+
+on:
+  push:
+    branches:
+      - bootstrap-paper-trading-core
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: trading-platform-gcp-deploy
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT_ID: project-79d49028-a68b-4bb1-bd9
+  GCP_WIF_PROVIDER: projects/799227792491/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider
+  GCP_SERVICE_ACCOUNT: github-trading-deployer@project-79d49028-a68b-4bb1-bd9.iam.gserviceaccount.com
+  GCP_INSTANCE: instance-20260806-154514
+  GCP_ZONE: us-east1-c
+  DEPLOY_BRANCH: bootstrap-paper-trading-core
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      - name: Safety guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R --line-number --exclude-dir=.git -E '^LIVE_TRADING_ENABLED[[:space:]]*=[[:space:]]*(true|1|yes|on)[[:space:]]*$' .; then
+            echo 'Refusing deployment: repository contains an enabled LIVE_TRADING_ENABLED setting.' >&2
+            exit 1
+          fi
+
+      - name: Lint
+        run: ruff check src tests scripts streamlit_app.py
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Compile
+        run: |
+          python -m compileall -q src tests
+          python -m py_compile streamlit_app.py
+          git diff --check
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: paper-sim
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Deploy guarded source update
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REMOTE_SCRIPT=$(cat <<'EOS'
+          set -euo pipefail
+
+          APP=/home/cjhaake1/trading-platform
+          BRANCH=bootstrap-paper-trading-core
+          cd "$APP"
+
+          BEFORE=$(git rev-parse HEAD)
+          echo "BEFORE=$BEFORE"
+
+          # Runtime-generated files may remain dirty, but source changes outside
+          # the known runtime paths must not be overwritten by automation.
+          DIRTY_SOURCE=$(git status --porcelain --untracked-files=no | grep -vE ' dashboard/data\.json$| var/' || true)
+          if [ -n "$DIRTY_SOURCE" ]; then
+            echo 'Refusing deployment because non-runtime tracked files are locally modified:' >&2
+            echo "$DIRTY_SOURCE" >&2
+            exit 1
+          fi
+
+          # Never deploy if the live VM has explicitly enabled real-money mode.
+          if [ -f .env ] && grep -Eq '^LIVE_TRADING_ENABLED[[:space:]]*=[[:space:]]*(true|1|yes|on)[[:space:]]*$' .env; then
+            echo 'Refusing deployment: LIVE_TRADING_ENABLED is enabled on the VM.' >&2
+            exit 1
+          fi
+
+          git fetch --prune origin "$BRANCH"
+          TARGET=$(git rev-parse "origin/$BRANCH")
+          echo "TARGET=$TARGET"
+
+          if [ "$BEFORE" = "$TARGET" ]; then
+            echo 'VM already at target commit.'
+          else
+            git checkout "$BRANCH"
+            git merge --ff-only "origin/$BRANCH"
+          fi
+
+          # Validate in the VM environment before restarting anything.
+          .venv/bin/python -m py_compile streamlit_app.py
+          .venv/bin/python -m compileall -q src
+
+          CHANGED=$(git diff --name-only "$BEFORE" "$TARGET" || true)
+          echo 'Changed files:'
+          echo "$CHANGED"
+
+          restart_streamlit=0
+          restart_runtime=0
+
+          if echo "$CHANGED" | grep -Eq '^(streamlit_app\.py|src/.+dashboard|src/.+branding)'; then
+            restart_streamlit=1
+          fi
+
+          if echo "$CHANGED" | grep -Eq '^src/autotrader/'; then
+            restart_runtime=1
+          fi
+
+          # Streamlit restart is isolated from trading runtime.
+          if [ "$restart_streamlit" -eq 1 ]; then
+            pkill -f 'streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' || true
+            sleep 2
+            nohup "$APP/.venv/bin/streamlit" run "$APP/streamlit_app.py" \
+              --server.address 0.0.0.0 \
+              --server.port 8501 \
+              --server.headless true \
+              > "$APP/var/autotrader/streamlit.log" 2>&1 &
+          fi
+
+          # Runtime source changes are deliberately not restarted blindly.
+          # Existing positions/orders remain protected until the runtime's own
+          # graceful reconciliation/restart path is explicitly available.
+          if [ "$restart_runtime" -eq 1 ]; then
+            echo 'RUNTIME_SOURCE_CHANGED=1'
+            echo 'Runtime left running; graceful runtime restart/reconciliation required.'
+          else
+            echo 'RUNTIME_SOURCE_CHANGED=0'
+          fi
+
+          sleep 3
+
+          if ! curl -fsS --max-time 15 http://127.0.0.1:8501/ >/dev/null; then
+            echo 'Streamlit health check failed. Rolling source back.' >&2
+            git reset --hard "$BEFORE"
+            pkill -f 'streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' || true
+            sleep 2
+            nohup "$APP/.venv/bin/streamlit" run "$APP/streamlit_app.py" \
+              --server.address 0.0.0.0 \
+              --server.port 8501 \
+              --server.headless true \
+              > "$APP/var/autotrader/streamlit.log" 2>&1 &
+            exit 1
+          fi
+
+          RUNTIME_COUNT=$(ps -eo args | grep -E '/autotrader-runtime ' | grep -v grep | wc -l)
+          STREAMLIT_COUNT=$(ps -eo args | grep -E '/streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' | grep -v grep | wc -l)
+
+          echo "RUNTIME_COUNT=$RUNTIME_COUNT"
+          echo "STREAMLIT_COUNT=$STREAMLIT_COUNT"
+
+          if [ "$RUNTIME_COUNT" -ne 1 ]; then
+            echo 'Unexpected autonomous runtime count; deployment health failed.' >&2
+            exit 1
+          fi
+
+          if [ "$STREAMLIT_COUNT" -ne 1 ]; then
+            echo 'Unexpected Streamlit process count; deployment health failed.' >&2
+            exit 1
+          fi
+
+          echo "DEPLOYED_COMMIT=$(git rev-parse HEAD)"
+          echo 'LOCAL_HTTP=200'
+          EOS
+          )
+
+          printf '%s\n' "$REMOTE_SCRIPT" | base64 -w0 > /tmp/deploy-script.b64
+          SCRIPT_B64=$(cat /tmp/deploy-script.b64)
+
+          gcloud compute ssh "${GCP_INSTANCE}" \
+            --zone="${GCP_ZONE}" \
+            --project="${GCP_PROJECT_ID}" \
+            --quiet \
+            --command="echo '${SCRIPT_B64}' | base64 -d | sudo -u cjhaake1 bash"
+
+      - name: Public dashboard health
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLIC_IP=$(gcloud compute instances describe "$GCP_INSTANCE" \
+            --zone="$GCP_ZONE" \
+            --project="$GCP_PROJECT_ID" \
+            --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+          echo "Dashboard: http://${PUBLIC_IP}:8501"
+          curl -fsS --max-time 20 "http://${PUBLIC_IP}:8501/" >/dev/null
