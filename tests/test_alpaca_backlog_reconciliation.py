@@ -243,6 +243,15 @@ def test_request_budget_exhaustion_defers_safely(monkeypatch, tmp_path):
 
 def test_active_v2_scope_reconciles_only_post_baseline_manifests(monkeypatch, tmp_path):
     ledger = PortfolioLedger(tmp_path / "portfolio.db")
+    monkeypatch.setattr(
+        alpaca_backlog,
+        "ensure_experiment_state",
+        lambda: {
+            "experiment_id": "five_pillar_paper_v2",
+            "baseline_start_time": "2026-08-22T00:00:00+00:00",
+            "created_at": "2026-08-22T00:00:00+00:00",
+        },
+    )
     ledger.save_entry_manifest(**_manifest_kwargs("MSTR", "order_pending", "legacy", "2026-08-20T00:55:00+00:00"))
     ledger.save_entry_manifest(**_manifest_kwargs("AMD", "order_pending", "active", "2026-08-23T00:55:00+00:00"))
 
