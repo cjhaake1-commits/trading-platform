@@ -104,6 +104,9 @@ def _live_position_totals(live_positions):
         pillar = str(row.get("pillar") or "")
         if pillar not in totals:
             continue
+        classification = str(row.get("classification") or "").upper()
+        if classification and classification not in {"VALID_STRATEGY_POSITION", "ACTIVE V2"}:
+            continue
         qty = abs(f(row.get("quantity")))
         avg = abs(f(row.get("average_price")))
         market_value = abs(f(row.get("market_value"), qty * avg))
@@ -209,10 +212,13 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
         available = max(BASE_CAPITAL - deployed - pending, 0.0)
         equity = BASE_CAPITAL + total_pnl
         daily_return = today_pnl / BASE_CAPITAL if BASE_CAPITAL else 0.0
+        display_state = provider_state(name, state, kalshi, broker_positions, working_orders)
+        if completed_today and broker_positions == 0 and working_orders == 0 and display_state == "OPERATIONAL":
+            display_state = "FLAT — CAPITAL AVAILABLE"
         rows.append({
             "name": name,
             "display": DISPLAY_NAMES.get(name, name),
-            "state": provider_state(name, state, kalshi, broker_positions, working_orders),
+            "state": display_state,
             "equity": equity,
             "deployed": deployed,
             "pending": pending,
