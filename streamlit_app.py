@@ -1422,6 +1422,17 @@ def _live_results_rows(ctx: dict[str, object]) -> list[dict[str, object]]:
         deployed = provider.get("strategy_deployed", snap.get("deployed"))
         positions = provider.get("positions", snap.get("positions"))
         pending = provider.get("working_orders", provider.get("pending_orders"))
+        if available is None and provider_known and name != "Kalshi":
+            authorized = PILLAR_BASE_CAPITAL
+            available = max(authorized - _float(deployed) - _float(pending), 0.0) if deployed is not None else None
+        if name == "Kalshi":
+            kalshi = _kalshi_status()
+            connected = kalshi.get("predictions_provider_state") == "CONNECTED" and kalshi.get("perps_provider_state") == "CONNECTED"
+            status = "OPERATIONAL" if connected else "DEGRADED"
+            deployed = kalshi.get("perps_deployed") if connected else None
+            available = max(PILLAR_BASE_CAPITAL - _float(deployed), 0.0) if connected else None
+            positions = kalshi.get("perps_positions") if connected else None
+            pending = kalshi.get("perps_open_orders") if connected else None
         if name == "Kalshi" and str(_kalshi_status().get("perps_provider_state")) == "DEGRADED":
             deployed = available = positions = pending = None
         if name == "Crypto":
@@ -2438,7 +2449,6 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
     )
     st.caption("CHRIS HAAKE CAPITAL SYSTEMS")
     _render_fund_command_center(ctx)
-    _render_proof_of_concept(ctx)
     st.markdown(
         f"""
         <div class="small-note">Runtime source: <strong>{escape(str(live_runtime))}</strong> · freshness: <strong>{escape(str(ctx["runtime_source_age"]))}</strong></div>
@@ -2583,6 +2593,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
     kalshi_status = _kalshi_status()
     _render_live_results(ctx)
     _render_crypto_strategy_health()
+    _render_proof_of_concept(ctx)
     for name, broker, accent in PILLARS:
         job_name = PILLAR_JOB_MAP[name]
         job = jobs.get(job_name) if isinstance(jobs, dict) else {}
