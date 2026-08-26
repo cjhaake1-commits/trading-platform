@@ -94,6 +94,11 @@ DEFAULT_CRYPTO_UNIVERSE = (
     "BCH/USD",
 )
 
+
+def pillar_allocation_room(*, allocation: float, current_exposure: float, pending_capital: float) -> float:
+    """Return spendable room after both filled and reserved exposure."""
+    return max(float(allocation) - float(current_exposure) - float(pending_capital), 0.0)
+
 EXECUTION_QUALITY_PATH = Path("var/autotrader/learning/crypto-execution-quality.json")
 
 
@@ -599,7 +604,14 @@ class AutonomousPaperTradingJob:
                     }
                 )
                 continue
-            remaining_notional = max(pillar_limit - pillar_notional, 0.0)
+            # Reservations are part of exposure governance.  Using only
+            # current filled exposure here allowed multiple same-cycle
+            # approvals to each spend the same remaining pillar capacity.
+            remaining_notional = pillar_allocation_room(
+                allocation=pillar_limit,
+                current_exposure=pillar_notional,
+                pending_capital=pending_by_pillar.get(pillar, 0.0),
+            )
             capacity_quantity = remaining_notional / signal.proposal.entry_price
             if signal.instrument.asset_class is AssetClass.CRYPTO:
                 pillar_risk_dollars = pillar_limit * 0.0125

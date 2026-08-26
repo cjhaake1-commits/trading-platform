@@ -66,6 +66,16 @@ def _write_saxo_permission_status(*, now: datetime, authenticated: bool, read_on
     temporary.replace(path)
 
 
+def _write_international_funnel(*, now: datetime, funnel: dict[str, object]) -> None:
+    """Atomically persist the last International evaluation funnel."""
+    path = Path("var/autotrader/international-execution-funnel.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"timestamp": now.astimezone(UTC).isoformat(), **funnel}
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True, default=str), encoding="utf-8")
+    temporary.replace(path)
+
+
 @dataclass
 class MetalsPaperTradingJob:
     name: str = "alpaca-metals-paper-trading"
@@ -318,6 +328,14 @@ class InternationalPaperTradingJob:
 
     def run(self, now: datetime) -> JobResult:
         now = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+        funnel: dict[str, object] = {
+            "session": "UNKNOWN", "universe": 0, "history_valid": 0,
+            "candidates": 0, "candidate_symbols": [], "strategy_approved": 0,
+            "expected_edge_approved": 0, "risk_approved": 0, "capital_approved": 0,
+            "precheck_passed": 0, "orders_constructed": 0, "orders_submitted": 0,
+            "orders_accepted": 0, "orders_rejected": 0, "fills": 0,
+            "rejection_reason": None, "final_bottleneck": "INITIALIZATION",
+        }
         if self.adapter is None or self.service is None:
             _write_saxo_permission_status(now=now, authenticated=False, read_only=None, error="Saxo SIM credentials unavailable")
             return JobResult(
@@ -349,6 +367,8 @@ class InternationalPaperTradingJob:
             _write_saxo_permission_status(now=now, authenticated=True, read_only=None, error=error, capabilities=capabilities, session_capabilities={"state": "ERROR"})
             return JobResult(True, "International data probe failed", {"state": "DEGRADED", "error": error})
         if not instruments:
+            funnel.update({"final_bottleneck": "NO_PROVIDER_INSTRUMENTS", "rejection_reason": "Saxo search returned no instruments"})
+            _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International cycle found no instruments", {})
         open_instruments = tuple(
             item for item in instruments
@@ -361,7 +381,10 @@ class InternationalPaperTradingJob:
             "instruments_discovered": len(instruments),
             "instruments_evaluated": len(open_instruments),
         }
+        funnel.update({"session": "OPEN" if open_instruments else "CLOSED", "universe": len(instruments), "history_valid": 0})
         if not open_instruments:
+            funnel.update({"final_bottleneck": "NO_OPEN_FOREIGN_SESSION", "rejection_reason": "No foreign venue currently open"})
+            _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International waiting for open foreign venue", {
                 **discovery, "state": "READY — WAITING FOR ELIGIBLE MARKET SESSION"
             })
@@ -375,12 +398,18 @@ class InternationalPaperTradingJob:
             bars = _bars_from_saxo(samples, instrument)
             if len(bars) >= 8:
                 histories[instrument] = bars
+        funnel["history_valid"] = len(histories)
         if not histories:
+            funnel.update({"final_bottleneck": "NO_VALID_HISTORY", "rejection_reason": "Open instruments lacked usable history"})
+            _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International open venues had no usable market data", {
                 **discovery, "state": "DEGRADED — DATA"
             })
         ranked = self.scanner.rank(histories, top_n=min(10, len(histories)))
+        funnel.update({"candidates": len(ranked), "candidate_symbols": [c.instrument.symbol for c in ranked]})
         if not ranked:
+            funnel.update({"final_bottleneck": "NO_CANDIDATES", "rejection_reason": "Scanner returned no candidates"})
+            _write_international_funnel(now=now, funnel=funnel)
             _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, capabilities=capabilities, session_capabilities=session_capabilities)
             return JobResult(True, "International cycle found no qualifying entry", {})
         evaluations = []
@@ -404,6 +433,10 @@ class InternationalPaperTradingJob:
             risk_capacity = self.service.policy.allocation_cap * self.service.policy.max_risk_per_trade_pct
             affordable = proposal is not None and min_notional <= self.service.policy.allocation_cap * (1.0 - self.service.policy.min_cash_reserve_pct) and proposal.risk_per_unit * provider_minimum_quantity <= risk_capacity
             evaluation = {"symbol": candidate, "venue": source.exchange_id if source else None, "price": ranked_candidate.last_price, "minimum_quantity": provider_minimum_quantity, "minimum_order_value": provider_minimum_value, "minimum_notional": min_notional, "affordable": affordable, "score": ranked_candidate.score, "strategy": "NONE" if proposal is None else proposal.source, "precheck": "NOT_RUN", "qualified": False, "rejection": "NO_BUY_STRATEGY" if proposal is None else (None if affordable else "NOT_AFFORDABLE")}
+            if proposal is not None:
+                funnel["strategy_approved"] = int(funnel["strategy_approved"]) + 1
+            if affordable:
+                funnel["expected_edge_approved"] = int(funnel["expected_edge_approved"]) + 1
             if not affordable:
                 evaluations.append(evaluation)
                 continue
@@ -413,6 +446,9 @@ class InternationalPaperTradingJob:
                     evaluation["precheck"] = str(result.get("PreCheckResult") or "UNKNOWN")
                     evaluation["precheck_error"] = result.get("ErrorInfo")
                     if evaluation["precheck"] == "Ok":
+                        funnel["precheck_passed"] = int(funnel["precheck_passed"]) + 1
+                        funnel["risk_approved"] = int(funnel["risk_approved"]) + 1
+                        funnel["capital_approved"] = int(funnel["capital_approved"]) + 1
                         evaluation["qualified"] = True
                         selected = (ranked_candidate, source, proposal)
                         evaluations.append(evaluation)
@@ -431,12 +467,23 @@ class InternationalPaperTradingJob:
         precheck = evaluations[0] if evaluations else {"state": "NOT_RUN"}
         _write_saxo_permission_status(now=now, authenticated=True, read_only=read_only, shadow_candidate=candidate, precheck=precheck, capabilities=capabilities, session_capabilities=session_capabilities)
         if read_only is not False:
+            funnel.update({"final_bottleneck": "SAXO_WRITE_PERMISSION", "rejection_reason": "TradeLevel/account capability did not prove writable execution"})
+            _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International shadow candidate blocked by Saxo SIM permissions", {**discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK", "rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION"})
         if selected is not None:
             ranked_candidate, source, proposal = selected
             spec = InternationalOrderSpec(proposal=proposal, account_key=summary.default_account_key, uic=source.uic, saxo_asset_type=source.asset_type, target_price=None, strategy_version="international-top10-v1")
             execution = self.service.execute(spec, PortfolioState(equity=1000.0, cash=1000.0), international_deployed=0.0, now=now)
+            funnel["orders_constructed"] = 1
+            funnel["orders_submitted"] = int(execution.submitted)
+            funnel["orders_accepted"] = int(bool(execution.order_id))
+            funnel["orders_rejected"] = int(not execution.submitted)
+            funnel["fills"] = int(bool(execution.trade_id))
+            funnel.update({"final_bottleneck": None if execution.submitted else "ORDER_SUBMISSION", "rejection_reason": None if execution.submitted else execution.reason})
+            _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International candidate reached SIM execution", {**discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "ACTIVE — DEPLOYING CAPITAL" if execution.submitted else "BLOCKED — SAXO EXECUTION", "order_id": execution.order_id, "execution_reason": execution.reason})
+        funnel.update({"final_bottleneck": "NO_QUALIFIED_EXECUTION", "rejection_reason": "All candidates rejected before submission"})
+        _write_international_funnel(now=now, funnel=funnel)
         return JobResult(True, "International cycle scanned successfully", {
             **discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "READY / EVALUATING"
         })
