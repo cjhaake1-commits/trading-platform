@@ -36,6 +36,8 @@ def f(value, default=0.0):
 
 
 def money(value):
+    if value is None:
+        return "UNAVAILABLE"
     return f"${f(value):,.2f}"
 
 
@@ -44,6 +46,8 @@ def pct(value):
 
 
 def signed_money(value):
+    if value is None:
+        return "UNAVAILABLE"
     value = f(value)
     sign = "+" if value > 0 else ""
     return f"{sign}${value:,.2f}"
@@ -53,6 +57,12 @@ def signed_pct(value):
     value = f(value)
     sign = "+" if value > 0 else ""
     return f"{sign}{value * 100:.2f}%"
+
+
+def row_money(row, key, signed=False):
+    if not row.get("provider_available"):
+        return "UNAVAILABLE"
+    return signed_money(row.get(key)) if signed else money(row.get(key))
 
 
 def first_number(mapping, keys, default=0.0):
@@ -105,7 +115,6 @@ def _live_position_totals(live_positions):
     return totals
 
 
-@st.cache_data(ttl=15)
 def _saxo_live_truth():
     """Read current Saxo SIM positions directly for display-only broker truth."""
     result = {
@@ -115,6 +124,8 @@ def _saxo_live_truth():
         "unrealized": 0.0,
         "positions": 0,
         "working_orders": 0,
+        "trade_level": "",
+        "completed_today": 0,
         "error": "",
     }
     try:
@@ -122,6 +133,8 @@ def _saxo_live_truth():
 
         adapter = SaxoSimAdapter.from_env()
         summary = adapter.account_summary()
+        capabilities = adapter.session_capabilities()
+        result["trade_level"] = str(capabilities.get("TradeLevel") or "")
         account_key = str(summary.default_account_key or "").strip()
         if not account_key:
             result["error"] = "Saxo SIM default account key unavailable"
@@ -134,10 +147,10 @@ def _saxo_live_truth():
                 continue
             base = row.get("PositionBase") if isinstance(row.get("PositionBase"), dict) else row
             view = row.get("PositionView") if isinstance(row.get("PositionView"), dict) else {}
-            amount = abs(first_number(base, ["Amount", "Quantity", "PositionAmount"], 0.0))
-            open_price = abs(first_number(base, ["OpenPrice", "ExecutionPrice", "Price"], 0.0))
-            exposure = abs(first_number(view, ["Exposure", "MarketValue", "PositionValue"], 0.0))
-            pnl = first_number(view, ["ProfitLossOnTrade", "ProfitLossOnTradeInBaseCurrency", "UnrealizedProfitLoss"], 0.0)
+            amount = abs(first_number(base, ["Amount"], 0.0))
+            open_price = abs(first_number(base, ["OpenPrice"], 0.0))
+            exposure = abs(first_number(view, ["Exposure"], 0.0))
+            pnl = first_number(view, ["ProfitLossOnTrade"], 0.0)
             cost_basis = amount * open_price if amount and open_price else exposure
             result["deployed"] += cost_basis
             result["market_value"] += exposure if exposure else max(cost_basis + pnl, 0.0)
@@ -187,6 +200,10 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
             unrealized = broker_unrealized if broker_positions > 0 else first_number(state, ["unrealized_pnl"], first_number(p, ["unrealized_pnl"], 0.0))
             realized = first_number(p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0)
 
+        completed_today = int(first_number(p, ["completed_trades_today", "completed_today", "completed_trades"], 0.0))
+        if name == "International":
+            completed_today = int(first_number(saxo_live, ["completed_today"], completed_today))
+
         today_pnl = first_number(p, ["today_pnl", "daily_pnl", "total_today", "realized_today"], realized + unrealized)
         total_pnl = first_number(p, ["total_pnl", "net_pnl", "net_generated_cash"], realized) + unrealized
         available = max(BASE_CAPITAL - deployed - pending, 0.0)
@@ -207,12 +224,20 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
             "total_pnl": total_pnl,
             "positions": broker_positions,
             "working_orders": working_orders,
+            "completed_today": completed_today,
+            "provider_available": bool(
+                (name == "Kalshi" and str(kalshi.get("connection") or "").startswith("CONNECTED"))
+                or (name != "Kalshi" and state.get("connected"))
+                or (name == "International" and saxo_live.get("connected"))
+            ),
+            "legacy_exposure": f(state.get("legacy_exposure")),
+            "allocation": BASE_CAPITAL,
+            "allocation_breach": name == "US Stocks / ETFs" and deployed > BASE_CAPITAL,
         })
     return rows
 
 
 def main():
-    st.markdown("<meta http-equiv='refresh' content='20'>", unsafe_allow_html=True)
     st.markdown(
         """
         <style>
@@ -243,6 +268,7 @@ def main():
     )
 
     snapshot = core.load_snapshot()
+    core.fetch_live_broker_data.clear()
     live_positions, _, live_status, live_errors = core.fetch_live_broker_data()
     kalshi = core._kalshi_status()
     saxo_live = _saxo_live_truth()
@@ -260,12 +286,18 @@ def main():
 
     st.markdown('<div class="board-title">AUTONOMOUS FUND PERFORMANCE</div>', unsafe_allow_html=True)
     st.markdown('<div class="board-sub">Read-only live performance board · direct broker/provider position truth · no trading controls</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="live">● LIVE · refreshed {datetime.now(UTC).strftime("%H:%M:%S UTC")} · auto-refresh 20s</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="live">● LIVE PROVIDER SNAPSHOT · Last loaded: {datetime.now(UTC).strftime("%H:%M:%S UTC")} · Reload page for current data</div>', unsafe_allow_html=True)
     provider_errors = list(live_errors)
-    if saxo_live.get("error") and not saxo_live.get("connected"):
+    if saxo_live.get("error"):
         provider_errors.append("International: " + str(saxo_live.get("error")))
     if provider_errors:
         st.warning("Some provider reads are degraded: " + " · ".join(provider_errors))
+    breaches = [
+        f'{row["display"]}: deployed {money(row["deployed"])} exceeds {money(row["allocation"])} paper allocation'
+        for row in pillars if row.get("allocation_breach")
+    ]
+    if breaches:
+        st.error("Paper allocation/accounting defect: " + " · ".join(breaches) + ". Legacy/external exposure is reported separately in provider truth.")
 
     a = st.columns(4)
     a[0].metric("Current Equity", money(fund_equity))
@@ -295,15 +327,16 @@ def main():
             f'''<div class="pillar-card">
             <div class="pillar-head"><div class="pillar-name">{row["display"]}</div><div class="pillar-state">{row["state"]}</div></div>
             <div class="pillar-grid">
-              <div><div class="k">Equity</div><div class="v">{money(row["equity"])}</div></div>
-              <div><div class="k">Deployed</div><div class="v">{money(row["deployed"])}</div></div>
-              <div><div class="k">Available</div><div class="v">{money(row["available"])}</div></div>
-              <div><div class="k">Today P&L</div><div class="v {pnl_class}">{signed_money(row["today_pnl"])}</div></div>
-              <div><div class="k">Daily Return</div><div class="v {pnl_class}">{signed_pct(row["daily_return"])}</div></div>
-              <div><div class="k">Total P&L</div><div class="v {total_class}">{signed_money(row["total_pnl"])}</div></div>
-              <div><div class="k">Realized</div><div class="v">{signed_money(row["realized"])}</div></div>
-              <div><div class="k">Unrealized</div><div class="v">{signed_money(row["unrealized"])}</div></div>
-              <div><div class="k">Positions / Orders</div><div class="v">{row["positions"]} / {row["working_orders"]}</div></div>
+              <div><div class="k">Equity</div><div class="v">{row_money(row, "equity")}</div></div>
+              <div><div class="k">Deployed</div><div class="v">{row_money(row, "deployed")}</div></div>
+              <div><div class="k">Available</div><div class="v">{row_money(row, "available")}</div></div>
+              <div><div class="k">Today P&L</div><div class="v {pnl_class}">{row_money(row, "today_pnl", True)}</div></div>
+              <div><div class="k">Daily Return</div><div class="v {pnl_class}">{"UNAVAILABLE" if not row["provider_available"] else signed_pct(row["daily_return"])}</div></div>
+              <div><div class="k">Total P&L</div><div class="v {total_class}">{row_money(row, "total_pnl", True)}</div></div>
+              <div><div class="k">Realized</div><div class="v">{row_money(row, "realized", True)}</div></div>
+              <div><div class="k">Unrealized</div><div class="v">{row_money(row, "unrealized", True)}</div></div>
+              <div><div class="k">Positions / Orders</div><div class="v">{"UNAVAILABLE" if not row["provider_available"] else f'{row["positions"]} / {row["working_orders"]}'}</div></div>
+              <div><div class="k">Completed Today</div><div class="v">{"UNAVAILABLE" if not row["provider_available"] else row["completed_today"]}</div></div>
             </div></div>''',
             unsafe_allow_html=True,
         )
