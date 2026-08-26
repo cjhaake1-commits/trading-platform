@@ -175,8 +175,10 @@ class AlpacaCryptoArchiveCollector:
                 result.append(CryptoBar(symbol.upper(), _utc(item["t"]), float(item["o"]), float(item["h"]), float(item["l"]), float(item["c"]), float(item.get("v") or 0), "alpaca_crypto_historical", ingested, item.get("n"), item.get("vw")))
         return result
 
-    def run_once(self, *, symbols: tuple[str, ...] | None = None, lookback_hours: int = 24, max_symbols: int = 8) -> dict[str, object]:
-        selected = list(symbols or alpaca_crypto_universe())[:max_symbols]
+    def run_once(self, *, symbols: tuple[str, ...] | None = None, lookback_hours: int = 24, max_symbols: int | None = None) -> dict[str, object]:
+        selected = list(symbols or alpaca_crypto_universe())
+        if max_symbols is not None:
+            selected = selected[:max_symbols]
         end = datetime.now(UTC).replace(second=0, microsecond=0)
         bars = self._fetch(selected, end - timedelta(hours=lookback_hours), end)
         raw = upsert_bars(self.db_path, "1m", bars)

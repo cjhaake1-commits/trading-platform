@@ -73,7 +73,7 @@ class CryptoMarketDataArchiveJob:
 
     def run(self, now: datetime) -> JobResult:
         try:
-            result = self.collector.run_once(lookback_hours=24, max_symbols=8)
+            result = self.collector.run_once(lookback_hours=24)
             return JobResult(True, "Crypto market-data archive refreshed", {"refreshed_at": now.isoformat(), **result})
         except Exception as exc:  # archive failure must not affect execution jobs
             return JobResult(True, "Crypto market-data archive unavailable", {"state": "PROVIDER_DEGRADED", "error": str(exc), "refreshed_at": now.isoformat()})

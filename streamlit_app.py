@@ -349,14 +349,30 @@ def _daily_performance_metrics(cash: dict[str, object]) -> dict[str, float | str
         equity = _float(cash.get("original_capital"), TOTAL_BASE_CAPITAL)
     state_path = Path("var/autotrader/daily_performance.json")
     state = _safe_json(state_path)
+    current_unrealized = _float(cash.get("unrealized_pnl"))
+    daily_realized_value = cash.get("daily_realized_pnl")
+    if daily_realized_value is None:
+        daily_realized_value = cash.get("daily_realized_return")
+    if daily_realized_value is None:
+        daily_realized_value = cash.get("realized_pnl")
     if state.get("date") != today or _float(state.get("starting_equity")) <= 0:
-        state = {"date": today, "starting_equity": equity}
+        state = {
+            "date": today,
+            "starting_equity": equity,
+            "starting_unrealized": current_unrealized,
+            "starting_cash": _float(cash.get("cash_balance"), equity),
+        }
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(json.dumps(state), encoding="utf-8")
     starting = _float(state.get("starting_equity"), equity)
-    realized = _float(cash.get("daily_realized_pnl") or cash.get("realized_pnl") or cash.get("daily_realized_return"))
-    unrealized = _float(cash.get("daily_unrealized_pnl") or cash.get("unrealized_pnl"))
-    total = equity - starting
+    if "starting_unrealized" not in state:
+        state["starting_unrealized"] = current_unrealized
+        state["starting_cash"] = _float(cash.get("cash_balance"), equity)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+    starting_unrealized = _float(state.get("starting_unrealized"))
+    realized = _float(daily_realized_value)
+    unrealized = current_unrealized
+    total = realized + (unrealized - starting_unrealized)
     return {
         "date": today,
         "starting_equity": starting,
