@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -155,24 +156,42 @@ def write_research_source_registry(output: str | Path = "var/autotrader/learning
 
 
 class AlpacaCryptoArchiveCollector:
-    def __init__(self, db_path: str = "var/autotrader/crypto_market_data.db", *, timeout: float = 15.0) -> None:
-        self.db_path, self.timeout = db_path, timeout
+    def __init__(self, db_path: str = "var/autotrader/crypto_market_data.db", *, timeout: float = 15.0, max_retries: int = 3) -> None:
+        self.db_path, self.timeout, self.max_retries = db_path, timeout, max_retries
         ensure_data_tree()
 
     def _fetch(self, symbols: list[str], start: datetime, end: datetime, limit: int = 10000) -> list[CryptoBar]:
         key, secret = os.getenv("ALPACA_PAPER_API_KEY", "").strip(), os.getenv("ALPACA_PAPER_SECRET_KEY", "").strip()
         if not key or not secret or not symbols:
             return []
-        params = urlencode({"symbols": ",".join(symbols), "timeframe": "1Min", "start": start.astimezone(UTC).isoformat().replace("+00:00", "Z"), "end": end.astimezone(UTC).isoformat().replace("+00:00", "Z"), "limit": limit, "sort": "asc"})
-        url = f"https://data.alpaca.markets/v1beta3/crypto/us/bars?{params}"
-        request = Request(url, headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret, "Accept": "application/json"})
-        with urlopen(request, timeout=self.timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        ingested = datetime.now(UTC)
         result = []
-        for symbol, values in (payload.get("bars") or {}).items():
-            for item in values or []:
-                result.append(CryptoBar(symbol.upper(), _utc(item["t"]), float(item["o"]), float(item["h"]), float(item["l"]), float(item["c"]), float(item.get("v") or 0), "alpaca_crypto_historical", ingested, item.get("n"), item.get("vw")))
+        # Per-symbol requests avoid one liquid pair consuming the shared page limit.
+        for symbol in symbols:
+            token = None
+            while True:
+                params = {"symbols": symbol, "timeframe": "1Min", "start": start.astimezone(UTC).isoformat().replace("+00:00", "Z"), "end": end.astimezone(UTC).isoformat().replace("+00:00", "Z"), "limit": limit, "sort": "asc"}
+                if token:
+                    params["page_token"] = token
+                request = Request(f"https://data.alpaca.markets/v1beta3/crypto/us/bars?{urlencode(params)}", headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret, "Accept": "application/json"})
+                payload = None
+                for attempt in range(self.max_retries + 1):
+                    try:
+                        with urlopen(request, timeout=self.timeout) as response:
+                            payload = json.loads(response.read().decode("utf-8"))
+                        break
+                    except Exception:
+                        if attempt >= self.max_retries:
+                            raise
+                        time.sleep(min(2 ** attempt, 8))
+                ingested = datetime.now(UTC)
+                bars_payload = (payload or {}).get("bars", {}) or {}
+                values = bars_payload.get(symbol) or bars_payload.get(symbol.replace("/", "")) or next(iter(bars_payload.values()), [])
+                for item in values or []:
+                    result.append(CryptoBar(symbol.upper(), _utc(item["t"]), float(item["o"]), float(item["h"]), float(item["l"]), float(item["c"]), float(item.get("v") or 0), "alpaca_crypto_historical", ingested, item.get("n"), item.get("vw")))
+                token = (payload or {}).get("next_page_token")
+                if not token:
+                    break
+                time.sleep(0.1)
         return result
 
     def run_once(self, *, symbols: tuple[str, ...] | None = None, lookback_hours: int = 24, max_symbols: int | None = None) -> dict[str, object]:
@@ -182,7 +201,8 @@ class AlpacaCryptoArchiveCollector:
         end = datetime.now(UTC).replace(second=0, microsecond=0)
         bars = self._fetch(selected, end - timedelta(hours=lookback_hours), end)
         raw = upsert_bars(self.db_path, "1m", bars)
-        derived = sum(upsert_bars(self.db_path, tf, aggregate_bars([b for b in bars if b.symbol == symbol], tf)) for tf in TIMEFRAMES[1:] for symbol in selected)
+        stored = [CryptoBar(row["symbol"], _utc(row["timestamp"]), row["open"], row["high"], row["low"], row["close"], row["volume"], row["source"], _utc(row["ingested_at"])) for row in load_bars(self.db_path, timeframe="1m")]
+        derived = sum(upsert_bars(self.db_path, tf, aggregate_bars([b for b in stored if b.symbol == symbol], tf)) for tf in TIMEFRAMES[1:] for symbol in selected)
         health = write_health(self.db_path)
         write_research_source_registry()
         return {"symbols": len(selected), "raw_bars": raw, "derived_bars": derived, "health": health}
