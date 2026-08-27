@@ -8,8 +8,8 @@ import streamlit as st
 
 import streamlit_app as core
 
-# streamlit_app owns page configuration. This module intentionally contains
-# no controls that can modify trading, risk, allocation, or execution state.
+# Read-only observation board. No controls in this module may alter trading,
+# allocation, execution, strategy, risk, credentials, or provider state.
 
 PILLAR_ORDER = [
     "US Stocks / ETFs",
@@ -22,6 +22,13 @@ PILLAR_ORDER = [
 DISPLAY_NAMES = {
     "US Stocks / ETFs": "Stocks",
     "Metals / Commodities": "Metals / Commodities",
+}
+PILLAR_JOB_MAP = {
+    "US Stocks / ETFs": "autonomous-paper-trading",
+    "Crypto": "autonomous-paper-trading",
+    "Forex": "oanda-fx-paper-trading",
+    "Metals / Commodities": "alpaca-metals-paper-trading",
+    "International": "saxo-international-paper-trading",
 }
 BASE_CAPITAL = 1000.0
 FUND_STARTING_CAPITAL = 6000.0
@@ -43,10 +50,6 @@ def money(value):
     return f"${f(value):,.2f}"
 
 
-def pct(value):
-    return f"{f(value) * 100:.2f}%"
-
-
 def signed_money(value):
     if value is None:
         return "UNAVAILABLE"
@@ -61,12 +64,6 @@ def signed_pct(value):
     return f"{sign}{value * 100:.2f}%"
 
 
-def row_money(row, key, signed=False):
-    if not row.get("provider_available") and row.get(key) is None:
-        return "UNAVAILABLE"
-    return signed_money(row.get(key)) if signed else money(row.get(key))
-
-
 def first_number(mapping, keys, default=0.0):
     if not isinstance(mapping, dict):
         return default
@@ -79,38 +76,11 @@ def first_number(mapping, keys, default=0.0):
     return default
 
 
-def load_authoritative_reconciliation() -> dict:
-    path = Path("dashboard/capital-reconciliation.json")
-    if not path.exists():
-        return {}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return value if isinstance(value, dict) and value.get("invariant") else {}
-
-
-def provider_state(name, broker_state, kalshi, broker_positions=0, working_orders=0):
-    if name == "Kalshi":
-        conn = str(kalshi.get("connection") or "")
-        if conn.startswith("CONNECTED"):
-            if broker_positions > 0:
-                return "ACTIVE"
-            if working_orders > 0:
-                return "ORDER WORKING"
-            return "OPERATIONAL"
-        return conn or "UNAVAILABLE"
-    if broker_state.get("connected"):
-        if broker_positions > 0 or f(broker_state.get("positions")) > 0:
-            return "ACTIVE"
-        if working_orders > 0 or f(broker_state.get("working_orders")) > 0:
-            return "ORDER WORKING"
-        return "OPERATIONAL"
-    return "UNAVAILABLE"
-
-
 def _live_position_totals(live_positions):
-    totals = {name: {"deployed": 0.0, "market_value": 0.0, "unrealized": 0.0, "positions": 0} for name in PILLAR_ORDER}
+    totals = {
+        name: {"deployed": 0.0, "market_value": 0.0, "unrealized": 0.0, "positions": 0}
+        for name in PILLAR_ORDER
+    }
     for row in live_positions if isinstance(live_positions, list) else []:
         if not isinstance(row, dict):
             continue
@@ -132,7 +102,6 @@ def _live_position_totals(live_positions):
 
 
 def _saxo_live_truth():
-    """Read current Saxo SIM positions directly for display-only broker truth."""
     result = {
         "connected": False,
         "deployed": 0.0,
@@ -141,7 +110,6 @@ def _saxo_live_truth():
         "positions": 0,
         "working_orders": 0,
         "trade_level": "",
-        "completed_today": 0,
         "error": "",
     }
     try:
@@ -180,7 +148,37 @@ def _saxo_live_truth():
     return result
 
 
-def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
+def _runtime_job_active(runtime, job_name):
+    jobs = runtime.get("jobs") if isinstance(runtime.get("jobs"), dict) else {}
+    job = jobs.get(job_name) if isinstance(jobs.get(job_name), dict) else {}
+    if not job:
+        return False
+    return not bool(job.get("disabled")) and not bool(job.get("last_error")) and bool(
+        job.get("last_started_at") or job.get("last_finished_at")
+    )
+
+
+def _engine_active(name, runtime, live_state, kalshi, saxo_live):
+    if name == "Kalshi":
+        return str(kalshi.get("connection") or "").startswith("CONNECTED") and str(
+            kalshi.get("scanner") or "ACTIVE"
+        ).upper() != "INACTIVE"
+    if name == "International":
+        return bool(saxo_live.get("connected")) and _runtime_job_active(runtime, PILLAR_JOB_MAP[name])
+    return bool(live_state.get("connected")) and _runtime_job_active(runtime, PILLAR_JOB_MAP[name])
+
+
+def _exposure_state(engine_active, positions, working_orders):
+    if not engine_active:
+        return "ENGINE DEGRADED"
+    if positions > 0:
+        return "ACTIVE — POSITION OPEN"
+    if working_orders > 0:
+        return "ACTIVE — ORDER WORKING"
+    return "ACTIVE — SEEKING EDGE"
+
+
+def build_pillars(snapshot, runtime, live_status, kalshi, live_positions, saxo_live):
     perf = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     broker_totals = _live_position_totals(live_positions)
     rows = []
@@ -194,13 +192,17 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
         if name == "Kalshi":
             deployed = first_number(kalshi, ["v2_deployed", "perps_deployed", "deployed"], 0.0)
             pending = first_number(kalshi, ["pending_capital", "pending"], 0.0)
-            unrealized = first_number(kalshi, ["v2_unrealized_pnl", "perps_unrealized_pnl", "unrealized_pnl"], 0.0)
+            unrealized = first_number(
+                kalshi, ["v2_unrealized_pnl", "perps_unrealized_pnl", "unrealized_pnl"], 0.0
+            )
             realized = first_number(
                 kalshi,
                 ["v2_realized_pnl", "perps_realized_pnl", "realized_pnl"],
                 first_number(p, ["net_generated_cash", "realized_pnl"], 0.0),
             )
-            broker_positions = int(first_number(kalshi, ["perps_positions", "predictions_positions", "positions"], 0.0))
+            broker_positions = int(
+                first_number(kalshi, ["perps_positions", "predictions_positions", "positions"], 0.0)
+            )
             working_orders = int(
                 first_number(kalshi, ["perps_open_orders", "predictions_open_orders", "open_orders"], 0.0)
             )
@@ -214,9 +216,6 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
             broker_positions = int(f(saxo_live.get("positions")))
             working_orders = int(f(saxo_live.get("working_orders")))
         else:
-            # Display broker-confirmed positions first. Strategy accounting is a
-            # fallback only; the observation board must never hide an open
-            # position because a manifest/classification record is stale.
             broker_deployed = f(broker.get("deployed"))
             deployed = (
                 broker_deployed
@@ -234,23 +233,24 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
                 p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0
             )
 
-        completed_today = int(first_number(p, ["completed_trades_today", "completed_today", "completed_trades"], 0.0))
-        if name == "International":
-            completed_today = int(first_number(saxo_live, ["completed_today"], completed_today))
-
-        today_pnl = first_number(p, ["today_pnl", "daily_pnl", "total_today", "realized_today"], realized + unrealized)
+        completed_today = int(
+            first_number(p, ["completed_trades_today", "completed_today", "completed_trades"], 0.0)
+        )
+        today_pnl = first_number(
+            p, ["today_pnl", "daily_pnl", "total_today", "realized_today"], realized + unrealized
+        )
         total_pnl = first_number(p, ["total_pnl", "net_pnl", "net_generated_cash"], realized) + unrealized
         available = max(BASE_CAPITAL - deployed - pending, 0.0)
         equity = BASE_CAPITAL + total_pnl
         daily_return = today_pnl / BASE_CAPITAL if BASE_CAPITAL else 0.0
-        display_state = provider_state(name, state, kalshi, broker_positions, working_orders)
-        if completed_today and broker_positions == 0 and working_orders == 0 and display_state == "OPERATIONAL":
-            display_state = "FLAT — CAPITAL AVAILABLE"
+        engine_active = _engine_active(name, runtime, state, kalshi, saxo_live)
+        exposure_state = _exposure_state(engine_active, broker_positions, working_orders)
         rows.append(
             {
                 "name": name,
                 "display": DISPLAY_NAMES.get(name, name),
-                "state": display_state,
+                "engine_active": engine_active,
+                "state": exposure_state,
                 "equity": equity,
                 "deployed": deployed,
                 "pending": pending,
@@ -263,91 +263,104 @@ def build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live):
                 "positions": broker_positions,
                 "working_orders": working_orders,
                 "completed_today": completed_today,
-                "provider_available": bool(
-                    (name == "Kalshi" and str(kalshi.get("connection") or "").startswith("CONNECTED"))
-                    or (name != "Kalshi" and state.get("connected"))
-                    or (name == "International" and saxo_live.get("connected"))
-                ),
-                "legacy_exposure": f(state.get("legacy_exposure")),
-                "allocation": BASE_CAPITAL,
-                "allocation_breach": name == "US Stocks / ETFs" and deployed > BASE_CAPITAL,
             }
         )
     return rows
+
+
+def _load_high_velocity():
+    path = Path("var/autotrader/learning/high-velocity-research.json")
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def main():
     st.markdown(
         """
         <style>
-        :root{--bg:#06111e;--panel:#101827;--line:#26364d;--text:#f4f7fb;--muted:#91a1b8;--green:#57d79b;--red:#ff7f8b;--gold:#d8b66c;}
+        :root{--bg:#06111e;--panel:#101827;--line:#26364d;--text:#f4f7fb;--muted:#91a1b8;--green:#57d79b;--red:#ff7f8b;--gold:#d8b66c;--blue:#69b7ff;}
         .stApp{background:linear-gradient(180deg,#071522 0%,#050b13 100%);color:var(--text)}
-        .block-container{max-width:1200px;padding-top:1rem;padding-bottom:3rem}
+        .block-container{max-width:1200px;padding-top:.7rem;padding-bottom:3rem}
         [data-testid="stHeader"],[data-testid="stSidebar"]{display:none}
-        .board-title{font-size:clamp(1.7rem,4vw,3rem);font-weight:800;letter-spacing:-.03em;margin:.2rem 0}
-        .board-sub{color:var(--muted);font-size:.9rem;margin-bottom:1rem}
-        .section{font-size:.78rem;letter-spacing:.18em;text-transform:uppercase;color:var(--gold);font-weight:800;margin:1.4rem 0 .65rem}
-        [data-testid="stMetric"]{background:linear-gradient(180deg,#111a2a,#0d1522);border:1px solid var(--line);border-radius:16px;padding:.55rem .75rem}
-        [data-testid="stMetricLabel"]{color:var(--muted);font-size:.69rem;text-transform:uppercase;letter-spacing:.08em}
-        [data-testid="stMetricValue"]{font-size:1.32rem;font-weight:800;color:var(--text)}
-        .pillar-card{background:linear-gradient(180deg,#111a2a,#0c1420);border:1px solid var(--line);border-radius:18px;padding:1rem;margin:.35rem 0 .65rem}
-        .pillar-head{display:flex;justify-content:space-between;gap:1rem;align-items:center;margin-bottom:.85rem}
-        .pillar-name{font-size:1.1rem;font-weight:800}.pillar-state{font-size:.72rem;color:var(--green);font-weight:800;letter-spacing:.08em}
-        .pillar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem}
-        .k{color:var(--muted);font-size:.65rem;text-transform:uppercase;letter-spacing:.08em}.v{font-size:1rem;font-weight:800;margin-top:.12rem}
+        .board-title{font-size:clamp(1.6rem,4vw,2.7rem);font-weight:850;letter-spacing:-.03em;margin:.2rem 0}
+        .board-sub{color:var(--muted);font-size:.88rem;margin-bottom:.45rem}
+        .live{font-size:.72rem;color:var(--green);margin:.2rem 0 .8rem;font-weight:700}
+        .section{font-size:.76rem;letter-spacing:.17em;text-transform:uppercase;color:var(--gold);font-weight:800;margin:1.25rem 0 .6rem}
+        [data-testid="stMetric"]{background:linear-gradient(180deg,#111a2a,#0d1522);border:1px solid var(--line);border-radius:15px;padding:.5rem .68rem}
+        [data-testid="stMetricLabel"]{color:var(--muted);font-size:.66rem;text-transform:uppercase;letter-spacing:.07em}
+        [data-testid="stMetricValue"]{font-size:1.24rem;font-weight:800;color:var(--text)}
+        .fund-status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.55rem;margin:.5rem 0 .9rem}
+        .fund-status>div{background:#0c1623;border:1px solid var(--line);border-radius:14px;padding:.7rem}
+        .fund-status .k{color:var(--muted);font-size:.62rem;text-transform:uppercase;letter-spacing:.08em}
+        .fund-status .v{font-size:1rem;font-weight:850;margin-top:.18rem}
+        .pillar-card{background:linear-gradient(180deg,#111a2a,#0c1420);border:1px solid var(--line);border-radius:18px;padding:.9rem;margin:.3rem 0 .62rem}
+        .pillar-head{display:flex;justify-content:space-between;gap:.7rem;align-items:flex-start;margin-bottom:.35rem}
+        .pillar-name{font-size:1.12rem;font-weight:850}.engine{font-size:.68rem;color:var(--green);font-weight:850;letter-spacing:.07em}.engine-off{color:var(--red)}
+        .market-state{font-size:.77rem;color:var(--blue);font-weight:750;margin-bottom:.72rem}
+        .pillar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem}
+        .k{color:var(--muted);font-size:.62rem;text-transform:uppercase;letter-spacing:.07em}.v{font-size:.98rem;font-weight:800;margin-top:.1rem}
         .pos{color:var(--green)}.neg{color:var(--red)}.neutral{color:var(--text)}
-        .goal{border:1px solid rgba(216,182,108,.45);background:rgba(216,182,108,.06);border-radius:16px;padding:.8rem 1rem;margin-top:.9rem}
-        .goal-top{display:flex;justify-content:space-between;gap:1rem;align-items:center}.goal strong{font-size:1.05rem}.goal small{color:var(--muted)}
-        .bar{height:8px;background:#172235;border-radius:999px;overflow:hidden;margin-top:.55rem}.bar>div{height:100%;background:linear-gradient(90deg,#d8b66c,#57d79b)}
-        .live{font-size:.72rem;color:var(--green);margin:.3rem 0 1rem}
-        @media(max-width:760px){.block-container{padding-left:.75rem;padding-right:.75rem}.pillar-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.board-title{font-size:1.65rem}[data-testid="stMetricValue"]{font-size:1.12rem}.pillar-card{padding:.85rem}}
+        .goal{border:1px solid rgba(216,182,108,.45);background:rgba(216,182,108,.06);border-radius:15px;padding:.75rem .9rem;margin-top:.8rem}
+        .goal-top{display:flex;justify-content:space-between;gap:.8rem;align-items:center}.goal strong{font-size:1rem}.goal small{color:var(--muted)}
+        .bar{height:7px;background:#172235;border-radius:999px;overflow:hidden;margin-top:.5rem}.bar>div{height:100%;background:linear-gradient(90deg,#d8b66c,#57d79b)}
+        @media(max-width:760px){.block-container{padding-left:.65rem;padding-right:.65rem}.pillar-grid,.fund-status{grid-template-columns:repeat(2,minmax(0,1fr))}.board-title{font-size:1.55rem}[data-testid="stMetricValue"]{font-size:1.05rem}.pillar-card{padding:.78rem}.pillar-name{font-size:1.02rem}}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
     snapshot = core.load_snapshot()
+    runtime = core.load_live_runtime_status()
+    if not isinstance(runtime, dict) or not runtime:
+        runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}
     core.fetch_live_broker_data.clear()
     live_positions, _, live_status, live_errors = core.fetch_live_broker_data()
     kalshi = core._kalshi_status()
     saxo_live = _saxo_live_truth()
-    pillars = build_pillars(snapshot, live_status, kalshi, live_positions, saxo_live)
-    reconciliation = load_authoritative_reconciliation()
-    fund_equity = float(reconciliation.get("equity", sum(row["equity"] for row in pillars)))
-    deployed = float(reconciliation.get("deployed", sum(row["deployed"] for row in pillars)))
-    pending = float(reconciliation.get("pending", sum(row["pending"] for row in pillars)))
-    available = float(reconciliation.get("available", sum(row["available"] for row in pillars)))
-    realized_today = float(reconciliation.get("realized", sum(row["realized"] for row in pillars)))
-    unrealized = float(reconciliation.get("unrealized", sum(row["unrealized"] for row in pillars)))
-    today_pnl = realized_today + unrealized
+    pillars = build_pillars(snapshot, runtime, live_status, kalshi, live_positions, saxo_live)
+
+    fund_equity = sum(row["equity"] for row in pillars)
+    deployed = sum(row["deployed"] for row in pillars)
+    pending = sum(row["pending"] for row in pillars)
+    available = sum(row["available"] for row in pillars)
+    realized_today = sum(row["realized"] for row in pillars)
+    unrealized = sum(row["unrealized"] for row in pillars)
+    today_pnl = sum(row["today_pnl"] for row in pillars)
     total_pnl = fund_equity - FUND_STARTING_CAPITAL
     daily_return = today_pnl / FUND_STARTING_CAPITAL if FUND_STARTING_CAPITAL else 0.0
+    active_count = sum(1 for row in pillars if row["engine_active"])
+    deployed_count = sum(1 for row in pillars if row["deployed"] > 0 or row["pending"] > 0)
+    position_count = sum(int(row["positions"]) for row in pillars)
+    order_count = sum(int(row["working_orders"]) for row in pillars)
 
     st.markdown('<div class="board-title">AUTONOMOUS FUND PERFORMANCE</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="board-sub">Read-only live performance board · direct broker/provider position truth · no trading controls</div>',
+        '<div class="board-sub">Read-only six-pillar performance board · engine activity separated from capital exposure</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
-        f'<div class="live">● LIVE PROVIDER SNAPSHOT · Last loaded: {datetime.now(UTC).strftime("%H:%M:%S UTC")} · Reload page for current data</div>',
+        f'<div class="live">● LIVE PROVIDER SNAPSHOT · {datetime.now(UTC).strftime("%H:%M:%S UTC")} · 25-second refresh recommended</div>',
         unsafe_allow_html=True,
     )
-    provider_errors = list(live_errors)
+
+    st.markdown(
+        f"""<div class="fund-status">
+        <div><div class="k">Execution Engines</div><div class="v {'pos' if active_count == 6 else 'neg'}">{active_count}/6 ACTIVE</div></div>
+        <div><div class="k">Pillars With Capital</div><div class="v">{deployed_count}/6 DEPLOYED / PENDING</div></div>
+        <div><div class="k">Positions / Orders</div><div class="v">{position_count} / {order_count}</div></div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    if live_errors:
+        st.warning("Provider read warning: " + " · ".join(live_errors))
     if saxo_live.get("error"):
-        provider_errors.append("International: " + str(saxo_live.get("error")))
-    if provider_errors:
-        st.warning("Some provider reads are degraded: " + " · ".join(provider_errors))
-    breaches = [
-        f"{row['display']}: deployed {money(row['deployed'])} exceeds {money(row['allocation'])} paper allocation"
-        for row in pillars
-        if row.get("allocation_breach")
-    ]
-    if breaches:
-        st.error(
-            "Paper allocation/accounting defect: "
-            + " · ".join(breaches)
-            + ". Legacy/external exposure is reported separately in provider truth."
-        )
+        st.warning("International provider read warning: " + str(saxo_live.get("error")))
 
     a = st.columns(4)
     a[0].metric("Current Equity", money(fund_equity))
@@ -373,65 +386,51 @@ def main():
     for row in pillars:
         pnl_class = "pos" if row["today_pnl"] > 0 else "neg" if row["today_pnl"] < 0 else "neutral"
         total_class = "pos" if row["total_pnl"] > 0 else "neg" if row["total_pnl"] < 0 else "neutral"
+        engine_class = "engine" if row["engine_active"] else "engine engine-off"
+        engine_label = "ENGINE ACTIVE" if row["engine_active"] else "ENGINE DEGRADED"
         st.markdown(
             f"""<div class="pillar-card">
-            <div class="pillar-head"><div class="pillar-name">{row["display"]}</div><div class="pillar-state">{row["state"]}</div></div>
+            <div class="pillar-head"><div class="pillar-name">{row['display']}</div><div class="{engine_class}">{engine_label}</div></div>
+            <div class="market-state">{row['state']}</div>
             <div class="pillar-grid">
-              <div><div class="k">Equity</div><div class="v">{row_money(row, "equity")}</div></div>
-              <div><div class="k">Deployed</div><div class="v">{row_money(row, "deployed")}</div></div>
-              <div><div class="k">Available</div><div class="v">{row_money(row, "available")}</div></div>
-              <div><div class="k">Today P&L</div><div class="v {pnl_class}">{row_money(row, "today_pnl", True)}</div></div>
-              <div><div class="k">Daily Return</div><div class="v {pnl_class}">{"UNAVAILABLE" if not row["provider_available"] else signed_pct(row["daily_return"])}</div></div>
-              <div><div class="k">Total P&L</div><div class="v {total_class}">{row_money(row, "total_pnl", True)}</div></div>
-              <div><div class="k">Realized</div><div class="v">{row_money(row, "realized", True)}</div></div>
-              <div><div class="k">Unrealized</div><div class="v">{row_money(row, "unrealized", True)}</div></div>
-              <div><div class="k">Positions / Orders</div><div class="v">{"UNAVAILABLE" if not row["provider_available"] else f"{row['positions']} / {row['working_orders']}"}</div></div>
-              <div><div class="k">Completed Today</div><div class="v">{"UNAVAILABLE" if not row["provider_available"] else row["completed_today"]}</div></div>
+              <div><div class="k">Equity</div><div class="v">{money(row['equity'])}</div></div>
+              <div><div class="k">Deployed</div><div class="v">{money(row['deployed'])}</div></div>
+              <div><div class="k">Available</div><div class="v">{money(row['available'])}</div></div>
+              <div><div class="k">Today P&L</div><div class="v {pnl_class}">{signed_money(row['today_pnl'])}</div></div>
+              <div><div class="k">Daily Return</div><div class="v {pnl_class}">{signed_pct(row['daily_return'])}</div></div>
+              <div><div class="k">Total P&L</div><div class="v {total_class}">{signed_money(row['total_pnl'])}</div></div>
+              <div><div class="k">Realized Today</div><div class="v">{signed_money(row['realized'])}</div></div>
+              <div><div class="k">Unrealized</div><div class="v">{signed_money(row['unrealized'])}</div></div>
+              <div><div class="k">Positions / Orders</div><div class="v">{row['positions']} / {row['working_orders']}</div></div>
+              <div><div class="k">Trades Today</div><div class="v">{row['completed_today']}</div></div>
             </div></div>""",
             unsafe_allow_html=True,
         )
 
-    activity_path = Path("var/autotrader/learning/high-velocity-research.json")
-    if activity_path.exists():
-        try:
-            activity = json.loads(activity_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            activity = {}
-        st.markdown('<div class="section">Intraday / High-Velocity Activity</div>', unsafe_allow_html=True)
-        st.dataframe(
-            [
-                {
-                    "Pillar": "Crypto",
-                    "Micro Trades": 0,
-                    "Day Trades": 0,
-                    "Short Trades": 0,
-                    "Derivative Trades": len(activity.get("derivatives", [])),
-                    "Arbitrage Trades": len(activity.get("arbitrage", [])),
-                    "Closed Trades": 0,
-                    "Realized P&L": 0.0,
-                    "Average Hold": "—",
-                    "Capital Turns": 0.0,
-                }
-            ],
-            hide_index=True,
-            use_container_width=True,
-        )
+    hv = _load_high_velocity()
+    micro_candidates = len(hv.get("micro_candidates", [])) if isinstance(hv.get("micro_candidates"), list) else 0
+    derivatives = len(hv.get("derivatives", [])) if isinstance(hv.get("derivatives"), list) else 0
+    arbitrage = len(hv.get("arbitrage", [])) if isinstance(hv.get("arbitrage"), list) else 0
+    st.markdown('<div class="section">Learning & High-Velocity Research</div>', unsafe_allow_html=True)
+    h = st.columns(4)
+    h[0].metric("Learning", "ACTIVE" if _runtime_job_active(runtime, "daily-learning") else "COLLECTING")
+    h[1].metric("Micro Candidates", str(micro_candidates))
+    h[2].metric("Derivative Sims", str(derivatives))
+    h[3].metric("Arbitrage Sims", str(arbitrage))
+    if hv.get("updated_at"):
+        st.caption(f"High-velocity research last update: {hv.get('updated_at')}")
 
     st.markdown('<div class="section">Annual Income Objective</div>', unsafe_allow_html=True)
-    yearly_realized = first_number(
-        snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {},
-        ["net_trading_cash_generated", "cumulative_realized_pnl"],
-        0.0,
-    )
-    goal_progress = min(max(yearly_realized / ANNUAL_GOAL, 0.0), 1.0)
+    cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
+    yearly_realized = first_number(cash, ["net_trading_cash_generated", "cumulative_realized_pnl"], 0.0)
     d = st.columns(4)
     d[0].metric("Annual Goal", money(ANNUAL_GOAL))
     d[1].metric("Realized YTD", money(yearly_realized))
     d[2].metric("Remaining", money(max(ANNUAL_GOAL - yearly_realized, 0.0)))
-    d[3].metric("Goal Progress", pct(goal_progress))
+    d[3].metric("Goal Progress", signed_pct(yearly_realized / ANNUAL_GOAL if ANNUAL_GOAL else 0.0))
 
     st.caption(
-        "Observation board only. Strategy, risk, execution, research and learning continue in the existing autonomous services."
+        "ENGINE ACTIVE means the provider/runtime execution loop is running. ACTIVE — POSITION OPEN means capital is currently deployed. ACTIVE — SEEKING EDGE means the engine is live and evaluating but is currently flat."
     )
 
 
