@@ -62,7 +62,7 @@ def signed_pct(value):
 
 
 def row_money(row, key, signed=False):
-    if not row.get("provider_available"):
+    if not row.get("provider_available") and row.get(key) is None:
         return "UNAVAILABLE"
     return signed_money(row.get(key)) if signed else money(row.get(key))
 

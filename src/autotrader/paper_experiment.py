@@ -16,6 +16,10 @@ COUNTERFACTUAL_RETENTION_DAYS = 90
 @dataclass(frozen=True)
 class PaperExperimentConfig:
     enabled: bool
+    micro_trading: bool = False
+    short_experiment: bool = False
+    derivatives_research: bool = False
+    arbitrage_research: bool = False
     baseline_required_edge: float = 0.005
     experimental_required_edge: float = 0.0025
     experimental_risk_scale: float = 0.50
@@ -36,10 +40,20 @@ class PaperExperimentConfig:
         alpaca = env.get("ALPACA_ENV", "paper").strip().lower()
         endpoint = env.get("ALPACA_PAPER_BASE_URL", "https://paper-api.alpaca.markets").strip().lower()
         safe = live == "false" and alpaca == "paper" and "paper-api.alpaca.markets" in endpoint
-        return cls(enabled=requested and safe)
+        return cls(
+            enabled=requested and safe,
+            micro_trading=env.get("MICRO_TRADING_EXPERIMENT_MODE", "false").strip().lower() == "true" and safe,
+            short_experiment=env.get("SHORT_EXPERIMENT_MODE", "false").strip().lower() == "true" and safe,
+            derivatives_research=env.get("DERIVATIVES_RESEARCH_MODE", "false").strip().lower() == "true" and safe,
+            arbitrage_research=env.get("ARBITRAGE_RESEARCH_MODE", "false").strip().lower() == "true" and safe,
+        )
 
     def assert_safe(self, *, live_trading_enabled: bool, provider_environment: str, endpoint: str) -> None:
-        if self.enabled and (live_trading_enabled or provider_environment.lower() != "paper" or "paper-api.alpaca.markets" not in endpoint.lower()):
+        if self.enabled and (
+            live_trading_enabled
+            or provider_environment.lower() != "paper"
+            or "paper-api.alpaca.markets" not in endpoint.lower()
+        ):
             raise RuntimeError("PAPER_EXPERIMENT_MODE requires LIVE_TRADING_ENABLED=false and Alpaca PAPER")
 
 
@@ -103,29 +117,67 @@ class PaperExperimentLedger:
                 )"""
             )
 
-    def record_decision(self, *, pillar: str, symbol: str, strategy: str, timeframe: str, lane: str, decision: str, entry_price: float | None, edge: EdgeEstimate | None, features: dict[str, object]) -> int:
+    def record_decision(
+        self,
+        *,
+        pillar: str,
+        symbol: str,
+        strategy: str,
+        timeframe: str,
+        lane: str,
+        decision: str,
+        entry_price: float | None,
+        edge: EdgeEstimate | None,
+        features: dict[str, object],
+    ) -> int:
         with sqlite3.connect(self.path) as connection:
             cursor = connection.execute(
                 "INSERT INTO experiment_decisions (occurred_at,pillar,symbol,strategy,timeframe,lane,decision,entry_price,edge_json,features_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (datetime.now(UTC).isoformat(), pillar, symbol, strategy, timeframe, lane, decision, entry_price, json.dumps(edge.as_dict() if edge else {}), json.dumps(features, default=str)),
+                (
+                    datetime.now(UTC).isoformat(),
+                    pillar,
+                    symbol,
+                    strategy,
+                    timeframe,
+                    lane,
+                    decision,
+                    entry_price,
+                    json.dumps(edge.as_dict() if edge else {}),
+                    json.dumps(features, default=str),
+                ),
             )
             return int(cursor.lastrowid)
 
     def record_outcome(self, decision_id: int, outcome: dict[str, object]) -> None:
         with sqlite3.connect(self.path) as connection:
-            connection.execute("UPDATE experiment_decisions SET outcome_json=? WHERE id=?", (json.dumps(outcome, default=str), decision_id))
+            connection.execute(
+                "UPDATE experiment_decisions SET outcome_json=? WHERE id=?",
+                (json.dumps(outcome, default=str), decision_id),
+            )
 
     def record_counterfactual(
-        self, *, symbol: str, occurred_at: datetime, champion_decision: str,
-        challenger_decision: str, entry_price: float, quantity: float,
-        stop_price: float | None, target_price: float | None,
-        features: dict[str, object], candidate_identity: str,
+        self,
+        *,
+        symbol: str,
+        occurred_at: datetime,
+        champion_decision: str,
+        challenger_decision: str,
+        entry_price: float,
+        quantity: float,
+        stop_price: float | None,
+        target_price: float | None,
+        features: dict[str, object],
+        candidate_identity: str,
     ) -> str:
         """Insert one deduplicated research observation; never a broker trade."""
         bucket = occurred_at.astimezone(UTC).replace(second=0, microsecond=0).isoformat()
-        observation_id = __import__("hashlib").sha256(
-            f"five_pillar_baseline_v1|paper_experiment_challenger_v1|{symbol}|{bucket}|{candidate_identity}".encode()
-        ).hexdigest()[:32]
+        observation_id = (
+            __import__("hashlib")
+            .sha256(
+                f"five_pillar_baseline_v1|paper_experiment_challenger_v1|{symbol}|{bucket}|{candidate_identity}".encode()
+            )
+            .hexdigest()[:32]
+        )
         now = datetime.now(UTC).isoformat()
         with sqlite3.connect(self.path) as connection:
             connection.execute(
@@ -133,20 +185,48 @@ class PaperExperimentLedger:
                 (observation_id,occurred_at,symbol,champion_decision,challenger_decision,
                  entry_price,quantity,stop_price,target_price,features_json,updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (observation_id, occurred_at.astimezone(UTC).isoformat(), symbol,
-                 champion_decision, challenger_decision, entry_price, quantity,
-                 stop_price, target_price, json.dumps(features, default=str), now),
+                (
+                    observation_id,
+                    occurred_at.astimezone(UTC).isoformat(),
+                    symbol,
+                    champion_decision,
+                    challenger_decision,
+                    entry_price,
+                    quantity,
+                    stop_price,
+                    target_price,
+                    json.dumps(features, default=str),
+                    now,
+                ),
             )
         return observation_id
 
-    def resolve_counterfactuals(self, bars_by_symbol: dict[str, list[object]], *, now: datetime | None = None) -> dict[str, int]:
+    def resolve_counterfactuals(
+        self, bars_by_symbol: dict[str, list[object]], *, now: datetime | None = None
+    ) -> dict[str, int]:
         """Resolve horizons from real bars; unavailable prices remain UNKNOWN."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         counts = {"evaluated": 0, "partially_evaluated": 0, "pending": 0, "insufficient_data": 0, "expired": 0}
         with sqlite3.connect(self.path) as connection:
-            rows = connection.execute("SELECT * FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')").fetchall()
+            rows = connection.execute(
+                "SELECT * FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')"
+            ).fetchall()
             for row in rows:
-                (oid, occurred, symbol, champ, chall, entry, qty, stop, target, raw_features, state, raw_outcomes, _updated) = row
+                (
+                    oid,
+                    occurred,
+                    symbol,
+                    champ,
+                    chall,
+                    entry,
+                    qty,
+                    stop,
+                    target,
+                    raw_features,
+                    state,
+                    raw_outcomes,
+                    _updated,
+                ) = row
                 observed_at = datetime.fromisoformat(occurred.replace("Z", "+00:00")).astimezone(UTC)
                 bars = sorted(bars_by_symbol.get(symbol, []), key=lambda bar: bar.timestamp)
                 outcomes = json.loads(raw_outcomes or "{}")
@@ -163,9 +243,22 @@ class PaperExperimentLedger:
                         continue
                     gross = (bar.close - entry) * qty
                     costs = abs(entry * qty) * float(json.loads(raw_features or "{}").get("estimated_cost_rate", 0.004))
-                    outcomes[key] = {"status": "EVALUATED", "timestamp": bar.timestamp.isoformat(), "gross_pnl": gross, "estimated_costs": costs, "net_pnl": gross - costs, "mfe": (bar.high - entry) * qty, "mae": (bar.low - entry) * qty, "stop_hit": bool(stop and bar.low <= stop), "target_hit": bool(target and bar.high >= target), "price": bar.close}
+                    outcomes[key] = {
+                        "status": "EVALUATED",
+                        "timestamp": bar.timestamp.isoformat(),
+                        "gross_pnl": gross,
+                        "estimated_costs": costs,
+                        "net_pnl": gross - costs,
+                        "mfe": (bar.high - entry) * qty,
+                        "mae": (bar.low - entry) * qty,
+                        "stop_hit": bool(stop and bar.low <= stop),
+                        "target_hit": bool(target and bar.high >= target),
+                        "price": bar.close,
+                    }
                 evaluable = [value for value in outcomes.values() if value.get("status") == "EVALUATED"]
-                due_count = sum(1 for minutes in COUNTERFACTUAL_HORIZONS_MINUTES if observed_at + timedelta(minutes=minutes) <= now)
+                due_count = sum(
+                    1 for minutes in COUNTERFACTUAL_HORIZONS_MINUTES if observed_at + timedelta(minutes=minutes) <= now
+                )
                 if len(outcomes) == len(COUNTERFACTUAL_HORIZONS_MINUTES):
                     new_state = "EVALUATED" if evaluable else "INSUFFICIENT_DATA"
                 elif due_count >= len(COUNTERFACTUAL_HORIZONS_MINUTES) and not evaluable:
@@ -176,13 +269,18 @@ class PaperExperimentLedger:
                     new_state = "EXPIRED"
                 else:
                     new_state = "PENDING_OUTCOME"
-                connection.execute("UPDATE counterfactual_observations SET state=?, outcomes_json=?, updated_at=? WHERE observation_id=?", (new_state, json.dumps(outcomes, default=str), now.isoformat(), oid))
+                connection.execute(
+                    "UPDATE counterfactual_observations SET state=?, outcomes_json=?, updated_at=? WHERE observation_id=?",
+                    (new_state, json.dumps(outcomes, default=str), now.isoformat(), oid),
+                )
                 counts[new_state.lower()] = counts.get(new_state.lower(), 0) + 1
         return counts
 
     def pending_counterfactual_symbols(self) -> list[str]:
         with sqlite3.connect(self.path) as connection:
-            rows = connection.execute("SELECT DISTINCT symbol FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')").fetchall()
+            rows = connection.execute(
+                "SELECT DISTINCT symbol FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')"
+            ).fetchall()
         return [str(row[0]) for row in rows]
 
     def backfill_experimental_decisions(self) -> dict[str, int]:
@@ -206,17 +304,38 @@ class PaperExperimentLedger:
                     continue
                 stop_distance = float(edge.get("stop_distance") or 0.005)
                 stop = entry * max(1.0 - stop_distance, 0.0001)
-                bucket = datetime.fromisoformat(str(occurred).replace("Z", "+00:00")).astimezone(UTC).replace(second=0, microsecond=0).isoformat()
+                bucket = (
+                    datetime.fromisoformat(str(occurred).replace("Z", "+00:00"))
+                    .astimezone(UTC)
+                    .replace(second=0, microsecond=0)
+                    .isoformat()
+                )
                 candidate_identity = f"backfill-{decision_id}"
-                observation_id = __import__("hashlib").sha256(
-                    f"five_pillar_baseline_v1|paper_experiment_challenger_v1|{symbol}|{bucket}|{candidate_identity}".encode()
-                ).hexdigest()[:32]
-                exists = connection.execute("SELECT 1 FROM counterfactual_observations WHERE observation_id=?", (observation_id,)).fetchone()
+                observation_id = (
+                    __import__("hashlib")
+                    .sha256(
+                        f"five_pillar_baseline_v1|paper_experiment_challenger_v1|{symbol}|{bucket}|{candidate_identity}".encode()
+                    )
+                    .hexdigest()[:32]
+                )
+                exists = connection.execute(
+                    "SELECT 1 FROM counterfactual_observations WHERE observation_id=?", (observation_id,)
+                ).fetchone()
                 self.record_counterfactual(
-                    symbol=str(symbol), occurred_at=datetime.fromisoformat(str(occurred).replace("Z", "+00:00")),
-                    champion_decision="REJECT", challenger_decision="ACCEPT", entry_price=entry,
-                    quantity=1000.0 / entry, stop_price=stop, target_price=entry + 2 * (entry - stop),
-                    features={**features, "challenger_edge": edge, "tag": "COUNTERFACTUAL_ONLY", "backfilled_from_decision_id": decision_id},
+                    symbol=str(symbol),
+                    occurred_at=datetime.fromisoformat(str(occurred).replace("Z", "+00:00")),
+                    champion_decision="REJECT",
+                    challenger_decision="ACCEPT",
+                    entry_price=entry,
+                    quantity=1000.0 / entry,
+                    stop_price=stop,
+                    target_price=entry + 2 * (entry - stop),
+                    features={
+                        **features,
+                        "challenger_edge": edge,
+                        "tag": "COUNTERFACTUAL_ONLY",
+                        "backfilled_from_decision_id": decision_id,
+                    },
                     candidate_identity=candidate_identity,
                 )
                 if exists is None:
@@ -227,8 +346,19 @@ class PaperExperimentLedger:
 
     def counterfactual_summary(self) -> dict[str, object]:
         with sqlite3.connect(self.path) as connection:
-            rows = connection.execute("SELECT champion_decision,challenger_decision,state,outcomes_json FROM counterfactual_observations").fetchall()
-        summary = {"observations": len(rows), "evaluated": 0, "pending": 0, "partially_evaluated": 0, "insufficient_data": 0, "expired": 0, "champion": {"observations": 0, "accepts": 0, "pnl": 0.0, "wins": 0}, "challenger": {"observations": 0, "accepts": 0, "pnl": 0.0, "wins": 0}}
+            rows = connection.execute(
+                "SELECT champion_decision,challenger_decision,state,outcomes_json FROM counterfactual_observations"
+            ).fetchall()
+        summary = {
+            "observations": len(rows),
+            "evaluated": 0,
+            "pending": 0,
+            "partially_evaluated": 0,
+            "insufficient_data": 0,
+            "expired": 0,
+            "champion": {"observations": 0, "accepts": 0, "pnl": 0.0, "wins": 0},
+            "challenger": {"observations": 0, "accepts": 0, "pnl": 0.0, "wins": 0},
+        }
         for champ, chall, state, raw in rows:
             key = state.lower()
             summary[key] = summary.get(key, 0) + 1
@@ -250,13 +380,17 @@ class PaperExperimentLedger:
         return summary
 
 
-def experimental_position_quantity_cap(*, pillar_capital: float, entry_price: float, config: PaperExperimentConfig) -> float:
+def experimental_position_quantity_cap(
+    *, pillar_capital: float, entry_price: float, config: PaperExperimentConfig
+) -> float:
     if pillar_capital <= 0 or entry_price <= 0:
         return 0.0
     return pillar_capital * config.experimental_position_cap_pct / entry_price
 
 
-def estimate_edge(candidate: ScanCandidate, proposal: TradeProposal, *, asset_class: AssetClass, experimental: bool) -> EdgeEstimate:
+def estimate_edge(
+    candidate: ScanCandidate, proposal: TradeProposal, *, asset_class: AssetClass, experimental: bool
+) -> EdgeEstimate:
     if asset_class is AssetClass.CRYPTO:
         spread_bps, fee_bps, slippage_bps = 20.0, 10.0, 10.0
     else:
@@ -291,7 +425,9 @@ def estimate_edge(candidate: ScanCandidate, proposal: TradeProposal, *, asset_cl
     )
 
 
-def experimental_candidate(candidate: ScanCandidate, proposals: tuple[TradeProposal | None, ...], *, config: PaperExperimentConfig) -> tuple[TradeProposal, EdgeEstimate] | None:
+def experimental_candidate(
+    candidate: ScanCandidate, proposals: tuple[TradeProposal | None, ...], *, config: PaperExperimentConfig
+) -> tuple[TradeProposal, EdgeEstimate] | None:
     buys = [proposal for proposal in proposals if proposal is not None and proposal.side.value == "buy"]
     if not buys or candidate.score < 5.0:
         return None
