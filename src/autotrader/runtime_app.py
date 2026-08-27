@@ -11,6 +11,7 @@ from .audit import SQLiteAuditStore
 from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
 from .capital_allocations import TOTAL_PAPER_CAPITAL
 from .crypto_market_archive import AlpacaCryptoArchiveCollector
+from .crypto_shadow import update_shadow
 from .daily_learning import DailyLearningJob
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
 from .pillar_jobs import InternationalPaperTradingJob, MetalsPaperTradingJob
@@ -47,7 +48,11 @@ class ActiveV2ReconciliationJob:
             try:
                 retry_at = datetime.fromisoformat(checkpoint.retry_after_until.replace("Z", "+00:00"))
                 if retry_at > now.astimezone(UTC):
-                    return JobResult(True, "Active v2 reconciliation cooling down", {"state": "RECONCILING", "retry_after_until": checkpoint.retry_after_until})
+                    return JobResult(
+                        True,
+                        "Active v2 reconciliation cooling down",
+                        {"state": "RECONCILING", "retry_after_until": checkpoint.retry_after_until},
+                    )
             except ValueError:
                 pass
         result = reconcile_alpaca_equity_backlog(
@@ -58,7 +63,16 @@ class ActiveV2ReconciliationJob:
             budget_limit=12,
         )
         state = "RECONCILING" if result.unresolved_after else "CLEAR"
-        return JobResult(True, "Active v2 reconciliation completed", {"state": state, "unresolved_before": result.unresolved_before, "unresolved_after": result.unresolved_after, **result.telemetry})
+        return JobResult(
+            True,
+            "Active v2 reconciliation completed",
+            {
+                "state": state,
+                "unresolved_before": result.unresolved_before,
+                "unresolved_after": result.unresolved_after,
+                **result.telemetry,
+            },
+        )
 
 
 @dataclass
@@ -76,7 +90,31 @@ class CryptoMarketDataArchiveJob:
             result = self.collector.run_once(lookback_hours=24)
             return JobResult(True, "Crypto market-data archive refreshed", {"refreshed_at": now.isoformat(), **result})
         except Exception as exc:  # archive failure must not affect execution jobs
-            return JobResult(True, "Crypto market-data archive unavailable", {"state": "PROVIDER_DEGRADED", "error": str(exc), "refreshed_at": now.isoformat()})
+            return JobResult(
+                True,
+                "Crypto market-data archive unavailable",
+                {"state": "PROVIDER_DEGRADED", "error": str(exc), "refreshed_at": now.isoformat()},
+            )
+
+
+@dataclass
+class CryptoShadowValidationJob:
+    name: str = "crypto-shadow-validation"
+    cadence_seconds: float = 300.0
+
+    def run(self, now: datetime) -> JobResult:
+        result = update_shadow()
+        return JobResult(
+            True,
+            "Crypto ADA candidate shadow validation updated",
+            {
+                "state": result["state"],
+                "signals": result["signals"],
+                "completed_shadow_trades": result["completed_shadow_trades"],
+                "updated_at": now.isoformat(),
+                "broker_submission": False,
+            },
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -139,6 +177,7 @@ def main() -> None:
         jobs.append(DailyLearningJob(audit_db=args.audit_db))
         jobs.append(ResearchRefreshJob())
         jobs.append(CryptoMarketDataArchiveJob())
+        jobs.append(CryptoShadowValidationJob())
         jobs.append(DailyReportJob())
 
     runtime = AutonomousRuntime(
