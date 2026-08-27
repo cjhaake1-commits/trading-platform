@@ -179,6 +179,7 @@ def replay(
     btc: list[Bar] | None = None,
     capital: float = 1000.0,
     cost_bps: float = 12.0,
+    timeframe: str = "1m",
 ) -> list[dict[str, object]]:
     trades = []
     i = max(start, v.slow)
@@ -205,7 +206,7 @@ def replay(
                 "family": v.family,
                 "parameter_set": asdict(v),
                 "symbol": bars[0].symbol,
-                "timeframe": "1m",
+                "timeframe": timeframe,
                 "signal_timestamp": bars[i].timestamp.isoformat(),
                 "entry_timestamp": entry.timestamp.isoformat(),
                 "entry_price": entry_price,
@@ -231,8 +232,9 @@ def replay(
 def run_tournament(
     path: str | Path = "var/autotrader/crypto_market_data.db",
     output: str | Path = "var/autotrader/learning/crypto-replay-tournament.json",
+    timeframe: str = "1m",
 ) -> dict[str, object]:
-    all_archives = load_archive(path)
+    all_archives = load_archive(path, timeframe=timeframe)
     # Bounded first tournament: use the 12 most-covered executable pairs.
     ordered = sorted(all_archives, key=lambda s: len(all_archives[s]), reverse=True)[:2]
     archives = {s: all_archives[s] for s in ordered}
@@ -246,7 +248,7 @@ def run_tournament(
             btc = archives.get("BTC/USD")
             parts = []
             for label, x, y in (("TRAIN", v.slow, a), ("VALIDATION", a, b), ("OOS", b, n)):
-                ts = replay(v, bars, x, y, btc)
+                ts = replay(v, bars, x, y, btc, timeframe=timeframe)
                 ledger.extend(ts)
                 parts.append((label, metrics(ts)))
             results.append(
@@ -264,7 +266,7 @@ def run_tournament(
         "engine": "crypto_replay_v1",
         "execution": "signal after bar close; entry next bar open; exit close after bounded holding period; 12bps round-trip cost/slippage",
         "eligible_symbols": ordered,
-        "eligible_timeframes": ["1m"],
+        "eligible_timeframes": [timeframe],
         "bar_count": sum(map(len, archives.values())),
         "strategy_variants": len(variants()),
         "total_strategies_tested": len(results),
