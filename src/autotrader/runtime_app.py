@@ -11,9 +11,11 @@ from .audit import SQLiteAuditStore
 from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
 from .capital_allocations import TOTAL_PAPER_CAPITAL
 from .crypto_market_archive import AlpacaCryptoArchiveCollector
+from .crypto_replay import load_archive
 from .crypto_shadow import update_shadow
 from .daily_learning import DailyLearningJob
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
+from .high_velocity import micro_candidate, write_research_snapshot
 from .pillar_jobs import InternationalPaperTradingJob, MetalsPaperTradingJob
 from .research_jobs import DailyReportJob, ResearchRefreshJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
@@ -117,6 +119,43 @@ class CryptoShadowValidationJob:
         )
 
 
+@dataclass
+class HighVelocityResearchJob:
+    name: str = "high-velocity-research"
+    cadence_seconds: float = 300.0
+
+    def run(self, now: datetime) -> JobResult:
+        archives = load_archive("var/autotrader/crypto_market_data.db", "5m", 60)
+        candidates = []
+        for symbol, bars in sorted(archives.items(), key=lambda item: len(item[1]), reverse=True)[:8]:
+            move = bars[-1].close / bars[-2].close - 1
+            candidate = micro_candidate(
+                symbol=symbol,
+                pillar="Crypto",
+                direction="LONG" if move >= 0 else "SHORT",
+                strategy="intraday_momentum",
+                timeframe="5m",
+                signal_strength=min(abs(move) * 100, 1.0),
+                expected_gross_edge=abs(move),
+                costs=0.002,
+            )
+            if candidate:
+                candidates.append(candidate)
+        snapshot = write_research_snapshot(candidates=candidates, derivative_rows=[], arbitrage_rows=[])
+        return JobResult(
+            True,
+            "High-velocity paper research evaluated",
+            {
+                "candidates": len(candidates),
+                "positive_net_edge": len(candidates),
+                "paper_executions": 0,
+                "derivative_simulations": 0,
+                "arbitrage_observations": 0,
+                "updated_at": snapshot["updated_at"],
+            },
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Autonomous trading runtime supervisor")
     parser.add_argument("--mode", choices=[mode.value for mode in RunMode], default="paper")
@@ -178,6 +217,7 @@ def main() -> None:
         jobs.append(ResearchRefreshJob())
         jobs.append(CryptoMarketDataArchiveJob())
         jobs.append(CryptoShadowValidationJob())
+        jobs.append(HighVelocityResearchJob())
         jobs.append(DailyReportJob())
 
     runtime = AutonomousRuntime(

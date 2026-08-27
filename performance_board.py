@@ -391,6 +391,32 @@ def main():
             unsafe_allow_html=True,
         )
 
+    activity_path = Path("var/autotrader/learning/high-velocity-research.json")
+    if activity_path.exists():
+        try:
+            activity = json.loads(activity_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            activity = {}
+        st.markdown('<div class="section">Intraday / High-Velocity Activity</div>', unsafe_allow_html=True)
+        st.dataframe(
+            [
+                {
+                    "Pillar": "Crypto",
+                    "Micro Trades": 0,
+                    "Day Trades": 0,
+                    "Short Trades": 0,
+                    "Derivative Trades": len(activity.get("derivatives", [])),
+                    "Arbitrage Trades": len(activity.get("arbitrage", [])),
+                    "Closed Trades": 0,
+                    "Realized P&L": 0.0,
+                    "Average Hold": "—",
+                    "Capital Turns": 0.0,
+                }
+            ],
+            hide_index=True,
+            use_container_width=True,
+        )
+
     st.markdown('<div class="section">Annual Income Objective</div>', unsafe_allow_html=True)
     yearly_realized = first_number(
         snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {},
