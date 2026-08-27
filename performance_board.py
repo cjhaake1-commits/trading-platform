@@ -77,10 +77,7 @@ def first_number(mapping, keys, default=0.0):
 
 
 def _live_position_totals(live_positions):
-    totals = {
-        name: {"deployed": 0.0, "market_value": 0.0, "unrealized": 0.0, "positions": 0}
-        for name in PILLAR_ORDER
-    }
+    totals = {name: {"deployed": 0.0, "market_value": 0.0, "unrealized": 0.0, "positions": 0} for name in PILLAR_ORDER}
     for row in live_positions if isinstance(live_positions, list) else []:
         if not isinstance(row, dict):
             continue
@@ -153,16 +150,19 @@ def _runtime_job_active(runtime, job_name):
     job = jobs.get(job_name) if isinstance(jobs.get(job_name), dict) else {}
     if not job:
         return False
-    return not bool(job.get("disabled")) and not bool(job.get("last_error")) and bool(
-        job.get("last_started_at") or job.get("last_finished_at")
+    return (
+        not bool(job.get("disabled"))
+        and not bool(job.get("last_error"))
+        and bool(job.get("last_started_at") or job.get("last_finished_at"))
     )
 
 
 def _engine_active(name, runtime, live_state, kalshi, saxo_live):
     if name == "Kalshi":
-        return str(kalshi.get("connection") or "").startswith("CONNECTED") and str(
-            kalshi.get("scanner") or "ACTIVE"
-        ).upper() != "INACTIVE"
+        return (
+            str(kalshi.get("connection") or "").startswith("CONNECTED")
+            and str(kalshi.get("scanner") or "ACTIVE").upper() != "INACTIVE"
+        )
     if name == "International":
         return bool(saxo_live.get("connected")) and _runtime_job_active(runtime, PILLAR_JOB_MAP[name])
     return bool(live_state.get("connected")) and _runtime_job_active(runtime, PILLAR_JOB_MAP[name])
@@ -178,7 +178,20 @@ def _exposure_state(engine_active, positions, working_orders):
     return "ACTIVE — SEEKING EDGE"
 
 
-def build_pillars(snapshot, runtime, live_status, kalshi, live_positions, saxo_live):
+def build_pillars(snapshot, runtime, live_status=None, kalshi=None, live_positions=None, saxo_live=None):
+    # Preserve the pre-six-pillar call shape used by integrations:
+    # (snapshot, live_status, kalshi, live_positions, saxo_live).
+    legacy_call = saxo_live is None and isinstance(live_positions, dict) and isinstance(kalshi, list)
+    if legacy_call:
+        saxo_live = live_positions
+        live_positions = kalshi
+        kalshi = live_status
+        live_status = runtime
+        runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}
+    live_status = live_status if isinstance(live_status, dict) else {}
+    kalshi = kalshi if isinstance(kalshi, dict) else {}
+    live_positions = live_positions if isinstance(live_positions, list) else []
+    saxo_live = saxo_live if isinstance(saxo_live, dict) else {}
     perf = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     broker_totals = _live_position_totals(live_positions)
     rows = []
@@ -192,17 +205,13 @@ def build_pillars(snapshot, runtime, live_status, kalshi, live_positions, saxo_l
         if name == "Kalshi":
             deployed = first_number(kalshi, ["v2_deployed", "perps_deployed", "deployed"], 0.0)
             pending = first_number(kalshi, ["pending_capital", "pending"], 0.0)
-            unrealized = first_number(
-                kalshi, ["v2_unrealized_pnl", "perps_unrealized_pnl", "unrealized_pnl"], 0.0
-            )
+            unrealized = first_number(kalshi, ["v2_unrealized_pnl", "perps_unrealized_pnl", "unrealized_pnl"], 0.0)
             realized = first_number(
                 kalshi,
                 ["v2_realized_pnl", "perps_realized_pnl", "realized_pnl"],
                 first_number(p, ["net_generated_cash", "realized_pnl"], 0.0),
             )
-            broker_positions = int(
-                first_number(kalshi, ["perps_positions", "predictions_positions", "positions"], 0.0)
-            )
+            broker_positions = int(first_number(kalshi, ["perps_positions", "predictions_positions", "positions"], 0.0))
             working_orders = int(
                 first_number(kalshi, ["perps_open_orders", "predictions_open_orders", "open_orders"], 0.0)
             )
@@ -233,23 +242,22 @@ def build_pillars(snapshot, runtime, live_status, kalshi, live_positions, saxo_l
                 p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0
             )
 
-        completed_today = int(
-            first_number(p, ["completed_trades_today", "completed_today", "completed_trades"], 0.0)
-        )
-        today_pnl = first_number(
-            p, ["today_pnl", "daily_pnl", "total_today", "realized_today"], realized + unrealized
-        )
+        completed_today = int(first_number(p, ["completed_trades_today", "completed_today", "completed_trades"], 0.0))
+        today_pnl = first_number(p, ["today_pnl", "daily_pnl", "total_today", "realized_today"], realized + unrealized)
         total_pnl = first_number(p, ["total_pnl", "net_pnl", "net_generated_cash"], realized) + unrealized
         available = max(BASE_CAPITAL - deployed - pending, 0.0)
         equity = BASE_CAPITAL + total_pnl
         daily_return = today_pnl / BASE_CAPITAL if BASE_CAPITAL else 0.0
         engine_active = _engine_active(name, runtime, state, kalshi, saxo_live)
         exposure_state = _exposure_state(engine_active, broker_positions, working_orders)
+        if legacy_call and not engine_active:
+            exposure_state = "UNAVAILABLE"
         rows.append(
             {
                 "name": name,
                 "display": DISPLAY_NAMES.get(name, name),
                 "engine_active": engine_active,
+                "provider_available": engine_active,
                 "state": exposure_state,
                 "equity": equity,
                 "deployed": deployed,
@@ -350,7 +358,7 @@ def main():
 
     st.markdown(
         f"""<div class="fund-status">
-        <div><div class="k">Execution Engines</div><div class="v {'pos' if active_count == 6 else 'neg'}">{active_count}/6 ACTIVE</div></div>
+        <div><div class="k">Execution Engines</div><div class="v {"pos" if active_count == 6 else "neg"}">{active_count}/6 ACTIVE</div></div>
         <div><div class="k">Pillars With Capital</div><div class="v">{deployed_count}/6 DEPLOYED / PENDING</div></div>
         <div><div class="k">Positions / Orders</div><div class="v">{position_count} / {order_count}</div></div>
         </div>""",
@@ -390,19 +398,19 @@ def main():
         engine_label = "ENGINE ACTIVE" if row["engine_active"] else "ENGINE DEGRADED"
         st.markdown(
             f"""<div class="pillar-card">
-            <div class="pillar-head"><div class="pillar-name">{row['display']}</div><div class="{engine_class}">{engine_label}</div></div>
-            <div class="market-state">{row['state']}</div>
+            <div class="pillar-head"><div class="pillar-name">{row["display"]}</div><div class="{engine_class}">{engine_label}</div></div>
+            <div class="market-state">{row["state"]}</div>
             <div class="pillar-grid">
-              <div><div class="k">Equity</div><div class="v">{money(row['equity'])}</div></div>
-              <div><div class="k">Deployed</div><div class="v">{money(row['deployed'])}</div></div>
-              <div><div class="k">Available</div><div class="v">{money(row['available'])}</div></div>
-              <div><div class="k">Today P&L</div><div class="v {pnl_class}">{signed_money(row['today_pnl'])}</div></div>
-              <div><div class="k">Daily Return</div><div class="v {pnl_class}">{signed_pct(row['daily_return'])}</div></div>
-              <div><div class="k">Total P&L</div><div class="v {total_class}">{signed_money(row['total_pnl'])}</div></div>
-              <div><div class="k">Realized Today</div><div class="v">{signed_money(row['realized'])}</div></div>
-              <div><div class="k">Unrealized</div><div class="v">{signed_money(row['unrealized'])}</div></div>
-              <div><div class="k">Positions / Orders</div><div class="v">{row['positions']} / {row['working_orders']}</div></div>
-              <div><div class="k">Trades Today</div><div class="v">{row['completed_today']}</div></div>
+              <div><div class="k">Equity</div><div class="v">{money(row["equity"])}</div></div>
+              <div><div class="k">Deployed</div><div class="v">{money(row["deployed"])}</div></div>
+              <div><div class="k">Available</div><div class="v">{money(row["available"])}</div></div>
+              <div><div class="k">Today P&L</div><div class="v {pnl_class}">{signed_money(row["today_pnl"])}</div></div>
+              <div><div class="k">Daily Return</div><div class="v {pnl_class}">{signed_pct(row["daily_return"])}</div></div>
+              <div><div class="k">Total P&L</div><div class="v {total_class}">{signed_money(row["total_pnl"])}</div></div>
+              <div><div class="k">Realized Today</div><div class="v">{signed_money(row["realized"])}</div></div>
+              <div><div class="k">Unrealized</div><div class="v">{signed_money(row["unrealized"])}</div></div>
+              <div><div class="k">Positions / Orders</div><div class="v">{row["positions"]} / {row["working_orders"]}</div></div>
+              <div><div class="k">Trades Today</div><div class="v">{row["completed_today"]}</div></div>
             </div></div>""",
             unsafe_allow_html=True,
         )
