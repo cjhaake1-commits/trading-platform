@@ -16,6 +16,7 @@ from .crypto_shadow import update_shadow
 from .daily_learning import DailyLearningJob
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
 from .high_velocity import micro_candidate, write_research_snapshot
+from .lane_ledger import PaperLaneLedger
 from .pillar_jobs import InternationalPaperTradingJob, MetalsPaperTradingJob
 from .research_jobs import DailyReportJob, ResearchRefreshJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
@@ -159,6 +160,18 @@ class HighVelocityResearchJob:
             if candidate:
                 candidates.append(candidate)
         snapshot = write_research_snapshot(candidates=candidates, derivative_rows=[], arbitrage_rows=[])
+        ledger = PaperLaneLedger()
+        for candidate in candidates:
+            ledger.record(
+                timestamp=now.astimezone(UTC).isoformat(), pillar=candidate.pillar,
+                lane="DAY_TRADE", strategy=candidate.strategy, symbol=candidate.symbol,
+                direction=candidate.direction, provider="research-only", timeframe=candidate.timeframe,
+                mode="PAPER_RESEARCH", candidate_score=candidate.signal_strength,
+                confidence=candidate.confidence, gross_expected_edge=candidate.expected_gross_edge,
+                estimated_costs=candidate.estimated_costs, net_expected_edge=candidate.expected_net_edge,
+                capital_committed=0.0, notional_exposure=0.0, status="QUALIFIED",
+            )
+        lane_summary = ledger.write_summary()
         return JobResult(
             True,
             "High-velocity paper research evaluated",
@@ -169,6 +182,8 @@ class HighVelocityResearchJob:
                 "derivative_simulations": 0,
                 "arbitrage_observations": 0,
                 "updated_at": snapshot["updated_at"],
+                "lane_ledger": "var/autotrader/learning/paper-lanes.db",
+                "lane_summary": lane_summary,
             },
         )
 

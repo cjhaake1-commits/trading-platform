@@ -310,6 +310,17 @@ def _load_high_velocity():
     return value if isinstance(value, dict) else {}
 
 
+def _load_lane_summary():
+    path = Path("var/autotrader/learning/paper-lane-summary.json")
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def main():
     st.markdown(
         """
@@ -440,6 +451,7 @@ def main():
         )
 
     hv = _load_high_velocity()
+    lane_summary = _load_lane_summary()
     micro_candidates = len(hv.get("micro_candidates", [])) if isinstance(hv.get("micro_candidates"), list) else 0
     derivatives = len(hv.get("derivatives", [])) if isinstance(hv.get("derivatives"), list) else 0
     arbitrage = len(hv.get("arbitrage", [])) if isinstance(hv.get("arbitrage"), list) else 0
@@ -456,7 +468,7 @@ def main():
     # explicitly separate from provider-realized cash and never affect equity.
     st.markdown('<div class="section">Cash Generation & Research</div>', unsafe_allow_html=True)
     realized_today = sum(float(row.get("realized") or 0.0) for row in pillars)
-    lane_rows = hv.get("lanes") if isinstance(hv.get("lanes"), dict) else {}
+    lane_rows = lane_summary.get("lanes") if isinstance(lane_summary.get("lanes"), dict) else {}
     def lane_pnl(name):
         row = lane_rows.get(name, {}) if isinstance(lane_rows, dict) else {}
         return signed_money(row.get("realized_pnl", row.get("simulated_pnl", 0.0))) if isinstance(row, dict) else signed_money(0.0)
@@ -465,9 +477,10 @@ def main():
         <div><div class="k">Realized Today</div><div class="v">{signed_money(realized_today)}</div></div>
         <div><div class="k">$500 Goal Progress</div><div class="v">{realized_today / DAILY_CASH_FLOOR * 100:.1f}%</div></div>
         <div><div class="k">$1,000 Goal Progress</div><div class="v">{realized_today / DAILY_CASH_STRETCH * 100:.1f}%</div></div>
-        <div><div class="k">Best Cash Generator</div><div class="v">REALIZED NET P&L</div></div>
+        <div><div class="k">Best Cash Generator</div><div class="v">{lane_summary.get("best_realized_cash_generator") or "EVIDENCE COLLECTING"}</div></div>
         <div><div class="k">Best Capital Efficiency</div><div class="v">EVIDENCE COLLECTING</div></div>
         <div><div class="k">Day / Short / Derivative / Arbitrage</div><div class="v">{lane_pnl("DAY_TRADE")} / {lane_pnl("SHORT")} / {lane_pnl("DERIVATIVE_SIM")} / {lane_pnl("ARBITRAGE_SIM")}</div></div>
+        <div><div class="k">Best Research Challenger</div><div class="v">{lane_summary.get("best_realized_cash_generator") or "COLLECTING EVIDENCE"}</div></div>
         </div>''', unsafe_allow_html=True,
     )
 
