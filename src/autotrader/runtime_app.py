@@ -84,11 +84,19 @@ class FoundationAuditJob:
                 pillar = "Metals/Commodities"
             if pillar not in position_values:
                 continue
+            # Shared provider accounts may contain positions unrelated to this
+            # fund. Only explicit strategy/lifecycle ownership enters economic
+            # pillar accounting; all provider exposure remains observation-only.
+            if str(position.get("classification") or "").upper() not in {"VALID_STRATEGY_POSITION", "ACTIVE V2"}:
+                continue
             positions_counts[pillar] += 1
             position_values[pillar] += abs(float(position.get("market_value") or 0.0))
             unrealized_values[pillar] += float(position.get("unrealized_pnl") or 0.0)
-        unrealized_values["International"] = float(saxo.get("unrealized") or 0.0) if saxo.get("connected") else 0.0
-        positions_counts["International"] = int(saxo.get("positions") or 0)
+        unrealized_values["International"] = 0.0
+        # Saxo's current positions have no platform ownership evidence, so
+        # they are provider-account observation only and excluded from fund
+        # economics pending an ownership registry entry.
+        positions_counts["International"] = 0
         realized_values = {pillar: 0.0 for pillar in pillars}
         realized_values["Crypto"] = float(crypto_history.get("realized_today") or 0.0)
         observed = {"Stocks": bool(live_status.get("US Stocks / ETFs", {}).get("connected")), "Crypto": bool(live_status.get("Crypto", {}).get("connected")), "Forex": bool(live_status.get("Forex", {}).get("connected")), "Metals/Commodities": bool(live_status.get("Metals / Commodities", {}).get("connected")), "International": bool(saxo.get("connected")), "Kalshi": bool(kalshi.get("predictions_provider_state") == "CONNECTED" and kalshi.get("perps_provider_state") == "CONNECTED")}
@@ -112,13 +120,16 @@ class FoundationAuditJob:
                 continue
             realized = realized_values[pillar]
             unrealized = unrealized_values[pillar]
-            starting = 1000.0
+            day_start = ledger.load_pillar_day_start_equity(pillar=key_map[pillar], equity_date=day)
+            starting = float(day_start["starting_economic_equity"]) if day_start else 1000.0
             economic = starting + realized + unrealized
             deployed = float(status_row.get("strategy_cost_basis") or status_row.get("deployed") or 0.0)
             pending = float(status_row.get("pending_capital") or 0.0)
-            market_value = position_values[pillar]
+            # FX notional is exposure, not economic capital consumed. Its
+            # capital identity uses provider-attributable margin/deployment.
+            market_value = 0.0 if pillar == "Forex" else position_values[pillar]
             if pillar == "International":
-                deployed = float(saxo.get("deployed") or 0.0)
+                deployed = 0.0
             available = economic - market_value - pending
             difference = economic - (available + market_value + pending)
             # A mathematically rearranged identity is not sufficient: bounded
