@@ -452,6 +452,25 @@ def main():
     if hv.get("updated_at"):
         st.caption(f"High-velocity research last update: {hv.get('updated_at')}")
 
+    # Realized cash is the primary research objective. Simulated lanes remain
+    # explicitly separate from provider-realized cash and never affect equity.
+    st.markdown('<div class="section">Cash Generation & Research</div>', unsafe_allow_html=True)
+    realized_today = sum(float(row.get("realized") or 0.0) for row in pillars)
+    lane_rows = hv.get("lanes") if isinstance(hv.get("lanes"), dict) else {}
+    def lane_pnl(name):
+        row = lane_rows.get(name, {}) if isinstance(lane_rows, dict) else {}
+        return signed_money(row.get("realized_pnl", row.get("simulated_pnl", 0.0))) if isinstance(row, dict) else signed_money(0.0)
+    st.markdown(
+        f'''<div class="fund-status">
+        <div><div class="k">Realized Today</div><div class="v">{signed_money(realized_today)}</div></div>
+        <div><div class="k">$500 Goal Progress</div><div class="v">{realized_today / DAILY_CASH_FLOOR * 100:.1f}%</div></div>
+        <div><div class="k">$1,000 Goal Progress</div><div class="v">{realized_today / DAILY_CASH_STRETCH * 100:.1f}%</div></div>
+        <div><div class="k">Best Cash Generator</div><div class="v">REALIZED NET P&L</div></div>
+        <div><div class="k">Best Capital Efficiency</div><div class="v">EVIDENCE COLLECTING</div></div>
+        <div><div class="k">Day / Short / Derivative / Arbitrage</div><div class="v">{lane_pnl("DAY_TRADE")} / {lane_pnl("SHORT")} / {lane_pnl("DERIVATIVE_SIM")} / {lane_pnl("ARBITRAGE_SIM")}</div></div>
+        </div>''', unsafe_allow_html=True,
+    )
+
     st.markdown('<div class="section">Annual Income Objective</div>', unsafe_allow_html=True)
     cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
     yearly_realized = first_number(cash, ["net_trading_cash_generated", "cumulative_realized_pnl"], 0.0)
