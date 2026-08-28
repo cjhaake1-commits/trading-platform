@@ -188,6 +188,7 @@ def build_pillars(
     live_positions=None,
     saxo_live=None,
     crypto_realized_today=None,
+    foundation_report=None,
 ):
     # Preserve the pre-six-pillar call shape used by integrations:
     # (snapshot, live_status, kalshi, live_positions, saxo_live).
@@ -202,6 +203,8 @@ def build_pillars(
     kalshi = kalshi if isinstance(kalshi, dict) else {}
     live_positions = live_positions if isinstance(live_positions, list) else []
     saxo_live = saxo_live if isinstance(saxo_live, dict) else {}
+    foundation_report = foundation_report if isinstance(foundation_report, dict) else {}
+    foundation_pillars = foundation_report.get("pillars") if isinstance(foundation_report.get("pillars"), dict) else {}
     perf = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
     latest_cycle = snapshot.get("latest_cycle") if isinstance(snapshot.get("latest_cycle"), dict) else {}
     broker_totals = _live_position_totals(live_positions)
@@ -313,6 +316,11 @@ def build_pillars(
                 "working_orders": working_orders,
                 "completed_today": completed_today,
                 "activity_reason": activity_reason,
+                "accounting_status": (foundation_pillars.get(
+                    "Crypto" if name == "Crypto" else name, {}
+                ).get("accounting_status", "ACCOUNTING_UNVERIFIED")
+                    if isinstance(foundation_pillars.get("Crypto" if name == "Crypto" else name, {}), dict)
+                    else "ACCOUNTING_UNVERIFIED"),
             }
         )
     return rows
@@ -331,6 +339,17 @@ def _load_high_velocity():
 
 def _load_lane_summary():
     path = Path("var/autotrader/learning/paper-lane-summary.json")
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _load_foundation_report():
+    path = Path("var/autotrader/foundation-report.json")
     if not path.exists():
         return {}
     try:
@@ -385,6 +404,7 @@ def main():
     saxo_live = _saxo_live_truth()
     crypto_history = core._alpaca_crypto_history()
     crypto_realized_today = crypto_history.get("realized_today")
+    foundation_report = _load_foundation_report()
     pillars = build_pillars(
         snapshot,
         runtime,
@@ -393,6 +413,7 @@ def main():
         live_positions,
         saxo_live,
         crypto_realized_today=crypto_realized_today,
+        foundation_report=foundation_report,
     )
 
     fund_equity = sum(row["equity"] for row in pillars)
@@ -464,6 +485,7 @@ def main():
             <div class="pillar-head"><div class="pillar-name">{row["display"]}</div><div class="{engine_class}">{engine_label}</div></div>
             <div class="market-state">{row["state"]}</div>
             <div class="board-sub">{row["activity_reason"]}</div>
+            <div class="board-sub">Accounting: {row["accounting_status"]}</div>
             <div class="pillar-grid">
               <div><div class="k">Equity</div><div class="v">{money(row["equity"])}</div></div>
               <div><div class="k">Deployed</div><div class="v">{money(row["deployed"])}</div></div>
