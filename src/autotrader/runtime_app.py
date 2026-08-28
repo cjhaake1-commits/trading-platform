@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,10 +16,12 @@ from .crypto_market_archive import AlpacaCryptoArchiveCollector
 from .crypto_replay import load_archive
 from .crypto_shadow import update_shadow
 from .daily_learning import DailyLearningJob
+from .edge_engine import benchmark_metrics, classify_edge
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
 from .high_velocity import micro_candidate, write_research_snapshot
 from .lane_ledger import PaperLaneLedger
 from .pillar_jobs import InternationalPaperTradingJob, MetalsPaperTradingJob
+from .portfolio_ledger import PortfolioLedger
 from .research_jobs import DailyReportJob, ResearchRefreshJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
 
@@ -36,6 +40,46 @@ class HeartbeatJob:
 
     def run(self, now: datetime) -> JobResult:
         return JobResult(True, "Runtime health check passed", {"timestamp": now.isoformat()})
+
+
+@dataclass
+class FoundationAuditJob:
+    """Persist truthful accounting/learning readiness without broker mutation."""
+    ledger_path: str = "var/autotrader/portfolio.db"
+    report_path: str = "var/autotrader/foundation-report.json"
+    name: str = "foundation-audit"
+    cadence_seconds: float = 120.0
+
+    def run(self, now: datetime) -> JobResult:
+        ledger = PortfolioLedger(self.ledger_path)
+        pillars = ("Stocks", "Crypto", "Forex", "Metals/Commodities", "International", "Kalshi")
+        key_map = {"Stocks": "alpaca_equities", "Crypto": "alpaca_crypto", "Forex": "oanda_fx",
+                   "Metals/Commodities": "alpaca_metals", "International": "ibkr_global", "Kalshi": "kalshi"}
+        day = now.astimezone(UTC).date().isoformat()
+        for pillar in pillars:
+            if not ledger.load_pillar_day_start_equity(pillar=key_map[pillar], equity_date=day):
+                ledger.save_pillar_day_start_equity(
+                    pillar=key_map[pillar], equity_date=day, timezone="UTC",
+                    day_start_timestamp=f"{day}T00:00:00+00:00", starting_economic_equity=1000.0,
+                    source="paper_allocation_cap_pending_provider_reconciliation",
+                )
+        with sqlite3.connect(self.ledger_path) as connection:
+            fills = connection.execute("SELECT broker,symbol,side,quantity,price,realized_pnl,occurred_at,metadata_json FROM fills").fetchall()
+        crypto = [row for row in fills if "crypto" in str(row[0]).lower()]
+        outcomes = []  # Legacy fills have no explicit accounting verification and cannot affect learning.
+        report = {
+            "observed_at": now.isoformat(), "pillars": {p: {"accounting_status": "ACCOUNTING_UNVERIFIED",
+            "day_start_persisted": True} for p in pillars},
+            "crypto": {"provider_fill_rows": len(crypto), "verified_outcomes": len(outcomes),
+                       "benchmark": benchmark_metrics(outcomes, starting_equity=1000.0),
+                       "edge_state": classify_edge(benchmark_metrics(outcomes, starting_equity=1000.0))},
+            "learning_gate": "ACCOUNTING_VERIFIED_ONLY", "provider_mutation": False,
+        }
+        path = Path(self.report_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return JobResult(True, "Foundation audit persisted", {"report": self.report_path,
+                         "crypto_provider_fill_rows": len(crypto), "verified_outcomes": 0})
 
 
 @dataclass
@@ -227,7 +271,7 @@ def main() -> None:
         snapshot_path=Path(args.status),
         autonomous_enabled=autonomous_enabled,
     )
-    jobs = [HeartbeatJob()]
+    jobs = [HeartbeatJob(), FoundationAuditJob(ledger_path=args.ledger)]
     if args.autonomous_paper:
         jobs.append(ActiveV2ReconciliationJob(ledger_path=args.ledger))
         jobs.append(CryptoLifecycleReconciliationJob(ledger_path=args.ledger))
