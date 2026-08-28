@@ -1435,8 +1435,6 @@ def _live_results_rows(ctx: dict[str, object]) -> list[dict[str, object]]:
             pending = kalshi.get("perps_open_orders") if connected else None
         if name == "Kalshi" and str(_kalshi_status().get("perps_provider_state")) == "DEGRADED":
             deployed = available = positions = pending = None
-        if name == "Crypto":
-            deployed, available, positions = 0.0, 1000.0, 0
         status = "OPERATIONAL" if (jobs.get(PILLAR_JOB_MAP[name], {}).get("last_error") is None and provider_known) else "UNKNOWN"
         rows.append({
             "pillar": name, "broker": broker, "completed_trades": completed, "wins": wins, "losses": losses,
