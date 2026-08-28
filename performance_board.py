@@ -10,6 +10,8 @@ import streamlit_app as core
 
 # Read-only observation board. No controls in this module may alter trading,
 # allocation, execution, strategy, risk, credentials, or provider state.
+# This board intentionally has no auto-refresh loop. Data reloads only when
+# the user manually refreshes/reloads the Streamlit page.
 
 PILLAR_ORDER = [
     "US Stocks / ETFs",
@@ -373,7 +375,7 @@ def main():
         unsafe_allow_html=True,
     )
     st.markdown(
-        f'<div class="live">● LIVE PROVIDER SNAPSHOT · {datetime.now(UTC).strftime("%H:%M:%S UTC")} · 25-second refresh recommended</div>',
+        f'<div class="live">● LIVE PROVIDER SNAPSHOT · {datetime.now(UTC).strftime("%H:%M:%S UTC")} · MANUAL REFRESH ONLY</div>',
         unsafe_allow_html=True,
     )
 
