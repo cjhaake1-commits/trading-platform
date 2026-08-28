@@ -87,6 +87,13 @@ class PortfolioLedger:
                     persisted_at TEXT NOT NULL,
                     PRIMARY KEY (pillar, equity_date)
                 );
+                CREATE TABLE IF NOT EXISTS pillar_accounting_snapshot (
+                    pillar TEXT PRIMARY KEY, observed_at TEXT NOT NULL, allocation_cap REAL NOT NULL,
+                    starting_equity REAL NOT NULL, economic_equity REAL NOT NULL, available_cash REAL,
+                    deployed_cash REAL, pending REAL, notional_exposure REAL, position_market_value REAL,
+                    realized_today REAL, unrealized REAL, accounting_status TEXT NOT NULL,
+                    identity_difference REAL, reason TEXT NOT NULL, source TEXT NOT NULL, freshness TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS crypto_entry_state (
                     symbol TEXT PRIMARY KEY,
                     broker TEXT NOT NULL,
@@ -193,6 +200,23 @@ class PortfolioLedger:
                 (pillar, equity_date),
             ).fetchone()
         return dict(row) if row else None
+
+    def save_accounting_snapshot(self, snapshot: dict[str, object]) -> None:
+        fields = ("pillar", "observed_at", "allocation_cap", "starting_equity", "economic_equity",
+                  "available_cash", "deployed_cash", "pending", "notional_exposure",
+                  "position_market_value", "realized_today", "unrealized", "accounting_status",
+                  "identity_difference", "reason", "source", "freshness")
+        with self._connect() as connection:
+            connection.execute(
+                f"INSERT OR REPLACE INTO pillar_accounting_snapshot ({','.join(fields)}) VALUES ({','.join('?' for _ in fields)})",
+                [snapshot.get(field) for field in fields],
+            )
+
+    def load_accounting_snapshots(self) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM pillar_accounting_snapshot ORDER BY pillar"
+            ).fetchall()]
 
     def archive_manifest(self, manifest_id: str, *, category: str, reason: str, evidence: list[str]) -> None:
         """Append an auditable archive disposition; never delete the source manifest."""

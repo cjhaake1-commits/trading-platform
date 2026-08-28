@@ -66,9 +66,45 @@ class FoundationAuditJob:
         with sqlite3.connect(self.ledger_path) as connection:
             fills = connection.execute("SELECT broker,symbol,side,quantity,price,realized_pnl,occurred_at,metadata_json FROM fills").fetchall()
         crypto = [row for row in fills if "crypto" in str(row[0]).lower()]
+        snapshot_path = Path("dashboard/data.json")
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8")) if snapshot_path.exists() else {}
+        performance = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+        positions = snapshot.get("positions") if isinstance(snapshot.get("positions"), list) else []
+        position_values = {pillar: 0.0 for pillar in pillars}
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+            raw = str(position.get("pillar") or "").lower()
+            pillar = "Crypto" if "crypto" in raw else "Metals/Commodities" if "metal" in raw else "Stocks"
+            position_values[pillar] += float(position.get("market_value") or 0.0)
+        normalized = {}
+        for pillar in pillars:
+            values = performance.get(pillar) or {}
+            realized = float(values.get("net_generated_cash") or 0.0)
+            unrealized = float(values.get("unrealized_pnl") or 0.0)
+            starting = float(values.get("starting_allocation") or 1000.0)
+            economic = starting + realized + unrealized
+            deployed = float(values.get("capital_deployed") or 0.0)
+            available = float(values.get("available_cash") or 0.0)
+            market_value = position_values[pillar]
+            difference = economic - (available + market_value)
+            status = "ACCOUNTING_VERIFIED" if abs(difference) <= 0.02 else "ACCOUNTING_UNVERIFIED"
+            reason = "provider snapshot identity matched" if status == "ACCOUNTING_VERIFIED" else (
+                f"available_cash + position_market_value differs by {difference:.6f}; "
+                "source fields: available_cash, capital_deployed, unrealized_pnl"
+            )
+            record = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": 1000.0,
+                      "starting_equity": starting, "economic_equity": economic, "available_cash": available,
+                      "deployed_cash": deployed, "pending": 0.0, "notional_exposure": market_value,
+                      "position_market_value": market_value, "realized_today": realized, "unrealized": unrealized,
+                      "accounting_status": status, "identity_difference": difference, "reason": reason,
+                      "source": "dashboard/data.json provider-backed snapshot", "freshness": "CURRENT_SNAPSHOT"}
+            ledger.save_accounting_snapshot(record)
+            normalized[pillar] = record
         outcomes = []  # Legacy fills have no explicit accounting verification and cannot affect learning.
         report = {
-            "observed_at": now.isoformat(), "pillars": {p: {"accounting_status": "ACCOUNTING_UNVERIFIED",
+            "observed_at": now.isoformat(), "pillars": {p: {"accounting_status": normalized[p]["accounting_status"],
+            "identity_difference": normalized[p]["identity_difference"], "reason": normalized[p]["reason"],
             "day_start_persisted": True} for p in pillars},
             "crypto": {"provider_fill_rows": len(crypto), "verified_outcomes": len(outcomes),
                        "benchmark": benchmark_metrics(outcomes, starting_equity=1000.0),
