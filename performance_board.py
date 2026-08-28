@@ -14,7 +14,7 @@ import streamlit_app as core
 # the user manually refreshes/reloads the Streamlit page.
 
 PILLAR_ORDER = [
-    "US Stocks / ETFs",
+    "stocks",
     "Crypto",
     "Forex",
     "Metals / Commodities",
@@ -22,11 +22,17 @@ PILLAR_ORDER = [
     "Kalshi",
 ]
 DISPLAY_NAMES = {
-    "US Stocks / ETFs": "Stocks",
+    "stocks": "Stocks / ETFs",
     "Metals / Commodities": "Metals / Commodities",
 }
+PILLAR_ALIASES = {
+    "stocks": {"stocks", "Stocks", "US Stocks / ETFs", "US Stocks", "Stocks / ETFs", "Stocks/Crypto"},
+    "Crypto": {"Crypto", "crypto"}, "Forex": {"Forex", "forex"},
+    "Metals / Commodities": {"Metals / Commodities", "Metals/Commodities", "Metals", "metals"},
+    "International": {"International", "international"}, "Kalshi": {"Kalshi", "kalshi"},
+}
 PILLAR_JOB_MAP = {
-    "US Stocks / ETFs": "autonomous-paper-trading",
+    "stocks": "autonomous-paper-trading",
     "Crypto": "autonomous-paper-trading",
     "Forex": "oanda-fx-paper-trading",
     "Metals / Commodities": "alpaca-metals-paper-trading",
@@ -78,12 +84,29 @@ def first_number(mapping, keys, default=0.0):
     return default
 
 
+def canonical_pillar(value):
+    text = str(value or "").strip()
+    for canonical, aliases in PILLAR_ALIASES.items():
+        if text in aliases:
+            return canonical
+    return text
+
+
+def _normalized_snapshot(snapshot):
+    raw = snapshot.get("pillar_accounting_snapshot") if isinstance(snapshot, dict) else None
+    if isinstance(raw, dict):
+        raw = list(raw.values())
+    if not isinstance(raw, list):
+        return {}
+    return {canonical_pillar(row.get("pillar")): row for row in raw if isinstance(row, dict)}
+
+
 def _live_position_totals(live_positions):
     totals = {name: {"deployed": 0.0, "market_value": 0.0, "unrealized": 0.0, "positions": 0} for name in PILLAR_ORDER}
     for row in live_positions if isinstance(live_positions, list) else []:
         if not isinstance(row, dict):
             continue
-        pillar = str(row.get("pillar") or "")
+        pillar = canonical_pillar(row.get("pillar"))
         if pillar not in totals:
             continue
         classification = str(row.get("classification") or "").upper()
@@ -206,12 +229,38 @@ def build_pillars(
     foundation_report = foundation_report if isinstance(foundation_report, dict) else {}
     foundation_pillars = foundation_report.get("pillars") if isinstance(foundation_report.get("pillars"), dict) else {}
     perf = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+    normalized = _normalized_snapshot(snapshot)
     latest_cycle = snapshot.get("latest_cycle") if isinstance(snapshot.get("latest_cycle"), dict) else {}
     broker_totals = _live_position_totals(live_positions)
     rows = []
     for name in PILLAR_ORDER:
+        n = normalized.get(name)
+        if n is not None:
+            status = str(n.get("accounting_status") or "ACCOUNTING_UNVERIFIED")
+            realized = n.get("realized_today")
+            unrealized = n.get("unrealized")
+            total = n.get("total_pnl")
+            rows.append({
+                "name": name, "display": DISPLAY_NAMES.get(name, name),
+                "engine_active": bool(n.get("provider_observed") and n.get("freshness") == "FRESH"),
+                "provider_available": bool(n.get("provider_observed")),
+                "state": "ACCOUNTING VERIFIED" if status == "ACCOUNTING_VERIFIED" else "VERIFYING",
+                "equity": n.get("economic_equity"), "deployed": n.get("deployed_cash"),
+                "pending": n.get("pending"), "available": n.get("available_cash"),
+                "today_pnl": (f(realized, 0.0) + f(unrealized, 0.0)),
+                "daily_return": n.get("daily_return"), "realized": realized,
+                "unrealized": unrealized, "total_pnl": total,
+                "positions": n.get("positions", 0), "working_orders": n.get("working_orders", 0),
+                "completed_today": n.get("trades_today", 0), "activity_reason": n.get("reason", ""),
+                "accounting_status": status, "freshness": n.get("freshness", "MISSING"),
+            })
+            continue
         p = perf.get(name) if isinstance(perf.get(name), dict) else {}
+        if not p:
+            p = next((perf.get(alias) for alias in PILLAR_ALIASES.get(name, {name}) if isinstance(perf.get(alias), dict)), {})
         state = live_status.get(name) if isinstance(live_status.get(name), dict) else {}
+        if not state:
+            state = next((live_status.get(alias) for alias in PILLAR_ALIASES.get(name, {name}) if isinstance(live_status.get(alias), dict)), {})
         broker = broker_totals.get(name, {})
         broker_positions = int(f(broker.get("positions")))
         working_orders = int(f(state.get("working_orders")))
@@ -317,12 +366,12 @@ def build_pillars(
                 "completed_today": completed_today,
                 "activity_reason": activity_reason,
                 "accounting_status": (foundation_pillars.get(
-                    "Crypto" if name == "Crypto" else name, {}
+                    "Crypto" if name == "Crypto" else ("Stocks" if name == "stocks" else name), {}
                 ).get("accounting_status", "ACCOUNTING_UNVERIFIED")
                     if isinstance(foundation_pillars.get("Crypto" if name == "Crypto" else name, {}), dict)
                     else "ACCOUNTING_UNVERIFIED"),
             }
-        )
+                )
     return rows
 
 
@@ -395,6 +444,16 @@ def main():
     )
 
     snapshot = core.load_snapshot()
+    # The ledger is the financial authority; dashboard/data.json is transport
+    # and legacy/runtime context only.
+    try:
+        from autotrader.portfolio_ledger import PortfolioLedger
+        ledger_rows = PortfolioLedger("var/autotrader/portfolio.db").load_accounting_snapshots()
+        if ledger_rows:
+            snapshot = dict(snapshot)
+            snapshot["pillar_accounting_snapshot"] = ledger_rows
+    except Exception:
+        pass
     runtime = core.load_live_runtime_status()
     if not isinstance(runtime, dict) or not runtime:
         runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}

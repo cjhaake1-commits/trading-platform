@@ -42,3 +42,31 @@ def test_provider_failure_is_unavailable():
     assert crypto["provider_available"] is False
     assert crypto["state"] == "UNAVAILABLE"
 
+
+def test_normalized_accounting_snapshot_is_board_authority():
+    rows = board.build_pillars({
+        "pillar_performance": {"Crypto": {"realized_pnl": 999.0}},
+        "pillar_accounting_snapshot": [{
+            "pillar": "Crypto", "provider_observed": True, "freshness": "FRESH",
+            "accounting_status": "ACCOUNTING_VERIFIED", "economic_equity": 795.59,
+            "available_cash": 795.59, "deployed_cash": 0.0, "pending": 0.0,
+            "realized_today": -204.41, "unrealized": 0.0, "total_pnl": -204.41,
+            "daily_return": -0.20441, "positions": 0, "working_orders": 0,
+        }]
+    }, {}, {}, [], {"connected": False})
+    crypto = next(row for row in rows if row["name"] == "Crypto")
+    assert crypto["equity"] == 795.59
+    assert crypto["available"] == 795.59
+    assert crypto["realized"] == -204.41
+
+
+def test_missing_provider_snapshot_cannot_verify():
+    rows = board.build_pillars({"pillar_accounting_snapshot": [{
+        "pillar": "Crypto", "provider_observed": False, "freshness": "MISSING",
+        "accounting_status": "ACCOUNTING_UNVERIFIED", "economic_equity": None,
+        "available_cash": None, "deployed_cash": None, "pending": None,
+        "realized_today": None, "unrealized": None, "total_pnl": None,
+    }]}, {}, {}, [], {"connected": False})
+    crypto = next(row for row in rows if row["name"] == "Crypto")
+    assert crypto["accounting_status"] == "ACCOUNTING_UNVERIFIED"
+    assert crypto["provider_available"] is False

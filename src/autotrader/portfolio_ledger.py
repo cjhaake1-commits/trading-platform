@@ -168,6 +168,15 @@ class PortfolioLedger:
                 );
                 """
             )
+            existing = {row[1] for row in connection.execute("PRAGMA table_info(pillar_accounting_snapshot)")}
+            for name, definition in (
+                ("provider_timestamp", "TEXT"), ("provider_observed", "INTEGER"),
+                ("age_seconds", "REAL"), ("positions", "INTEGER"),
+                ("working_orders", "INTEGER"), ("trades_today", "INTEGER"),
+                ("daily_return", "REAL"), ("total_pnl", "REAL"),
+            ):
+                if name not in existing:
+                    connection.execute(f"ALTER TABLE pillar_accounting_snapshot ADD COLUMN {name} {definition}")
 
     def save_pillar_day_start_equity(
         self,
@@ -202,10 +211,12 @@ class PortfolioLedger:
         return dict(row) if row else None
 
     def save_accounting_snapshot(self, snapshot: dict[str, object]) -> None:
-        fields = ("pillar", "observed_at", "allocation_cap", "starting_equity", "economic_equity",
+        fields = ("pillar", "observed_at", "provider_timestamp", "provider_observed", "age_seconds",
+                  "allocation_cap", "starting_equity", "economic_equity",
                   "available_cash", "deployed_cash", "pending", "notional_exposure",
                   "position_market_value", "realized_today", "unrealized", "accounting_status",
-                  "identity_difference", "reason", "source", "freshness")
+                  "identity_difference", "reason", "source", "freshness", "positions",
+                  "working_orders", "trades_today", "daily_return", "total_pnl")
         with self._connect() as connection:
             connection.execute(
                 f"INSERT OR REPLACE INTO pillar_accounting_snapshot ({','.join(fields)}) VALUES ({','.join('?' for _ in fields)})",

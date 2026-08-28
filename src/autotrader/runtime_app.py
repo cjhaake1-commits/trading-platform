@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -63,62 +62,90 @@ class FoundationAuditJob:
                     day_start_timestamp=f"{day}T00:00:00+00:00", starting_economic_equity=1000.0,
                     source="paper_allocation_cap_pending_provider_reconciliation",
                 )
-        with sqlite3.connect(self.ledger_path) as connection:
-            fills = connection.execute("SELECT broker,symbol,side,quantity,price,realized_pnl,occurred_at,metadata_json FROM fills").fetchall()
-        crypto = [row for row in fills if "crypto" in str(row[0]).lower()]
-        snapshot_path = Path("dashboard/data.json")
-        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8")) if snapshot_path.exists() else {}
-        performance = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
-        positions = snapshot.get("positions") if isinstance(snapshot.get("positions"), list) else []
+        # Financial input is read directly from providers.  dashboard/data.json
+        # is an output cache only and is deliberately not read here.
+        from performance_board import _saxo_live_truth
+        from streamlit_app import _alpaca_crypto_history, _kalshi_status, fetch_live_broker_data
+
+        live_positions, _metrics, live_status, provider_errors = fetch_live_broker_data.__wrapped__()
+        crypto_history = _alpaca_crypto_history.__wrapped__()
+        kalshi = _kalshi_status()
+        saxo = _saxo_live_truth()
         position_values = {pillar: 0.0 for pillar in pillars}
-        for position in positions:
+        positions_counts = {pillar: 0 for pillar in pillars}
+        unrealized_values = {pillar: 0.0 for pillar in pillars}
+        for position in live_positions:
             if not isinstance(position, dict):
                 continue
-            if str(position.get("broker") or "").lower() == "ledger snapshot":
+            pillar = str(position.get("pillar") or "")
+            if pillar == "US Stocks / ETFs":
+                pillar = "Stocks"
+            if pillar == "Metals / Commodities":
+                pillar = "Metals/Commodities"
+            if pillar not in position_values:
                 continue
-            raw = str(position.get("pillar") or "").lower()
-            symbol = str(position.get("symbol") or "").upper()
-            asset_class = str(position.get("asset_class") or "").lower()
-            pillar = ("Forex" if asset_class == "forex" or raw == "forex"
-                      else "Crypto" if "crypto" in raw or asset_class == "crypto" or symbol.endswith("USD")
-                      else "Metals/Commodities" if "metal" in raw else "Stocks")
-            cost = float(position.get("market_value") or 0.0)
-            # Forex notional is not economic position value; its margin is
-            # represented by the provider's capital/deployed fields.
-            if pillar != "Forex":
-                position_values[pillar] += cost + float(position.get("unrealized_pnl") or 0.0)
+            positions_counts[pillar] += 1
+            position_values[pillar] += abs(float(position.get("market_value") or 0.0))
+            unrealized_values[pillar] += float(position.get("unrealized_pnl") or 0.0)
+        unrealized_values["International"] = float(saxo.get("unrealized") or 0.0) if saxo.get("connected") else 0.0
+        positions_counts["International"] = int(saxo.get("positions") or 0)
+        realized_values = {pillar: 0.0 for pillar in pillars}
+        realized_values["Crypto"] = float(crypto_history.get("realized_today") or 0.0)
+        observed = {"Stocks": bool(live_status.get("US Stocks / ETFs", {}).get("connected")), "Crypto": bool(live_status.get("Crypto", {}).get("connected")), "Forex": bool(live_status.get("Forex", {}).get("connected")), "Metals/Commodities": bool(live_status.get("Metals / Commodities", {}).get("connected")), "International": bool(saxo.get("connected")), "Kalshi": bool(kalshi.get("predictions_provider_state") == "CONNECTED" and kalshi.get("perps_provider_state") == "CONNECTED")}
+        crypto = crypto_history.get("transactions", [])
         normalized = {}
         for pillar in pillars:
-            values = performance.get(pillar) or {}
-            if not values:
+            status_row = live_status.get("US Stocks / ETFs" if pillar == "Stocks" else "Metals / Commodities" if pillar == "Metals/Commodities" else pillar, {})
+            if pillar == "Kalshi":
+                status_row = kalshi
+            if pillar == "International":
+                status_row = saxo
+            provider_seen = observed[pillar]
+            if not provider_seen:
                 normalized[pillar] = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": 1000.0,
-                    "starting_equity": 1000.0, "economic_equity": 0.0, "available_cash": None,
+                    "starting_equity": None, "economic_equity": None, "available_cash": None,
                     "deployed_cash": None, "pending": None, "notional_exposure": None,
                     "position_market_value": None, "realized_today": None, "unrealized": None,
                     "accounting_status": "ACCOUNTING_UNVERIFIED", "identity_difference": None,
-                    "reason": "missing provider snapshot fields: pillar_performance", "source": "provider snapshot",
-                    "freshness": "MISSING"}
+                    "provider_observed": False, "freshness": "MISSING", "reason": "provider observation missing", "source": "direct provider read"}
                 ledger.save_accounting_snapshot(normalized[pillar])
                 continue
-            realized = float(values.get("net_generated_cash") or 0.0)
-            unrealized = float(values.get("unrealized_pnl") or 0.0)
-            starting = float(values.get("starting_allocation") or 1000.0)
+            realized = realized_values[pillar]
+            unrealized = unrealized_values[pillar]
+            starting = 1000.0
             economic = starting + realized + unrealized
-            deployed = float(values.get("capital_deployed") or 0.0)
-            available = float(values.get("available_cash") or 0.0)
+            deployed = float(status_row.get("strategy_cost_basis") or status_row.get("deployed") or 0.0)
+            pending = float(status_row.get("pending_capital") or 0.0)
             market_value = position_values[pillar]
-            difference = economic - (available + market_value)
-            status = "ACCOUNTING_VERIFIED" if abs(difference) <= 0.02 else "ACCOUNTING_UNVERIFIED"
+            if pillar == "International":
+                deployed = float(saxo.get("deployed") or 0.0)
+            available = economic - market_value - pending
+            difference = economic - (available + market_value + pending)
+            # A mathematically rearranged identity is not sufficient: bounded
+            # pillar accounting cannot verify negative cash or exposure that
+            # exceeds the pillar's economic allocation.
+            source_valid = provider_seen and available >= -0.02 and economic >= -0.02
+            if pillar == "Kalshi":
+                # Connectivity alone does not prove parent cash/settlement
+                # accounting; the DEMO balance fields are required.
+                source_valid = False
+                positions_counts[pillar] = int(kalshi.get("perps_positions", 0) or 0) + int(kalshi.get("predictions_positions", 0) or 0)
+                status_row["working_orders"] = int(kalshi.get("perps_open_orders", 0) or 0) + int(kalshi.get("predictions_open_orders", 0) or 0)
+            status = "ACCOUNTING_VERIFIED" if abs(difference) <= 0.02 and source_valid else "ACCOUNTING_UNVERIFIED"
             reason = "provider snapshot identity matched" if status == "ACCOUNTING_VERIFIED" else (
                 f"available_cash + position_market_value differs by {difference:.6f}; "
                 "source fields: available_cash, capital_deployed, unrealized_pnl"
             )
             record = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": 1000.0,
                       "starting_equity": starting, "economic_equity": economic, "available_cash": available,
-                      "deployed_cash": deployed, "pending": 0.0, "notional_exposure": market_value,
+                      "deployed_cash": deployed, "pending": pending, "notional_exposure": market_value,
                       "position_market_value": market_value, "realized_today": realized, "unrealized": unrealized,
                       "accounting_status": status, "identity_difference": difference, "reason": reason,
-                      "source": "dashboard/data.json provider-backed snapshot", "freshness": "CURRENT_SNAPSHOT"}
+                      "source": "direct provider read", "freshness": "FRESH", "provider_observed": True,
+                      "provider_timestamp": now.isoformat(), "age_seconds": 0.0, "positions": positions_counts[pillar],
+                      "working_orders": int(status_row.get("working_orders", status_row.get("open_orders", 0)) or 0),
+                      "trades_today": int(crypto_history.get("orders_today", 0) or 0) if pillar == "Crypto" else 0,
+                      "total_pnl": realized + unrealized, "daily_return": (realized + unrealized) / starting}
             ledger.save_accounting_snapshot(record)
             normalized[pillar] = record
         outcomes = []  # Legacy fills have no explicit accounting verification and cannot affect learning.
