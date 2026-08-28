@@ -133,7 +133,7 @@ def test_session_capabilities_are_read_from_authoritative_saxo_endpoint():
     assert result["TradeLevel"] == "OrdersOnly"
 
 
-def test_risk_approved_order_posts_only_to_sim_with_protective_stop():
+def test_risk_approved_order_posts_independent_entry_without_related_stop():
     captured = {}
 
     def fake_request(url, method, headers, body, timeout):
@@ -162,9 +162,26 @@ def test_risk_approved_order_posts_only_to_sim_with_protective_stop():
     assert captured["url"] == f"{SAXO_SIM_BASE_URL}/trade/v2/orders"
     assert captured["method"] == "POST"
     assert captured["body"]["OrderType"] == "Market"
-    assert captured["body"]["Orders"][0]["OrderType"] == "Stop"
-    assert captured["body"]["Orders"][0]["OrderPrice"] == 95.0
+    assert "Orders" not in captured["body"]
     assert "test-token" not in str(result)
+
+
+def test_saxo_precheck_and_execution_share_entry_payload_semantics():
+    order = SaxoApprovedOrder("sim-account", 1234, "Stock", "buy", 2, 95.0, "same", True)
+    expected = SaxoSimAdapter.build_entry_order_payload(order)
+    captured = {}
+
+    def fake_request(url, method, headers, body, timeout):
+        captured["body"] = body
+        return ({"OrderId": "sim-order-123"} if url.endswith("/orders") else {"PreCheckResult": "Ok"}), {}
+
+    adapter = SaxoSimAdapter(environment="sim", access_token="test-token", request_json=fake_request)
+    precheck = adapter.precheck_order(expected)
+    result = adapter.submit_order(order)
+    assert precheck["PreCheckResult"] == "Ok"
+    assert result.ok
+    assert {k: captured["body"][k] for k in expected} == expected
+    assert "Orders" not in captured["body"]
 
 
 def test_saxo_sim_mutation_lifecycle_is_guarded_to_sim():
