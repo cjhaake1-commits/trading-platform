@@ -180,7 +180,15 @@ def _exposure_state(engine_active, positions, working_orders):
     return "ACTIVE — SEEKING EDGE"
 
 
-def build_pillars(snapshot, runtime, live_status=None, kalshi=None, live_positions=None, saxo_live=None):
+def build_pillars(
+    snapshot,
+    runtime,
+    live_status=None,
+    kalshi=None,
+    live_positions=None,
+    saxo_live=None,
+    crypto_realized_today=None,
+):
     # Preserve the pre-six-pillar call shape used by integrations:
     # (snapshot, live_status, kalshi, live_positions, saxo_live).
     legacy_call = saxo_live is None and isinstance(live_positions, dict) and isinstance(kalshi, list)
@@ -245,11 +253,22 @@ def build_pillars(snapshot, runtime, live_status=None, kalshi=None, live_positio
                 p, ["realized_today", "daily_realized_pnl", "net_generated_cash", "realized_pnl"], 0.0
             )
 
+        # Alpaca's completed Crypto fills are reconstructed live by the
+        # read-only board context.  They supersede the stale published
+        # pillar aggregate for today's accounting only.
+        if name == "Crypto" and crypto_realized_today is not None:
+            realized = f(crypto_realized_today)
+
         completed_today = int(first_number(p, ["completed_trades_today", "completed_today", "completed_trades"], 0.0))
         today_pnl = first_number(p, ["today_pnl", "daily_pnl", "total_today", "realized_today"], realized + unrealized)
         total_pnl = first_number(p, ["total_pnl", "net_pnl", "net_generated_cash"], realized) + unrealized
-        available = max(BASE_CAPITAL - deployed - pending, 0.0)
+        if name == "Crypto" and crypto_realized_today is not None:
+            # The published Crypto aggregate may include stale or differently
+            # scoped history.  Current economic equity must use the same
+            # provider-reconstructed realized basis shown on this card.
+            total_pnl = realized + unrealized
         equity = BASE_CAPITAL + total_pnl
+        available = max(equity - deployed - pending, 0.0)
         daily_return = today_pnl / BASE_CAPITAL if BASE_CAPITAL else 0.0
         engine_active = _engine_active(name, runtime, state, kalshi, saxo_live)
         exposure_state = _exposure_state(engine_active, broker_positions, working_orders)
@@ -364,7 +383,17 @@ def main():
     live_positions, _, live_status, live_errors = core.fetch_live_broker_data()
     kalshi = core._kalshi_status()
     saxo_live = _saxo_live_truth()
-    pillars = build_pillars(snapshot, runtime, live_status, kalshi, live_positions, saxo_live)
+    crypto_history = core._alpaca_crypto_history()
+    crypto_realized_today = crypto_history.get("realized_today")
+    pillars = build_pillars(
+        snapshot,
+        runtime,
+        live_status,
+        kalshi,
+        live_positions,
+        saxo_live,
+        crypto_realized_today=crypto_realized_today,
+    )
 
     fund_equity = sum(row["equity"] for row in pillars)
     deployed = sum(row["deployed"] for row in pillars)
