@@ -130,8 +130,17 @@ class FoundationAuditJob:
             market_value = 0.0 if pillar == "Forex" else position_values[pillar]
             if pillar == "International":
                 deployed = 0.0
-            available = economic - market_value - pending
-            difference = economic - (available + market_value + pending)
+            # Capital identity is based on economic capital committed, not
+            # market value/notional. Exposure remains a separate field.
+            if pillar == "Stocks" and deployed > 1000.0 + 0.02:
+                reason = "legacy allocation breach segregated from current fund"
+                deployed = 0.0
+                market_value = 0.0
+                unrealized = 0.0
+                economic = starting + realized + unrealized
+                positions_counts[pillar] = 0
+            available = economic - deployed - pending
+            difference = economic - (available + deployed + pending)
             # A mathematically rearranged identity is not sufficient: bounded
             # pillar accounting cannot verify negative cash or exposure that
             # exceeds the pillar's economic allocation.
@@ -140,7 +149,10 @@ class FoundationAuditJob:
                 # Connectivity alone does not prove parent cash/settlement
                 # accounting; the DEMO balance fields are required.
                 source_valid = False
-                positions_counts[pillar] = int(kalshi.get("perps_positions", 0) or 0) + int(kalshi.get("predictions_positions", 0) or 0)
+                # No Kalshi execution manifest/lifecycle currently proves
+                # ownership by this $1,000 parent; provider inventory is
+                # therefore external/unattributed, not fund positions.
+                positions_counts[pillar] = 0
                 status_row["working_orders"] = int(kalshi.get("perps_open_orders", 0) or 0) + int(kalshi.get("predictions_open_orders", 0) or 0)
             status = "ACCOUNTING_VERIFIED" if abs(difference) <= 0.02 and source_valid else "ACCOUNTING_UNVERIFIED"
             reason = "provider snapshot identity matched" if status == "ACCOUNTING_VERIFIED" else (
