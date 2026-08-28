@@ -467,6 +467,26 @@ class SaxoSimAdapter:
             raise ValueError("Saxo precheck requires account, amount, asset, side, type, and UIC")
         return self._write("/trade/v2/orders/precheck", "POST", order)
 
+    @staticmethod
+    def build_entry_order_payload(order: SaxoApprovedOrder) -> dict[str, object]:
+        """Build the independent opening order used by both precheck and submit.
+
+        Saxo related orders are position/order-dependent. An entry must not
+        silently become a bracket order; protective exits are a separate,
+        provider-validated operation.
+        """
+        return {
+            "AccountKey": order.account_key,
+            "Amount": order.quantity,
+            "AssetType": order.asset_type,
+            "BuySell": order.side.title(),
+            "ExternalReference": order.external_reference[:50],
+            "ManualOrder": False,
+            "OrderDuration": {"DurationType": "DayOrder"},
+            "OrderType": "Market",
+            "Uic": order.uic,
+        }
+
     def search_instruments(
         self,
         keywords: str,
@@ -619,32 +639,7 @@ class SaxoSimAdapter:
         if not order.account_key.strip() or order.uic <= 0:
             raise ValueError("Saxo AccountKey and positive Uic are required")
 
-        buy_sell = order.side.title()
-        closing_side = "Sell" if buy_sell == "Buy" else "Buy"
-        payload: dict[str, object] = {
-            "AccountKey": order.account_key,
-            "Amount": order.quantity,
-            "AssetType": order.asset_type,
-            "BuySell": buy_sell,
-            "ExternalReference": order.external_reference[:50],
-            "ManualOrder": False,
-            "OrderDuration": {"DurationType": "DayOrder"},
-            "OrderType": "Market",
-            "Uic": order.uic,
-            "Orders": [
-                {
-                    "AccountKey": order.account_key,
-                    "Amount": order.quantity,
-                    "AssetType": order.asset_type,
-                    "BuySell": closing_side,
-                    "ManualOrder": False,
-                    "OrderDuration": {"DurationType": "GoodTillCancel"},
-                    "OrderPrice": order.stop_price,
-                    "OrderType": "Stop",
-                    "Uic": order.uic,
-                }
-            ],
-        }
+        payload = self.build_entry_order_payload(order)
         headers = {
             "Authorization": f"Bearer {self._access_token}",
             "Accept": "application/json",
