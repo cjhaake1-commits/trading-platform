@@ -79,13 +79,27 @@ class FoundationAuditJob:
             raw = str(position.get("pillar") or "").lower()
             symbol = str(position.get("symbol") or "").upper()
             asset_class = str(position.get("asset_class") or "").lower()
-            pillar = ("Crypto" if "crypto" in raw or asset_class == "crypto" or symbol.endswith("USD")
-                      else "Metals/Commodities" if "metal" in raw else "Forex" if asset_class == "forex" else "Stocks")
+            pillar = ("Forex" if asset_class == "forex" or raw == "forex"
+                      else "Crypto" if "crypto" in raw or asset_class == "crypto" or symbol.endswith("USD")
+                      else "Metals/Commodities" if "metal" in raw else "Stocks")
             cost = float(position.get("market_value") or 0.0)
-            position_values[pillar] += cost + float(position.get("unrealized_pnl") or 0.0)
+            # Forex notional is not economic position value; its margin is
+            # represented by the provider's capital/deployed fields.
+            if pillar != "Forex":
+                position_values[pillar] += cost + float(position.get("unrealized_pnl") or 0.0)
         normalized = {}
         for pillar in pillars:
             values = performance.get(pillar) or {}
+            if not values:
+                normalized[pillar] = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": 1000.0,
+                    "starting_equity": 1000.0, "economic_equity": 0.0, "available_cash": None,
+                    "deployed_cash": None, "pending": None, "notional_exposure": None,
+                    "position_market_value": None, "realized_today": None, "unrealized": None,
+                    "accounting_status": "ACCOUNTING_UNVERIFIED", "identity_difference": None,
+                    "reason": "missing provider snapshot fields: pillar_performance", "source": "provider snapshot",
+                    "freshness": "MISSING"}
+                ledger.save_accounting_snapshot(normalized[pillar])
+                continue
             realized = float(values.get("net_generated_cash") or 0.0)
             unrealized = float(values.get("unrealized_pnl") or 0.0)
             starting = float(values.get("starting_allocation") or 1000.0)
