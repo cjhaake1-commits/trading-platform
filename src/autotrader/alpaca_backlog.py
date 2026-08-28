@@ -383,6 +383,7 @@ def reconcile_alpaca_equity_backlog(
     request_fn: Callable[..., tuple[object, dict[str, str]]] = _request,
     budget_limit: int = 12,
     checkpoint_path: str | Path | None = None,
+    broker: str = "alpaca-paper",
 ) -> AlpacaBacklogResult:
     ledger = PortfolioLedger(ledger_path)
     experiment = ensure_experiment_state()
@@ -399,11 +400,11 @@ def reconcile_alpaca_equity_backlog(
     except Exception:
         baseline_time = datetime.now(UTC)
     key, secret, base = _alpaca_auth()
-    if scope not in {"legacy", "active_v2"}:
-        raise ValueError("scope must be legacy or active_v2")
+    if scope not in {"legacy", "active_v2", "crypto"}:
+        raise ValueError("scope must be legacy, active_v2, or crypto")
     unresolved = [
         manifest
-        for manifest in ledger.unresolved_entry_manifests(broker="alpaca-paper")
+        for manifest in ledger.unresolved_entry_manifests(broker=broker)
         if (
             _manifest_is_legacy(
                 manifest,
@@ -424,7 +425,7 @@ def reconcile_alpaca_equity_backlog(
         budget_limit=budget_limit,
     )
     checkpoint = load_backlog_checkpoint(resolved_checkpoint_path) if apply_paper_cleanup else AlpacaBacklogCheckpoint()
-    start_index = 0 if scope == "active_v2" else min(checkpoint.next_manifest_index, len(unresolved))
+    start_index = 0 if scope in {"active_v2", "crypto"} else min(checkpoint.next_manifest_index, len(unresolved))
     remaining_unresolved = unresolved[start_index:]
     classifications = classify_unresolved_manifests(
         remaining_unresolved,
@@ -434,6 +435,30 @@ def reconcile_alpaca_equity_backlog(
         open_orders_snapshot_complete=snapshot.open_orders_snapshot_complete,
         recent_orders_snapshot_complete=snapshot.recent_orders_snapshot_complete,
     )
+    if scope == "crypto" and snapshot.positions_snapshot_complete and snapshot.open_orders_snapshot_complete:
+        # A filled entry with no current position is a completed/closed
+        # lifecycle, provided Alpaca has no working order for that symbol.
+        # Keep unresolved when any symbol order remains: it may be protection.
+        working_by_symbol = {
+            symbol: tuple(order for order in rows if str(order.status).lower() in
+                          {"new", "accepted", "pending_new", "partially_filled", "held"})
+            for symbol, rows in snapshot.orders_by_symbol.items()
+        }
+        classifications = [
+            ManifestClassification(
+                **{**classification.__dict__,
+                   "lifecycle_state": "reconciled_closed",
+                   "reconciliation_status": "broker_confirmed_closed",
+                   "resolution_reason": "filled entry has no current Alpaca PAPER position and no working order",
+                   "protection_state": "not_required",
+                   "protection_quantity": 0.0}
+            )
+            if classification.lifecycle_state == "filled_position_pending"
+            and not classification.broker_position_quantity
+            and not working_by_symbol.get(classification.symbol)
+            else classification
+            for classification in classifications
+        ]
 
     resolved = 0
     pending = 0

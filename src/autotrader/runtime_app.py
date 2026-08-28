@@ -68,15 +68,32 @@ class ActiveV2ReconciliationJob:
         return JobResult(
             True,
             "Active v2 reconciliation completed",
-            {
-                "state": state,
-                "unresolved_before": result.unresolved_before,
-                "unresolved_after": result.unresolved_after,
-                **result.telemetry,
-            },
+            {"state": state, "unresolved_before": result.unresolved_before,
+             "unresolved_after": result.unresolved_after, **result.telemetry},
         )
 
 
+@dataclass
+class CryptoLifecycleReconciliationJob:
+    ledger_path: str = "var/autotrader/portfolio.db"
+    name: str = "crypto-lifecycle-reconciliation"
+    cadence_seconds: float = 60.0
+
+    def run(self, now: datetime) -> JobResult:
+        result = reconcile_alpaca_equity_backlog(
+            self.ledger_path,
+            apply_paper_cleanup=True,
+            scope="crypto",
+            broker="alpaca-crypto-paper",
+            budget_limit=12,
+        )
+        state = "RECONCILING" if result.unresolved_after else "CLEAR"
+        return JobResult(
+            True,
+            "Crypto lifecycle reconciliation completed",
+            {"state": state, "unresolved_before": result.unresolved_before,
+             "unresolved_after": result.unresolved_after, **result.telemetry},
+        )
 @dataclass
 class CryptoMarketDataArchiveJob:
     name: str = "crypto-market-data-archive"
@@ -190,6 +207,7 @@ def main() -> None:
     jobs = [HeartbeatJob()]
     if args.autonomous_paper:
         jobs.append(ActiveV2ReconciliationJob(ledger_path=args.ledger))
+        jobs.append(CryptoLifecycleReconciliationJob(ledger_path=args.ledger))
         jobs.append(
             AutonomousPaperTradingJob(
                 AutonomousPaperConfig(

@@ -23,6 +23,7 @@ from .brokers.safety import (
     close_oanda_position,
     oanda_open_positions,
 )
+from .alpaca_backlog import reconcile_alpaca_equity_backlog
 from .capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL, pillar_for_asset
 from .crypto_exit import AlpacaCryptoExitCoordinator
 from .execution_safety import IdempotencyStore
@@ -303,6 +304,7 @@ class AutonomousPaperTradingJob:
         self.idempotency = IdempotencyStore(self.config.idempotency_path)
         self.unresolved_states = set(PortfolioLedger.unresolved_entry_states())
         self._crypto_exit_confirmations: dict[str, int] = {}
+        self.crypto_data_diagnostics: dict[str, object] = {}
 
     def _active_v2_unresolved_by_pillar(self, ledger: PortfolioLedger) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -350,6 +352,25 @@ class AutonomousPaperTradingJob:
         if now.tzinfo is None:
             now = now.replace(tzinfo=UTC)
         ledger = PortfolioLedger(self.config.ledger_path)
+        # Crypto manifests must be reconciled against the same authoritative
+        # Alpaca PAPER endpoints immediately before candidate gating. The
+        # equity-only active-v2 job is intentionally not sufficient here.
+        try:
+            crypto_reconciliation = reconcile_alpaca_equity_backlog(
+                self.config.ledger_path, apply_paper_cleanup=True,
+                scope="crypto", broker="alpaca-crypto-paper", budget_limit=12,
+            )
+            crypto_reconciliation_telemetry = {
+                "crypto_manifest_reconciliation_state": "RECONCILING" if crypto_reconciliation.unresolved_after else "CLEAR",
+                "crypto_manifest_unresolved_before": crypto_reconciliation.unresolved_before,
+                "crypto_manifest_unresolved_after": crypto_reconciliation.unresolved_after,
+            }
+        except Exception as exc:
+            # Provider uncertainty remains fail-closed; never resolve locally.
+            crypto_reconciliation_telemetry = {
+                "crypto_manifest_reconciliation_state": "DEGRADED",
+                "crypto_manifest_reconciliation_error": type(exc).__name__,
+            }
         self._sync_broker_flat_positions(ledger)
         preflight = run_preflight(
             ledger_path=self.config.ledger_path,
@@ -369,7 +390,11 @@ class AutonomousPaperTradingJob:
         histories = self._load_histories(now)
         if not histories:
             return JobResult(
-                True, "Autonomous paper cycle found no usable market data", {"learned_parameters": learned}
+                True, "Autonomous paper cycle data unavailable", {
+                    "learned_parameters": learned,
+                    "crypto_data_diagnostics": self.crypto_data_diagnostics,
+                    "data_failure": True,
+                }
             )
 
         stale_orders = self._cancel_stale_crypto_orders(ledger, now)
@@ -495,6 +520,7 @@ class AutonomousPaperTradingJob:
                 True,
                 "Autonomous paper cycle found no qualifying entry",
                 {
+                    **crypto_reconciliation_telemetry,
                     **counts,
                         "qualified_signals": 0,
                         "paper_experiment_enabled": self.experiment.enabled,
@@ -1196,6 +1222,10 @@ class AutonomousPaperTradingJob:
                 "entries": entries,
                 "qualified_signals": len(signals),
                 **counts,
+                **crypto_reconciliation_telemetry,
+                "crypto_data_diagnostics": self.crypto_data_diagnostics,
+                "crypto_data_valid": len(self.crypto_data_diagnostics.get("crypto_data_valid", [])),
+                "crypto_data_invalid": len(self.crypto_data_diagnostics.get("crypto_data_invalid", [])),
                 "risk_rejections": rejections,
                 "submission_failures": failures,
                 "duplicate_skips": duplicates,
@@ -1244,13 +1274,32 @@ class AutonomousPaperTradingJob:
             *(Instrument(s, AssetClass.FOREX) for s in self.config.oanda_universe),
             *(Instrument(s, AssetClass.CRYPTO) for s in crypto_symbols),
         ]
+        diagnostics = {"crypto_universe": [], "crypto_data_valid": [], "crypto_data_invalid": [], "errors": {}}
         for instrument in instruments:
+            if instrument.asset_class is AssetClass.CRYPTO:
+                diagnostics["crypto_universe"].append(instrument.symbol)
             try:
                 bars = self.feed.history(instrument, start, now, interval=self.config.interval)
-            except Exception:
+            except Exception as exc:
+                if instrument.asset_class is AssetClass.CRYPTO:
+                    diagnostics["crypto_data_invalid"].append(instrument.symbol)
+                    diagnostics["errors"][instrument.symbol] = f"{type(exc).__name__}: {exc}"
                 continue
             if len(bars) >= 20:
                 histories[instrument] = bars
+                if instrument.asset_class is AssetClass.CRYPTO:
+                    diagnostics["crypto_data_valid"].append(instrument.symbol)
+            elif instrument.asset_class is AssetClass.CRYPTO:
+                diagnostics["crypto_data_invalid"].append(instrument.symbol)
+                diagnostics["errors"][instrument.symbol] = f"insufficient_history:{len(bars)}/20"
+        diagnostics.update({
+            "crypto_scanned": len(diagnostics["crypto_universe"]),
+            "crypto_data_valid_count": len(diagnostics["crypto_data_valid"]),
+            "crypto_data_invalid_count": len(diagnostics["crypto_data_invalid"]),
+            "interval": self.config.interval,
+            "lookback_days": self.config.lookback_days,
+        })
+        self.crypto_data_diagnostics = diagnostics
         return histories
 
     def _manage_take_profits(self, portfolio: PortfolioState, histories) -> list[dict[str, object]]:

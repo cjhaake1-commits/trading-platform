@@ -8,7 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .brokers.alpaca_metals_paper import AlpacaMetalsConfigurationError
-from .brokers.saxo_sim import SaxoSimAdapter
+from .brokers.saxo_sim import SaxoApprovedOrder, SaxoSimAdapter
 from .capital_allocations import PILLAR_METALS
 from .international_trading import InternationalExecutionService, InternationalOrderSpec
 from .marketdata import YahooHistoricalData
@@ -291,7 +291,10 @@ class InternationalPaperTradingJob:
     # Keep discovery bounded, but do not truncate the provider's eligible
     # SIM listings to the first five results.
     search_top: int = 20
-    discovery_queries: tuple[str, ...] = ("Stock", "Europe", "Australia", "London", "Japan", "Asia")
+    discovery_queries: tuple[str, ...] = ("Stock", "Europe", "Australia", "London", "Japan", "Asia", "FX", "Index")
+    # These labels are accepted by the authenticated SIM reference endpoint;
+    # unsupported classes are deliberately not sent or inferred.
+    discovery_asset_types: tuple[str, ...] = ("Stock", "CfdOnIndex", "FxSpot")
 
     @staticmethod
     def _venue_session(exchange_id: str, now: datetime) -> str:
@@ -308,6 +311,15 @@ class InternationalPaperTradingJob:
             return "UNKNOWN"
         local = now.astimezone(ZoneInfo(zone))
         return "OPEN" if local.weekday() < 5 and (start <= (local.hour, local.minute) < end) else "CLOSED"
+
+    @staticmethod
+    def _provider_session(item, now: datetime) -> str:
+        """Use provider asset capability plus known venue metadata, fail closed."""
+        exchange = (item.exchange_id or "").upper()
+        asset = (item.asset_type or "").lower()
+        if asset in {"fxspot", "cfdonforex"}:
+            return "OPEN" if now.astimezone(UTC).weekday() < 5 else "CLOSED"
+        return InternationalPaperTradingJob._venue_session(exchange, now)
 
     @staticmethod
     def _is_foreign(exchange_id: str) -> bool:
@@ -353,7 +365,7 @@ class InternationalPaperTradingJob:
             read_only = False if provider_can_trade else True
             discovered = {}
             for query in self.discovery_queries:
-                for item in self.adapter.search_instruments(query, asset_types=("Stock",), top=self.search_top):
+                for item in self.adapter.search_instruments(query, asset_types=self.discovery_asset_types, top=self.search_top):
                     discovered[(item.uic, item.asset_type)] = item
             instruments = tuple(discovered.values())
         except Exception as exc:
@@ -372,8 +384,7 @@ class InternationalPaperTradingJob:
             return JobResult(True, "International cycle found no instruments", {})
         open_instruments = tuple(
             item for item in instruments
-            if self._is_foreign(item.exchange_id or "")
-            and self._venue_session(item.exchange_id or "", now) == "OPEN"
+            if self._provider_session(item, now) == "OPEN"
         )
         discovery = {
             "venues_discovered": len({item.exchange_id for item in instruments if item.exchange_id}),
@@ -381,12 +392,13 @@ class InternationalPaperTradingJob:
             "instruments_discovered": len(instruments),
             "instruments_evaluated": len(open_instruments),
         }
-        funnel.update({"session": "OPEN" if open_instruments else "CLOSED", "universe": len(instruments), "history_valid": 0})
+        funnel.update({"session": "OPEN" if open_instruments else "CLOSED", "universe": len(instruments), "history_valid": 0,
+                       "state": "ACTIVE — EVALUATING OPEN MARKETS" if open_instruments else "ACTIVE — WAITING FOR OPEN ELIGIBLE MARKET"})
         if not open_instruments:
             funnel.update({"final_bottleneck": "NO_OPEN_FOREIGN_SESSION", "rejection_reason": "No foreign venue currently open"})
             _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International waiting for open foreign venue", {
-                **discovery, "state": "READY — WAITING FOR ELIGIBLE MARKET SESSION"
+                **discovery, "state": "ACTIVE — WAITING FOR OPEN ELIGIBLE MARKET"
             })
         histories: dict[Instrument, list[MarketBar]] = {}
         for item in open_instruments:
@@ -442,7 +454,16 @@ class InternationalPaperTradingJob:
                 continue
             if source is not None and summary.default_account_key and proposal is not None:
                 try:
-                    result = self.adapter.precheck_order({"AccountKey": summary.default_account_key, "Amount": provider_minimum_quantity, "AssetType": source.asset_type, "BuySell": "Buy", "ManualOrder": False, "FieldGroups": ["Costs", "MarginImpactBuySell"], "OrderDuration": {"DurationType": "DayOrder"}, "OrderType": "Market", "Uic": source.uic})
+                    precheck_order = SaxoApprovedOrder(
+                        account_key=summary.default_account_key, uic=source.uic,
+                        asset_type=source.asset_type, side=proposal.side.value,
+                        quantity=provider_minimum_quantity,
+                        stop_price=max(proposal.stop_price, 0.00000001),
+                        external_reference="international-precheck", risk_approved=True,
+                    )
+                    precheck_payload = self.adapter.build_entry_order_payload(precheck_order)
+                    precheck_payload["FieldGroups"] = ["Costs", "MarginImpactBuySell"]
+                    result = self.adapter.precheck_order(precheck_payload)
                     evaluation["precheck"] = str(result.get("PreCheckResult") or "UNKNOWN")
                     evaluation["precheck_error"] = result.get("ErrorInfo")
                     if evaluation["precheck"] == "Ok":
@@ -450,6 +471,7 @@ class InternationalPaperTradingJob:
                         funnel["risk_approved"] = int(funnel["risk_approved"]) + 1
                         funnel["capital_approved"] = int(funnel["capital_approved"]) + 1
                         evaluation["qualified"] = True
+                        evaluation["precheck_payload"] = precheck_payload
                         selected = (ranked_candidate, source, proposal)
                         evaluations.append(evaluation)
                         break
@@ -479,7 +501,10 @@ class InternationalPaperTradingJob:
             funnel["orders_accepted"] = int(bool(execution.order_id))
             funnel["orders_rejected"] = int(not execution.submitted)
             funnel["fills"] = int(bool(execution.trade_id))
-            funnel.update({"final_bottleneck": None if execution.submitted else "ORDER_SUBMISSION", "rejection_reason": None if execution.submitted else execution.reason})
+            funnel.update({"final_bottleneck": None if execution.submitted else "ORDER_SUBMISSION", "rejection_reason": None if execution.submitted else execution.reason,
+                           "precheck_passed": 1, "submission_attempted": 1,
+                           "submission_accepted": int(execution.submitted),
+                           "submission_rejected": int(not execution.submitted)})
             _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International candidate reached SIM execution", {**discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "ACTIVE — DEPLOYING CAPITAL" if execution.submitted else "BLOCKED — SAXO EXECUTION", "order_id": execution.order_id, "execution_reason": execution.reason})
         funnel.update({"final_bottleneck": "NO_QUALIFIED_EXECUTION", "rejection_reason": "All candidates rejected before submission"})

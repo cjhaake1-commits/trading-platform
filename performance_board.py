@@ -193,6 +193,7 @@ def build_pillars(snapshot, runtime, live_status=None, kalshi=None, live_positio
     live_positions = live_positions if isinstance(live_positions, list) else []
     saxo_live = saxo_live if isinstance(saxo_live, dict) else {}
     perf = snapshot.get("pillar_performance") if isinstance(snapshot.get("pillar_performance"), dict) else {}
+    latest_cycle = snapshot.get("latest_cycle") if isinstance(snapshot.get("latest_cycle"), dict) else {}
     broker_totals = _live_position_totals(live_positions)
     rows = []
     for name in PILLAR_ORDER:
@@ -250,6 +251,25 @@ def build_pillars(snapshot, runtime, live_status=None, kalshi=None, live_positio
         daily_return = today_pnl / BASE_CAPITAL if BASE_CAPITAL else 0.0
         engine_active = _engine_active(name, runtime, state, kalshi, saxo_live)
         exposure_state = _exposure_state(engine_active, broker_positions, working_orders)
+        if name == "Crypto":
+            state_name = "ACTIVE — SEEKING EDGE"
+            if first_number(latest_cycle, ["crypto_qualified"], 0) > 0:
+                state_name = "ACTIVE — QUALIFIED / ENTRY BLOCKED"
+            if broker_positions:
+                state_name = "ACTIVE — POSITION OPEN"
+            elif working_orders:
+                state_name = "ACTIVE — ORDER WORKING"
+            exposure_state = state_name if engine_active else exposure_state
+            activity_reason = (f"Scanned {int(first_number(latest_cycle, ['crypto_scanned'], 0))} · "
+                               f"Qualified {int(first_number(latest_cycle, ['crypto_qualified'], 0))} · "
+                               f"Lifecycle Blocked {int(first_number(latest_cycle, ['crypto_manifest_blocked'], 0))}")
+        elif name == "International":
+            exposure_state = ("ACTIVE — WAITING FOR SESSION" if engine_active and not broker_positions and not working_orders else exposure_state)
+            activity_reason = (f"Instruments {int(first_number(latest_cycle, ['instruments_discovered'], 0))} · "
+                               f"Venues {int(first_number(latest_cycle, ['venues_discovered'], 0))} · "
+                               f"Open Venues {int(first_number(latest_cycle, ['venues_open'], 0))}")
+        else:
+            activity_reason = ""
         if legacy_call and not engine_active:
             exposure_state = "UNAVAILABLE"
         rows.append(
@@ -271,6 +291,7 @@ def build_pillars(snapshot, runtime, live_status=None, kalshi=None, live_positio
                 "positions": broker_positions,
                 "working_orders": working_orders,
                 "completed_today": completed_today,
+                "activity_reason": activity_reason,
             }
         )
     return rows
@@ -400,6 +421,7 @@ def main():
             f"""<div class="pillar-card">
             <div class="pillar-head"><div class="pillar-name">{row["display"]}</div><div class="{engine_class}">{engine_label}</div></div>
             <div class="market-state">{row["state"]}</div>
+            <div class="board-sub">{row["activity_reason"]}</div>
             <div class="pillar-grid">
               <div><div class="k">Equity</div><div class="v">{money(row["equity"])}</div></div>
               <div><div class="k">Deployed</div><div class="v">{money(row["deployed"])}</div></div>
