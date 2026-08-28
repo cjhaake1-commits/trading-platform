@@ -74,9 +74,15 @@ class FoundationAuditJob:
         for position in positions:
             if not isinstance(position, dict):
                 continue
+            if str(position.get("broker") or "").lower() == "ledger snapshot":
+                continue
             raw = str(position.get("pillar") or "").lower()
-            pillar = "Crypto" if "crypto" in raw else "Metals/Commodities" if "metal" in raw else "Stocks"
-            position_values[pillar] += float(position.get("market_value") or 0.0)
+            symbol = str(position.get("symbol") or "").upper()
+            asset_class = str(position.get("asset_class") or "").lower()
+            pillar = ("Crypto" if "crypto" in raw or asset_class == "crypto" or symbol.endswith("USD")
+                      else "Metals/Commodities" if "metal" in raw else "Forex" if asset_class == "forex" else "Stocks")
+            cost = float(position.get("market_value") or 0.0)
+            position_values[pillar] += cost + float(position.get("unrealized_pnl") or 0.0)
         normalized = {}
         for pillar in pillars:
             values = performance.get(pillar) or {}
