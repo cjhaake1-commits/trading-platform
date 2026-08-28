@@ -171,6 +171,14 @@ class HighVelocityResearchJob:
                 estimated_costs=candidate.estimated_costs, net_expected_edge=candidate.expected_net_edge,
                 capital_committed=0.0, notional_exposure=0.0, status="QUALIFIED",
             )
+        for lane, reason in (
+            ("SHORT", "CAPABILITY_BLOCKED: no confirmed short execution candidate in this cycle"),
+            ("DERIVATIVE_SIM", "CAPABILITY_BLOCKED: no connected provider derivative capability/data"),
+            ("ARBITRAGE_SIM", "CAPABILITY_BLOCKED: no authenticated executable quote source"),
+        ):
+            ledger.record(timestamp=now.astimezone(UTC).isoformat(), pillar="Research", lane=lane,
+                          strategy="capability_discovery", symbol="", direction="", provider="provider-truth",
+                          timeframe="", mode="PAPER_RESEARCH", exit_reason=reason, status="REJECTED")
         lane_summary = ledger.write_summary()
         return JobResult(
             True,

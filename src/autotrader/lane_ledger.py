@@ -40,11 +40,16 @@ class PaperLaneLedger:
         out = {}
         with sqlite3.connect(self.path) as db:
             for lane in LANES:
-                rows = db.execute("SELECT status, net_realized_pnl, simulated_pnl, fees, capital_committed, holding_time FROM lane_events WHERE lane=?", (lane,)).fetchall()
+                rows = db.execute("SELECT status, net_realized_pnl, simulated_pnl, fees, capital_committed, holding_time, exit_reason FROM lane_events WHERE lane=?", (lane,)).fetchall()
                 realized = sum(float(r[1] or 0) for r in rows)
                 simulated = sum(float(r[2] or 0) for r in rows)
                 closed = [r for r in rows if r[0] == "CLOSED"]
-                out[lane] = {"sample_size": len(closed), "candidates": len(rows), "closed": len(closed), "net_realized_pnl": realized, "simulated_pnl": simulated, "fees": sum(float(r[3] or 0) for r in rows), "capital_committed": sum(float(r[4] or 0) for r in rows), "average_hold": (sum(float(r[5] or 0) for r in closed) / len(closed) if closed else 0.0), "expectancy": realized / len(closed) if closed else 0.0}
+                qualified = [r for r in rows if r[0] in {"QUALIFIED", "EXECUTED", "SIMULATED", "OPEN", "CLOSED"}]
+                wins = [r for r in closed if float(r[1] or r[2] or 0) > 0]
+                losses = [r for r in closed if float(r[1] or r[2] or 0) < 0]
+                blocked = [r for r in rows if "CAPABILITY_BLOCKED" in str(r[6] or "")]
+                state = "CAPABILITY_BLOCKED" if blocked and not qualified else ("COLLECTING" if not qualified else "ACTIVE")
+                out[lane] = {"state": state, "sample_size": len(closed), "candidates": len(rows), "qualified": len(qualified), "executed": sum(r[0] == "EXECUTED" for r in rows), "simulated": sum(r[0] == "SIMULATED" for r in rows), "open": sum(r[0] == "OPEN" for r in rows), "closed": len(closed), "wins": len(wins), "losses": len(losses), "net_realized_pnl": realized, "simulated_pnl": simulated, "fees": sum(float(r[3] or 0) for r in rows), "capital_committed": sum(float(r[4] or 0) for r in rows), "notional_exposure": 0.0, "average_hold": (sum(float(r[5] or 0) for r in closed) / len(closed) if closed else 0.0), "expectancy": realized / len(closed) if closed else 0.0, "profit_factor": (sum(float(r[1] or r[2] or 0) for r in wins) / abs(sum(float(r[1] or r[2] or 0) for r in losses)) if losses else 0.0), "drawdown": 0.0, "capital_turns": 0.0, "return_per_dollar": realized / sum(float(r[4] or 0) for r in closed) if closed and sum(float(r[4] or 0) for r in closed) else 0.0, "return_per_hour": 0.0, "last_update": datetime.now(UTC).isoformat(), "blocker_reason": str(blocked[-1][6]) if blocked else None}
         return out
 
     def write_summary(self, path: str | Path = "var/autotrader/learning/paper-lane-summary.json") -> dict[str, object]:
