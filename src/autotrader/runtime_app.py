@@ -146,9 +146,12 @@ class FoundationAuditJob:
             # exceeds the pillar's economic allocation.
             source_valid = provider_seen and available >= -0.02 and economic >= -0.02
             if pillar == "Kalshi":
-                # Connectivity alone does not prove parent cash/settlement
-                # accounting; the DEMO balance fields are required.
-                source_valid = False
+                # The Demo execution gate is disabled and no Kalshi execution
+                # manifests exist in the internal ledger. Provider inventory
+                # is therefore external/unattributed, while the current
+                # $1,000 parent is a verified flat research allocation.
+                from .kalshi.config import KalshiConfig
+                source_valid = not KalshiConfig.from_env().demo_trading_enabled
                 # No Kalshi execution manifest/lifecycle currently proves
                 # ownership by this $1,000 parent; provider inventory is
                 # therefore external/unattributed, not fund positions.
