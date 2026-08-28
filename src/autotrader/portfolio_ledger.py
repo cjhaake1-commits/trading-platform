@@ -77,6 +77,16 @@ class PortfolioLedger:
                     reconciled_at TEXT NOT NULL,
                     metadata_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS pillar_day_start_equity (
+                    pillar TEXT NOT NULL,
+                    equity_date TEXT NOT NULL,
+                    timezone TEXT NOT NULL,
+                    day_start_timestamp TEXT NOT NULL,
+                    starting_economic_equity REAL NOT NULL,
+                    source TEXT NOT NULL,
+                    persisted_at TEXT NOT NULL,
+                    PRIMARY KEY (pillar, equity_date)
+                );
                 CREATE TABLE IF NOT EXISTS crypto_entry_state (
                     symbol TEXT PRIMARY KEY,
                     broker TEXT NOT NULL,
@@ -151,6 +161,38 @@ class PortfolioLedger:
                 );
                 """
             )
+
+    def save_pillar_day_start_equity(
+        self,
+        *,
+        pillar: str,
+        equity_date: str,
+        timezone: str,
+        day_start_timestamp: str,
+        starting_economic_equity: float,
+        source: str,
+    ) -> None:
+        """Persist the immutable daily economic-equity denominator per pillar."""
+        if not pillar or not equity_date or starting_economic_equity <= 0:
+            raise ValueError("pillar, equity_date, and positive starting equity are required")
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO pillar_day_start_equity
+                   (pillar, equity_date, timezone, day_start_timestamp,
+                    starting_economic_equity, source, persisted_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(pillar, equity_date) DO NOTHING""",
+                (pillar, equity_date, timezone, day_start_timestamp,
+                 float(starting_economic_equity), source, datetime.now(UTC).isoformat()),
+            )
+
+    def load_pillar_day_start_equity(self, *, pillar: str, equity_date: str) -> dict[str, object] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM pillar_day_start_equity WHERE pillar=? AND equity_date=?",
+                (pillar, equity_date),
+            ).fetchone()
+        return dict(row) if row else None
 
     def archive_manifest(self, manifest_id: str, *, category: str, reason: str, evidence: list[str]) -> None:
         """Append an auditable archive disposition; never delete the source manifest."""
