@@ -6,11 +6,12 @@ import os
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Mapping
-from urllib.parse import quote_plus, urlencode
+from typing import Any
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
@@ -19,13 +20,6 @@ DEFAULT_USER_AGENT = "trading-platform-research/0.1 contact=research@example.inv
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _split_csv(value: str) -> tuple[str, ...]:
@@ -53,11 +47,7 @@ class PublicObservation:
 
 
 class PublicIntelligenceStore:
-    """Append-only research store for lawful public observations.
-
-    This database is intentionally separate from broker/execution state. Rows
-    are research evidence only and have no direct order-placement authority.
-    """
+    """Append-only research store with no broker/execution authority."""
 
     def __init__(self, path: str | Path = "var/autotrader/public-intelligence.db") -> None:
         self.path = Path(path)
@@ -131,7 +121,15 @@ class PublicIntelligenceStore:
             )
         return len(payload)
 
-    def health(self, source: str, *, state: str, records: int, latency_ms: float, error: str | None = None) -> None:
+    def health(
+        self,
+        source: str,
+        *,
+        state: str,
+        records: int,
+        latency_ms: float,
+        error: str | None = None,
+    ) -> None:
         now = _utc_now()
         with self._connect() as connection:
             connection.execute(
@@ -235,6 +233,10 @@ class SecSubmissionsSource:
         self.ciks = tuple(str(cik).strip().zfill(10) for cik in configured if str(cik).strip())
 
     def collect(self, now: datetime) -> list[PublicObservation]:
+        if not self.ciks:
+            return []
+        if self.client.user_agent == DEFAULT_USER_AGENT or ".invalid" in self.client.user_agent:
+            raise RuntimeError("Set PUBLIC_DATA_USER_AGENT with a real operator/contact before SEC EDGAR collection")
         observations: list[PublicObservation] = []
         for cik in self.ciks:
             url = f"https://data.sec.gov/submissions/CIK{cik}.json"
@@ -365,7 +367,14 @@ class EiaSource:
     def collect(self, now: datetime) -> list[PublicObservation]:
         if not self.api_key:
             return []
-        params = urlencode({"api_key": self.api_key, "length": "25", "sort[0][column]": "period", "sort[0][direction]": "desc"})
+        params = urlencode(
+            {
+                "api_key": self.api_key,
+                "length": "25",
+                "sort[0][column]": "period",
+                "sort[0][direction]": "desc",
+            }
+        )
         url = f"https://api.eia.gov{self.route}?{params}"
         payload = self.client.json(url)
         response = payload.get("response", {}) if isinstance(payload, dict) else {}
@@ -374,9 +383,8 @@ class EiaSource:
         for item in data if isinstance(data, list) else []:
             if not isinstance(item, dict):
                 continue
-            value = item.get("value")
             try:
-                numeric = float(value)
+                numeric = float(item.get("value"))
             except (TypeError, ValueError):
                 numeric = None
             rows.append(
@@ -397,11 +405,7 @@ class EiaSource:
 
 
 class ConfiguredJsonSource:
-    """Generic lawful-public JSON endpoint adapter for CFTC/FINRA/etc.
-
-    Endpoint URLs are deliberately supplied by configuration because public
-    dataset identifiers and licensing/registration requirements can change.
-    """
+    """Generic configured lawful-public JSON endpoint for CFTC/FINRA/etc."""
 
     def __init__(self, name: str, env_url: str, client: JsonHttpClient | None = None) -> None:
         self.name = name
@@ -423,7 +427,10 @@ class ConfiguredJsonSource:
                     source=self.name,
                     event_type="public_dataset",
                     observed_at=now.astimezone(UTC).isoformat(),
-                    source_time=str(item.get("date") or item.get("report_date_as_yyyy_mm_dd") or item.get("period") or "") or None,
+                    source_time=str(
+                        item.get("date") or item.get("report_date_as_yyyy_mm_dd") or item.get("period") or ""
+                    )
+                    or None,
                     symbol=str(item.get("symbol") or item.get("contract_market_name") or "") or None,
                     title=str(item.get("title") or item.get("market_and_exchange_names") or "") or None,
                     url=url,
@@ -436,7 +443,11 @@ class ConfiguredJsonSource:
 class PublicIntelligenceCollector:
     """Collect independent public research sources without broker control."""
 
-    def __init__(self, store: PublicIntelligenceStore | None = None, sources: Iterable[Any] | None = None) -> None:
+    def __init__(
+        self,
+        store: PublicIntelligenceStore | None = None,
+        sources: Iterable[Any] | None = None,
+    ) -> None:
         self.store = store or PublicIntelligenceStore()
         if sources is None:
             sources = (
@@ -466,7 +477,12 @@ class PublicIntelligenceCollector:
                 latency = (time.perf_counter() - started) * 1000.0
                 error = f"{type(exc).__name__}: {exc}"
                 self.store.health(source.name, state="DEGRADED", records=0, latency_ms=latency, error=error)
-                results[source.name] = {"state": "DEGRADED", "records": 0, "latency_ms": latency, "error": error}
+                results[source.name] = {
+                    "state": "DEGRADED",
+                    "records": 0,
+                    "latency_ms": latency,
+                    "error": error,
+                }
         return {
             "observed_at": observed.astimezone(UTC).isoformat(),
             "sources": results,
@@ -483,12 +499,7 @@ async def stream_coinbase_and_bluesky(
     bluesky_collections: Iterable[str] | None = None,
     max_events: int | None = None,
 ) -> dict[str, int]:
-    """Consume public high-rate streams for research-only pattern learning.
-
-    Coinbase provides market microstructure observations. Bluesky Jetstream
-    provides public social activity. Both are normalized into the same durable
-    event store. This function has no broker imports and cannot submit orders.
-    """
+    """Consume public high-rate market and social streams for research only."""
 
     try:
         import websockets
@@ -497,7 +508,9 @@ async def stream_coinbase_and_bluesky(
 
     store = PublicIntelligenceStore(store_path)
     product_ids = tuple(products or _split_csv(os.getenv("PUBLIC_COINBASE_PRODUCTS", "BTC-USD,ETH-USD,SOL-USD")))
-    collections = tuple(bluesky_collections or _split_csv(os.getenv("PUBLIC_BLUESKY_COLLECTIONS", "app.bsky.feed.post")))
+    collections = tuple(
+        bluesky_collections or _split_csv(os.getenv("PUBLIC_BLUESKY_COLLECTIONS", "app.bsky.feed.post"))
+    )
     counts = {"coinbase": 0, "bluesky": 0}
     stop = asyncio.Event()
 
@@ -519,7 +532,16 @@ async def stream_coinbase_and_bluesky(
                 if kind not in {"ticker", "snapshot", "l2update"}:
                     continue
                 metadata: dict[str, object] = {"type": kind}
-                for key in ("price", "best_bid", "best_ask", "last_size", "side", "changes", "bids", "asks"):
+                for key in (
+                    "price",
+                    "best_bid",
+                    "best_ask",
+                    "last_size",
+                    "side",
+                    "changes",
+                    "bids",
+                    "asks",
+                ):
                     if key in message:
                         metadata[key] = message[key]
                 store.append(
