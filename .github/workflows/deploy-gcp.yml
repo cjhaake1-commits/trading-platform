@@ -123,6 +123,7 @@ jobs:
           # Validate in the VM environment before restarting anything.
           .venv/bin/python -m py_compile streamlit_app.py
           .venv/bin/python -m compileall -q src
+          .venv/bin/python -m ensurepip --upgrade >/dev/null
           .venv/bin/python -m pip install -q -e '.[streaming]'
 
           CHANGED=$(git diff --name-only "$BEFORE" "$TARGET" || true)
