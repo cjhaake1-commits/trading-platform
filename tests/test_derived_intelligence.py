@@ -35,6 +35,7 @@ def test_derived_engine_builds_microstructure_narrative_and_lead_lag_features(tm
     result = DerivedIntelligenceEngine(store).run(now)
 
     assert result["research_only"] is True
+    assert result["version"] == 1
     assert result["broker_control"] is False
     assert result["state"] == "ACTIVE"
     names = {row["feature_name"] for row in store.derived_features()}

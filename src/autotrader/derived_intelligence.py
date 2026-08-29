@@ -10,6 +10,7 @@ from statistics import fmean
 from .public_market_intelligence import PublicIntelligenceStore
 
 TOKEN = re.compile(r"[a-z][a-z0-9$-]{2,}")
+DERIVED_INTELLIGENCE_VERSION = 1
 STOPWORDS = frozenset(
     "about after again against because being between could from have into more most other over same such than that their there these they this through under very what when where which while will with would".split()
 )
@@ -224,6 +225,7 @@ class DerivedIntelligenceEngine:
         written = self.store.append_features(rows)
         counts = Counter(str(row["feature_name"]) for row in rows)
         return {
+            "version": DERIVED_INTELLIGENCE_VERSION,
             "state": "ACTIVE" if written else "IDLE",
             "features_written": written,
             "feature_counts": dict(sorted(counts.items())),
