@@ -67,6 +67,26 @@ PILLAR_JOB_MAP = {
 }
 
 
+def load_authoritative_accounting() -> dict[str, dict[str, object]]:
+    """Load the runtime's persisted provider-normalized financial truth.
+
+    The published JSON is deliberately not consulted here.  A missing or
+    unreadable ledger remains missing so the UI cannot turn an unknown read
+    into a reassuring zero.
+    """
+    try:
+        from autotrader.portfolio_ledger import PortfolioLedger
+
+        rows = PortfolioLedger(str(ROOT / "var/autotrader/portfolio.db")).load_accounting_snapshots()
+    except Exception:
+        return {}
+    return {
+        str(row.get("pillar")): row
+        for row in rows
+        if isinstance(row, dict) and row.get("pillar")
+    }
+
+
 def _canonical_symbol(symbol: object) -> str:
     value = str(symbol or "").strip().upper().replace("_", "/")
     if "/" in value:
@@ -1308,6 +1328,7 @@ def _decision_row(row: dict[str, object]) -> str:
 def _build_dashboard_context() -> dict[str, object]:
     live_runtime = load_live_runtime_status()
     snapshot = load_snapshot()
+    authoritative_accounting = load_authoritative_accounting()
     experiment = load_experiment_state()
     runtime = (
         live_runtime
@@ -1454,6 +1475,25 @@ def _build_dashboard_context() -> dict[str, object]:
     cumulative_realized = _float(cash.get("cumulative_realized_return") or cash.get("realized_return"))
     generated_cash_ratio = _float(cash.get("generated_cash_ratio") or cash.get("realized_return"))
     daily_performance = _daily_performance_metrics(cash)
+    # Financial totals are owned by the normalized provider ledger.  Legacy
+    # snapshot cash/P&L remains available for research and operational context,
+    # never as a fallback for these displayed totals.
+    accounting_rows = list(authoritative_accounting.values())
+    if accounting_rows and all(row.get("economic_equity") is not None for row in accounting_rows):
+        total_equity = sum(float(row["economic_equity"]) for row in accounting_rows)
+        deployed = sum(float(row.get("deployed_cash") or 0.0) for row in accounting_rows)
+        available_cash = sum(float(row["available_cash"]) for row in accounting_rows if row.get("available_cash") is not None)
+        protected_cash = sum(float(row.get("pending") or 0.0) for row in accounting_rows)
+        unrealized = sum(float(row.get("unrealized") or 0.0) for row in accounting_rows)
+        net_cash = sum(float(row.get("realized_today") or 0.0) for row in accounting_rows)
+        daily_performance = dict(daily_performance)
+        daily_performance.update({
+            "current_equity": total_equity,
+            "starting_equity": sum(float(row.get("starting_equity") or 0.0) for row in accounting_rows),
+            "realized_pnl": net_cash,
+            "unrealized_pnl": unrealized,
+            "total_pnl": net_cash + unrealized,
+        })
     dist_low = 0.20 - daily_realized
     dist_high = 0.40 - daily_realized
     return {
@@ -1468,6 +1508,7 @@ def _build_dashboard_context() -> dict[str, object]:
         "live_metrics": live_metrics,
         "live_pillar_status": live_pillar_status,
         "live_errors": live_errors,
+        "authoritative_accounting": authoritative_accounting,
         "broker_positions": broker_positions,
         "positions": positions,
         "active_positions": active_positions,
@@ -2724,6 +2765,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
     runtime = ctx["runtime"] if isinstance(ctx["runtime"], dict) else {}
     activity = ctx["activity"] if isinstance(ctx["activity"], list) else []
     v2_metrics = _pillars_from_snapshot(ctx["snapshot"])
+    authoritative = ctx.get("authoritative_accounting") if isinstance(ctx.get("authoritative_accounting"), dict) else {}
     kalshi_status = _kalshi_status()
     _render_live_results(ctx)
     _render_crypto_strategy_health()
@@ -2734,6 +2776,22 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
         job = job if isinstance(job, dict) else {}
         broker_state = live_pillar_status.get(name) if isinstance(live_pillar_status, dict) else {}
         broker_state = broker_state if isinstance(broker_state, dict) else {}
+        ledger_name = {"US Stocks / ETFs": "Stocks", "Metals / Commodities": "Metals/Commodities"}.get(name, name)
+        ledger_row = authoritative.get(ledger_name) if isinstance(authoritative.get(ledger_name), dict) else None
+        if ledger_row is not None:
+            broker_state = dict(broker_state)
+            broker_state.update({
+                "strategy_deployed": ledger_row.get("deployed_cash"),
+                "strategy_cost_basis": ledger_row.get("deployed_cash"),
+                "strategy_market_value": ledger_row.get("position_market_value"),
+                "pending_capital": ledger_row.get("pending"),
+                "available_cash": ledger_row.get("available_cash"),
+                "unrealized_pnl": ledger_row.get("unrealized"),
+                "positions": ledger_row.get("positions"),
+                "working_orders": ledger_row.get("working_orders"),
+                "freshness": ledger_row.get("freshness"),
+                "accounting_status": ledger_row.get("accounting_status"),
+            })
         positions_count = int(broker_state.get("positions", (v2_metrics.get(name) or {}).get("positions", 0)) or 0)
         strategy_deployed = _float(broker_state.get("strategy_deployed", (v2_metrics.get(name) or {}).get("deployed", 0.0)))
         current_state, connection, blocker = _derive_pillar_state(name, job, broker_state, activity)
@@ -2773,8 +2831,8 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "gross_notional": _float(broker_state.get("gross_notional", 0.0)),
                 "margin_used": _float(broker_state.get("margin_used", 0.0)),
                 "pending": _float(broker_state.get("pending_capital")),
-                "available": max(PILLAR_BASE_CAPITAL - strategy_deployed - _float(broker_state.get("pending_capital")), 0.0),
-                "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
+                "available": ledger_row.get("available_cash") if ledger_row is not None else max(PILLAR_BASE_CAPITAL - strategy_deployed - _float(broker_state.get("pending_capital")), 0.0),
+                "realized_pnl": ledger_row.get("realized_today") if ledger_row is not None else _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
                 "unrealized_pnl": _float(broker_state.get("unrealized_pnl", (v2_metrics.get(name) or {}).get("unrealized_pnl", 0.0))),
                 "positions": positions_count,
                 "positions_unknown": bool(broker_state.get("positions_unknown")),
@@ -3305,7 +3363,7 @@ def render_dashboard() -> None:
         """,
         unsafe_allow_html=True,
     )
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=bool(st.session_state.get("dashboard_auto_refresh", True)))
+    auto_refresh = st.sidebar.toggle("Auto Refresh", value=bool(st.session_state.get("dashboard_auto_refresh", False)))
     st.session_state["dashboard_auto_refresh"] = auto_refresh
     refresh_interval = st.sidebar.radio(
         "Refresh Interval",

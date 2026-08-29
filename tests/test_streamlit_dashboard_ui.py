@@ -137,3 +137,15 @@ def test_return_and_cash_harvest_objectives_are_separate():
     assert "REALIZED CASH GENERATED" in source
     assert "harvest_floor_progress" in source
     assert "daily_performance.json" in source
+
+
+def test_streamlit_dashboard_reads_normalized_ledger_authority():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert "def load_authoritative_accounting" in source
+    assert "PortfolioLedger" in source
+    assert '"authoritative_accounting"' in source
+
+
+def test_streamlit_dashboard_defaults_auto_refresh_off():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert 'st.session_state.get("dashboard_auto_refresh", False)' in source
