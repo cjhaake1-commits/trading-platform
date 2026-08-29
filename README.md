@@ -47,7 +47,7 @@ The AI research layer is based on:
 
 - https://github.com/TauricResearch/TradingAgents
 
-We will wrap TradingAgents behind an adapter so market scanning, risk controls, paper/live execution, and broker integrations remain independent modules.
+We wrap TradingAgents behind an adapter so market scanning, risk controls, paper/live execution, and broker integrations remain independent modules.
 
 ## Initial safety defaults
 
@@ -61,6 +61,26 @@ We will wrap TradingAgents behind an adapter so market scanning, risk controls, 
 - Every accepted entry must have an explicit stop/invalidation price
 - Every decision is logged
 
+## Bloomberg research connector
+
+The repository contains an optional, licensed, research-only Bloomberg BLPAPI adapter. Bloomberg is disabled by default and requires an authorized Bloomberg subscription or enterprise agreement plus applicable data entitlements.
+
+```bash
+autotrader-bloomberg-check --show-config
+```
+
+See `docs/BLOOMBERG_AND_BENCHMARK_READINESS.md` before configuring Desktop API, Server API, or B-PIPE access. The Linux VM must not be treated as a Bloomberg Terminal Desktop API host.
+
+## Paper benchmark readiness
+
+The platform includes a diversified benchmark catalog spanning major indexes, broad and specialized ETFs, common broad-market mutual-fund comparators, and crypto hurdles. Paper evidence is evaluated with:
+
+```bash
+autotrader-benchmark-readiness
+```
+
+The default gate requires roughly six trading months, confirmed completed trades, multiple market regimes, realistic costs, stress-test survival, verified accounting/data lineage, rolling benchmark consistency, and bounded drawdown. A passing result is `PAPER_EDGE_CONFIRMED`; it never enables live trading and only permits a separate human, legal, risk, and operational review.
+
 ## Development stack
 
 - Python 3.12
@@ -71,4 +91,4 @@ We will wrap TradingAgents behind an adapter so market scanning, risk controls, 
 
 ## Next milestone
 
-Build the domain models, deterministic risk engine, paper broker, TradingAgents adapter, and unit tests.
+Continue paper-data learning, benchmark attribution, stress testing, source governance, and institutional-quality auditability before any separately approved live-capital validation.
