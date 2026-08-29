@@ -67,6 +67,8 @@ def signed_money(value):
 
 
 def signed_pct(value):
+    if value is None:
+        return "UNAVAILABLE"
     value = f(value)
     sign = "+" if value > 0 else ""
     return f"{sign}{value * 100:.2f}%"
@@ -475,17 +477,21 @@ def main():
         foundation_report=foundation_report,
     )
 
-    fund_equity = sum(row["equity"] for row in pillars)
-    deployed = sum(row["deployed"] for row in pillars)
-    pending = sum(row["pending"] for row in pillars)
-    available = sum(row["available"] for row in pillars)
-    realized_today = sum(row["realized"] for row in pillars)
-    unrealized = sum(row["unrealized"] for row in pillars)
-    today_pnl = sum(row["today_pnl"] for row in pillars)
-    total_pnl = fund_equity - FUND_STARTING_CAPITAL
-    daily_return = today_pnl / FUND_STARTING_CAPITAL if FUND_STARTING_CAPITAL else 0.0
+    def aggregate(field):
+        values = [row.get(field) for row in pillars]
+        return None if any(value is None for value in values) else sum(values)
+
+    fund_equity = aggregate("equity")
+    deployed = aggregate("deployed")
+    pending = aggregate("pending")
+    available = aggregate("available")
+    realized_today = aggregate("realized")
+    unrealized = aggregate("unrealized")
+    today_pnl = aggregate("today_pnl")
+    total_pnl = fund_equity - FUND_STARTING_CAPITAL if fund_equity is not None else None
+    daily_return = today_pnl / FUND_STARTING_CAPITAL if today_pnl is not None and FUND_STARTING_CAPITAL else None
     active_count = sum(1 for row in pillars if row["engine_active"])
-    deployed_count = sum(1 for row in pillars if row["deployed"] > 0 or row["pending"] > 0)
+    deployed_count = sum(1 for row in pillars if (row["deployed"] or 0) > 0 or (row["pending"] or 0) > 0)
     position_count = sum(int(row["positions"]) for row in pillars)
     order_count = sum(int(row["working_orders"]) for row in pillars)
 
@@ -525,9 +531,9 @@ def main():
     b[3].metric("Unrealized P&L", signed_money(unrealized))
     c = st.columns(2)
     c[0].metric("Total P&L", signed_money(total_pnl))
-    c[1].metric("Total Return", signed_pct(total_pnl / FUND_STARTING_CAPITAL))
+    c[1].metric("Total Return", signed_pct(total_pnl / FUND_STARTING_CAPITAL if total_pnl is not None else None))
 
-    cash_progress = min(max(realized_today / DAILY_CASH_STRETCH, 0.0), 1.0)
+    cash_progress = min(max((realized_today or 0.0) / DAILY_CASH_STRETCH, 0.0), 1.0)
     st.markdown(
         f'<div class="goal"><div class="goal-top"><div><small>DAILY REALIZED CASH</small><br><strong>{signed_money(realized_today)}</strong></div><div><small>FLOOR / STRETCH</small><br><strong>$500 / $1,000</strong></div></div><div class="bar"><div style="width:{cash_progress * 100:.1f}%"></div></div></div>',
         unsafe_allow_html=True,
@@ -577,7 +583,7 @@ def main():
     # Realized cash is the primary research objective. Simulated lanes remain
     # explicitly separate from provider-realized cash and never affect equity.
     st.markdown('<div class="section">Cash Generation & Research</div>', unsafe_allow_html=True)
-    realized_today = sum(float(row.get("realized") or 0.0) for row in pillars)
+    realized_today = sum(float(row.get("realized") or 0.0) for row in pillars if row.get("realized") is not None)
     lane_rows = lane_summary.get("lanes") if isinstance(lane_summary.get("lanes"), dict) else {}
     def lane_pnl(name):
         row = lane_rows.get(name, {}) if isinstance(lane_rows, dict) else {}
