@@ -104,3 +104,13 @@ def test_metals_insufficient_history_is_explicitly_data_readiness_blocked():
     assert result[0]["data_valid"] is False
     assert result[0]["strategy_evaluated"] is False
     assert result[0]["rejection"] == "BLOCKED — INSUFFICIENT HISTORY"
+
+
+def test_metals_readiness_accepts_provider_float_scalars():
+    job = MetalsPaperTradingJob.__new__(MetalsPaperTradingJob)
+    job.strategies = BaselineStrategies()
+    job.scanner = CandidateScanner()
+    bars = _history("GLD")
+    result = job._readiness({Instrument("GLD", AssetClass.ETF): bars}, datetime(2026, 8, 24, tzinfo=UTC))
+    assert result[0]["strategy_evaluated"] is True
+    assert result[0]["data_valid"] is True
