@@ -847,7 +847,12 @@ def _eligible_strategy_symbols() -> set[tuple[str, str]]:
 
 
 def _international_ownership() -> tuple[set[str], set[str]]:
-    """Return durable Saxo order IDs and symbols for open platform trades."""
+    """Return durable Saxo order IDs for open platform trades.
+
+    Symbols are retained only for diagnostics.  They are never ownership
+    evidence: a shared SIM account can contain multiple lots of the same
+    instrument from unrelated or legacy activity.
+    """
     order_ids: set[str] = set()
     symbols: set[str] = set()
     try:
@@ -1164,10 +1169,9 @@ def fetch_live_broker_data() -> tuple[
                 if not isinstance(raw, dict):
                     continue
                 item = _saxo_position_fields(raw)
-                owned = bool(
-                    (item["order_id"] and item["order_id"] in international_order_ids)
-                    or item["symbol"] in international_symbols
-                )
+                # A matching symbol is insufficient: only the provider's
+                # source order ID can establish platform ownership.
+                owned = bool(item["order_id"] and item["order_id"] in international_order_ids)
                 pillar_status["International"]["broker_positions"] += 1
                 positions.append({
                     "pillar": "International", "broker": "Saxo SIM",
