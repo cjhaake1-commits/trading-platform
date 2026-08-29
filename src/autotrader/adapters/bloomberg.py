@@ -5,7 +5,6 @@ import os
 import platform
 import typing
 
-
 _VALID_MODES = {"auto", "dapi", "sapi"}
 
 
