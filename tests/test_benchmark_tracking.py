@@ -12,7 +12,6 @@ from autotrader.benchmark_tracking import (
 )
 from autotrader.research_jobs import BenchmarkTrackingJob
 
-
 BENCHMARK = BenchmarkDefinition(
     key="test",
     label="Test Benchmark",
