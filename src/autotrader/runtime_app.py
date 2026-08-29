@@ -64,13 +64,11 @@ class FoundationAuditJob:
                 )
         # Financial input is read directly from providers.  dashboard/data.json
         # is an output cache only and is deliberately not read here.
-        from performance_board import _saxo_live_truth
         from streamlit_app import _alpaca_crypto_history, _kalshi_status, fetch_live_broker_data
 
         live_positions, _metrics, live_status, provider_errors = fetch_live_broker_data.__wrapped__()
         crypto_history = _alpaca_crypto_history.__wrapped__()
         kalshi = _kalshi_status()
-        saxo = _saxo_live_truth()
         position_values = {pillar: 0.0 for pillar in pillars}
         positions_counts = {pillar: 0 for pillar in pillars}
         unrealized_values = {pillar: 0.0 for pillar in pillars}
@@ -92,22 +90,15 @@ class FoundationAuditJob:
             positions_counts[pillar] += 1
             position_values[pillar] += abs(float(position.get("market_value") or 0.0))
             unrealized_values[pillar] += float(position.get("unrealized_pnl") or 0.0)
-        unrealized_values["International"] = 0.0
-        # Saxo's current positions have no platform ownership evidence, so
-        # they are provider-account observation only and excluded from fund
-        # economics pending an ownership registry entry.
-        positions_counts["International"] = 0
         realized_values = {pillar: 0.0 for pillar in pillars}
         realized_values["Crypto"] = float(crypto_history.get("realized_today") or 0.0)
-        observed = {"Stocks": bool(live_status.get("US Stocks / ETFs", {}).get("connected")), "Crypto": bool(live_status.get("Crypto", {}).get("connected")), "Forex": bool(live_status.get("Forex", {}).get("connected")), "Metals/Commodities": bool(live_status.get("Metals / Commodities", {}).get("connected")), "International": bool(saxo.get("connected")), "Kalshi": bool(kalshi.get("predictions_provider_state") == "CONNECTED" and kalshi.get("perps_provider_state") == "CONNECTED")}
+        observed = {"Stocks": bool(live_status.get("US Stocks / ETFs", {}).get("connected")), "Crypto": bool(live_status.get("Crypto", {}).get("connected")), "Forex": bool(live_status.get("Forex", {}).get("connected")), "Metals/Commodities": bool(live_status.get("Metals / Commodities", {}).get("connected")), "International": bool(live_status.get("International", {}).get("connected")), "Kalshi": bool(kalshi.get("predictions_provider_state") == "CONNECTED" and kalshi.get("perps_provider_state") == "CONNECTED")}
         crypto = crypto_history.get("transactions", [])
         normalized = {}
         for pillar in pillars:
             status_row = live_status.get("US Stocks / ETFs" if pillar == "Stocks" else "Metals / Commodities" if pillar == "Metals/Commodities" else pillar, {})
             if pillar == "Kalshi":
                 status_row = kalshi
-            if pillar == "International":
-                status_row = saxo
             provider_seen = observed[pillar]
             if not provider_seen:
                 normalized[pillar] = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": 1000.0,
@@ -128,8 +119,6 @@ class FoundationAuditJob:
             # FX notional is exposure, not economic capital consumed. Its
             # capital identity uses provider-attributable margin/deployment.
             market_value = 0.0 if pillar == "Forex" else position_values[pillar]
-            if pillar == "International":
-                deployed = 0.0
             # Capital identity is based on economic capital committed, not
             # market value/notional. Exposure remains a separate field.
             if pillar == "Stocks" and deployed > 1000.0 + 0.02:

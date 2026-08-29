@@ -61,6 +61,28 @@ def test_crypto_broker_symbol_normalization_preserves_position_ownership():
     assert rows[0]["market_value"] == 985.27
 
 
+def test_saxo_position_fields_normalize_provider_position():
+    module = importlib.import_module("streamlit_app")
+    item = module._saxo_position_fields({
+        "PositionBase": {"Amount": 2, "OpenPrice": 125.0, "SourceOrderId": "saxo-1", "AssetType": "Stock"},
+        "PositionView": {"Exposure": 260.0, "ProfitLossOnTrade": 10.0},
+        "DisplayAndFormat": {"Symbol": "7203:xnas"},
+    })
+    assert item["order_id"] == "saxo-1"
+    assert item["quantity"] == 2
+    assert item["cost_basis"] == 250.0
+    assert item["market_value"] == 260.0
+
+
+def test_dashboard_does_not_hardcode_international_or_crypto_to_zero():
+    dashboard = Path("streamlit_app.py").read_text(encoding="utf-8")
+    runtime = Path("src/autotrader/runtime_app.py").read_text(encoding="utf-8")
+    assert 'pillar_status["International"]["positions"] = 0' not in dashboard
+    assert 'if pillar == "International":\n                deployed = 0.0' not in runtime
+    assert 'unrealized_values["International"] = 0.0' not in runtime
+    assert "CRV/USD PAPER position active" not in dashboard
+
+
 def test_crypto_working_orders_override_flat_snapshot_state():
     module = importlib.import_module("streamlit_app")
     state, connection, reason = module._derive_pillar_state(

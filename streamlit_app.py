@@ -813,7 +813,10 @@ def _eligible_strategy_symbols() -> set[tuple[str, str]]:
         with sqlite3.connect("var/autotrader/portfolio.db") as conn:
             rows = conn.execute(
                 "SELECT broker, canonical_symbol, pillar FROM entry_manifests "
-                "WHERE lifecycle_state IN ('active', 'filled_position_pending')"
+                "WHERE lifecycle_state IN ("
+                "'approved_manifest','order_submitted','order_pending','filled_position_pending',"
+                "'reconciliation_pending','protection_pending','protection_submitted','active',"
+                "'reconciliation_deferred','unprotected_position','manual_review_required')"
             ).fetchall()
         for broker, symbol, pillar in rows:
             key = "alpaca_crypto" if "crypto" in str(pillar).lower() else ("oanda" if "oanda" in str(broker).lower() else "alpaca_equities")
@@ -821,6 +824,55 @@ def _eligible_strategy_symbols() -> set[tuple[str, str]]:
     except sqlite3.Error:
         pass
     return eligible
+
+
+def _international_ownership() -> tuple[set[str], set[str]]:
+    """Return durable Saxo order IDs and symbols for open platform trades."""
+    order_ids: set[str] = set()
+    symbols: set[str] = set()
+    try:
+        with sqlite3.connect("var/autotrader/international_trades.db") as conn:
+            rows = conn.execute(
+                "SELECT order_id, instrument FROM international_trades "
+                "WHERE status = 'executed' AND closed_at IS NULL"
+            ).fetchall()
+        for order_id, instrument in rows:
+            if order_id:
+                order_ids.add(str(order_id))
+            if instrument:
+                symbols.add(_canonical_symbol(instrument))
+    except sqlite3.Error:
+        pass
+    return order_ids, symbols
+
+
+def _saxo_position_fields(row: dict[str, object]) -> dict[str, object]:
+    """Normalize the provider's nested position shape without inventing values."""
+    base = row.get("PositionBase") if isinstance(row.get("PositionBase"), dict) else row
+    view = row.get("PositionView") if isinstance(row.get("PositionView"), dict) else {}
+    display = row.get("DisplayAndFormat") if isinstance(row.get("DisplayAndFormat"), dict) else {}
+    amount = _float(base.get("Amount"))
+    open_price = _float(base.get("OpenPrice"))
+    pnl = _float(view.get("ProfitLossOnTrade"))
+    exposure = abs(_float(view.get("Exposure")))
+    cost_basis = abs(amount * open_price) if amount and open_price else exposure
+    market_value = exposure if exposure else max(cost_basis + pnl, 0.0)
+    symbol = _canonical_symbol(
+        display.get("Symbol") or view.get("Symbol") or base.get("Symbol") or base.get("Uic")
+    )
+    order_id = str(
+        base.get("SourceOrderId") or base.get("OrderId") or row.get("SourceOrderId") or row.get("OrderId") or ""
+    )
+    return {
+        "symbol": symbol,
+        "order_id": order_id,
+        "quantity": amount,
+        "average_price": open_price,
+        "market_value": market_value,
+        "cost_basis": cost_basis,
+        "unrealized_pnl": pnl,
+        "asset_class": str(base.get("AssetType") or row.get("AssetType") or "international"),
+    }
 
 
 @st.cache_data(ttl=20)
@@ -837,6 +889,7 @@ def fetch_live_broker_data() -> tuple[
         "oanda_exposure": 0.0,
         "alpaca_exposure": 0.0,
     }
+    observed_at = datetime.now(UTC).isoformat()
     pillar_status = {
         "US Stocks / ETFs": {"connected": False, "positions": 0, "broker_positions": 0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
         "Crypto": {"connected": False, "positions": 0, "broker_positions": 0, "working_orders": 0, "pending_capital": 0.0, "state": "DATA UNAVAILABLE", "unrealized_pnl": 0.0, "strategy_deployed": 0.0, "strategy_cost_basis": 0.0, "strategy_market_value": 0.0, "legacy_exposure": 0.0},
@@ -846,6 +899,7 @@ def fetch_live_broker_data() -> tuple[
     }
     errors: list[str] = []
     eligible_symbols = _eligible_strategy_symbols()
+    international_order_ids, international_symbols = _international_ownership()
     active_metals_symbols: set[str] = set()
     try:
         with sqlite3.connect("var/autotrader/metals_trades.db") as conn:
@@ -949,10 +1003,26 @@ def fetch_live_broker_data() -> tuple[
                 metrics["crypto_exposure"] += market_value if is_crypto else 0.0
                 metrics["metals_exposure"] += market_value if is_metal else 0.0
             for pillar in ("US Stocks / ETFs", "Crypto", "Metals / Commodities"):
-                pillar_status[pillar]["state"] = "TRADING" if pillar_status[pillar]["positions"] else "FLAT"
+                status = pillar_status[pillar]
+                status["observed_at"] = observed_at
+                status["source"] = "Alpaca Paper direct provider read"
+                status["freshness"] = "FRESH"
+                if status["positions"]:
+                    status["state"] = "TRADING"
+                elif status["broker_positions"]:
+                    status["state"] = "BROKER EXPOSURE / OWNERSHIP UNVERIFIED"
+                else:
+                    status["state"] = "FLAT"
         except Exception as exc:
+            for pillar in ("US Stocks / ETFs", "Crypto", "Metals / Commodities"):
+                pillar_status[pillar]["positions_unknown"] = True
+                pillar_status[pillar]["freshness"] = "UNKNOWN"
+                pillar_status[pillar]["state"] = "DEGRADED / PROVIDER READ FAILED"
             errors.append(f"Alpaca live read failed: {exc}")
     else:
+        for pillar in ("US Stocks / ETFs", "Crypto", "Metals / Commodities"):
+            pillar_status[pillar]["positions_unknown"] = True
+            pillar_status[pillar]["freshness"] = "UNKNOWN"
         errors.append("Alpaca Streamlit secrets are not configured")
 
     oanda_token = _secret("OANDA_PRACTICE_TOKEN")
@@ -979,6 +1049,9 @@ def fetch_live_broker_data() -> tuple[
             margin_rate = _float(account.get("marginRate"))
             position_value = _float(account.get("positionValue"))
             pillar_status["Forex"]["connected"] = True
+            pillar_status["Forex"]["observed_at"] = observed_at
+            pillar_status["Forex"]["source"] = "OANDA Practice direct provider read"
+            pillar_status["Forex"]["freshness"] = "FRESH"
             pillar_status["Forex"]["state"] = "TRADING" if rows else "FLAT"
             pillar_status["Forex"].update({
                 "margin_used": margin_used,
@@ -1026,8 +1099,13 @@ def fetch_live_broker_data() -> tuple[
             pillar_status["Forex"]["strategy_deployed"] = margin_used
             pillar_status["Forex"]["strategy_cost_basis"] = margin_used
         except Exception as exc:
+            pillar_status["Forex"]["positions_unknown"] = True
+            pillar_status["Forex"]["freshness"] = "UNKNOWN"
+            pillar_status["Forex"]["state"] = "DEGRADED / PROVIDER READ FAILED"
             errors.append(f"OANDA live read failed: {exc}")
     else:
+        pillar_status["Forex"]["positions_unknown"] = True
+        pillar_status["Forex"]["freshness"] = "UNKNOWN"
         errors.append("OANDA Streamlit secrets are not configured")
 
     saxo_env = _secret("SAXO_ENV")
@@ -1046,16 +1124,65 @@ def fetch_live_broker_data() -> tuple[
             authenticated = str(capabilities.get("AuthenticationLevel") or "").lower() == "authenticated"
             writable = authenticated and trade_level in {"OrdersOnly", "FullTradingAndChat"}
             pillar_status["International"]["connected"] = True
-            pillar_status["International"]["positions"] = 0
-            pillar_status["International"]["state"] = (
-                "CONNECTED / READY / EVALUATING" if writable else "CONNECTED / EXTERNAL SAXO WRITE BLOCK"
-            )
-            metrics["gross_exposure"] += 0.0
-            _ = summary  # keep the read-only probe explicit and side-effect free
+            pillar_status["International"]["observed_at"] = observed_at
+            pillar_status["International"]["source"] = "Saxo SIM direct provider read + platform trade ledger"
+            pillar_status["International"]["freshness"] = "FRESH"
+            account_key = str(summary.default_account_key or "").strip()
+            if not account_key:
+                raise RuntimeError("Saxo SIM default account key unavailable")
+            position_payload = managed_saxo.list_positions(account_key=account_key)
+            provider_positions = position_payload.get("Data", []) if isinstance(position_payload, dict) else []
+            order_payload = managed_saxo.list_orders(account_key=account_key)
+            provider_orders = order_payload.get("Data", []) if isinstance(order_payload, dict) else []
+            for order in provider_orders if isinstance(provider_orders, list) else []:
+                order_id = str(order.get("OrderId") or order.get("SourceOrderId") or "") if isinstance(order, dict) else ""
+                if order_id in international_order_ids:
+                    pillar_status["International"]["working_orders"] = int(
+                        pillar_status["International"].get("working_orders", 0) or 0
+                    ) + 1
+            for raw in provider_positions if isinstance(provider_positions, list) else []:
+                if not isinstance(raw, dict):
+                    continue
+                item = _saxo_position_fields(raw)
+                owned = bool(
+                    (item["order_id"] and item["order_id"] in international_order_ids)
+                    or item["symbol"] in international_symbols
+                )
+                pillar_status["International"]["broker_positions"] += 1
+                positions.append({
+                    "pillar": "International", "broker": "Saxo SIM",
+                    "asset_class": item["asset_class"], "symbol": item["symbol"],
+                    "quantity": item["quantity"], "average_price": item["average_price"],
+                    "current_price": None, "market_value": item["market_value"],
+                    "unrealized_pnl": item["unrealized_pnl"], "unrealized_pct": None,
+                    "classification": "VALID_STRATEGY_POSITION" if owned else "LEGACY_BROKER_EXPOSURE",
+                    "classification_reason": "open executed platform trade matched Saxo position" if owned else "Saxo position has no open platform trade ownership record",
+                })
+                metrics["gross_exposure"] += _float(item["market_value"])
+                if owned:
+                    pillar_status["International"]["positions"] += 1
+                    pillar_status["International"]["strategy_deployed"] += _float(item["cost_basis"])
+                    pillar_status["International"]["strategy_cost_basis"] += _float(item["cost_basis"])
+                    pillar_status["International"]["strategy_market_value"] += _float(item["market_value"])
+                    pillar_status["International"]["unrealized_pnl"] += _float(item["unrealized_pnl"])
+                    metrics["unrealized_pnl"] += _float(item["unrealized_pnl"])
+                else:
+                    pillar_status["International"]["legacy_exposure"] += _float(item["market_value"])
+            status = pillar_status["International"]
+            if status["positions"]:
+                status["state"] = "TRADING"
+            elif status["broker_positions"]:
+                status["state"] = "BROKER EXPOSURE / OWNERSHIP UNVERIFIED"
+            elif writable:
+                status["state"] = "CONNECTED / READY / EVALUATING"
+            else:
+                status["state"] = "CONNECTED / EXTERNAL SAXO WRITE BLOCK"
         except SaxoConfigurationError as exc:
             pillar_status["International"]["state"] = "AUTH REQUIRED"
             errors.append(f"International auth required: {exc}")
         except RuntimeError as exc:
+            pillar_status["International"]["positions_unknown"] = True
+            pillar_status["International"]["freshness"] = "UNKNOWN"
             message = str(exc)
             if "401" in message or "auth" in message.lower() or "token" in message.lower():
                 pillar_status["International"]["state"] = "AUTH REQUIRED"
@@ -1065,6 +1192,8 @@ def fetch_live_broker_data() -> tuple[
                 errors.append(f"International live read failed: {exc}")
     else:
         pillar_status["International"]["state"] = "AUTH REQUIRED"
+        pillar_status["International"]["positions_unknown"] = True
+        pillar_status["International"]["freshness"] = "UNKNOWN"
         errors.append("International Saxo SIM OAuth state is not configured")
 
     return positions, metrics, pillar_status, errors
@@ -1297,7 +1426,11 @@ def _build_dashboard_context() -> dict[str, object]:
     # realized provider P&L plus managed unrealized P&L.  Leveraged Forex
     # notional and legacy Alpaca exposure remain display-only exposures.
     original_capital = FUND_STARTING_CAPITAL
-    deployed = _float(cash.get("capital_deployed"))
+    deployed = sum(
+        _float(row.get("strategy_deployed"))
+        for row in live_pillar_status.values()
+        if isinstance(row, dict) and not row.get("positions_unknown")
+    )
     unrealized = _float(live_metrics.get("unrealized_pnl"), _float(cash.get("unrealized_pnl")))
     realized_by_pillar = cash.get("realized_pnl_by_pillar") if isinstance(cash.get("realized_pnl_by_pillar"), dict) else {}
     snapshot_crypto_realized = _float(realized_by_pillar.get("Crypto"))
@@ -1312,6 +1445,8 @@ def _build_dashboard_context() -> dict[str, object]:
         "total_portfolio_equity": original_capital + net_cash + unrealized,
         "strategy_equity": original_capital + net_cash + unrealized,
         "unrealized_pnl": unrealized,
+        "capital_deployed": deployed,
+        "available_cash": available_cash,
     })
     total_equity = original_capital + net_cash + unrealized
     daily_realized = _float(cash.get("daily_realized_pnl") or cash.get("daily_realized_return") or cash.get("realized_return"))
@@ -2101,6 +2236,7 @@ def _render_dashboard_legacy() -> None:
                 "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
                 "unrealized_pnl": _float(live_state.get("unrealized_pnl", 0.0)),
                 "positions": positions_count,
+                "positions_unknown": bool(live_state.get("positions_unknown")),
                 "completed_trades": _float((pillar_performance.get(name) or {}).get("number_of_trades")),
                 "win_rate": f"{_float((pillar_performance.get(name) or {}).get('win_rate')) * 100:.2f}%",
                 "expectancy": _float((pillar_performance.get(name) or {}).get("expectancy")),
@@ -2614,7 +2750,12 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
             blocker = "SIL PAPER position active"
         if name == "Crypto" and positions_count > 0 and strategy_deployed > 0:
             current_state = "ACTIVE — POSITION MANAGEMENT"
-            blocker = "CRV/USD PAPER position active"
+            active_symbols = sorted({
+                str(row.get("symbol")) for row in ctx.get("live_positions", [])
+                if isinstance(row, dict) and row.get("pillar") == "Crypto"
+                and str(row.get("classification") or "").upper() == "VALID_STRATEGY_POSITION"
+            })
+            blocker = f"{', '.join(active_symbols) or 'Crypto'} PAPER position active"
         if name == "Kalshi":
             connection = str(kalshi_status["connection"])
             current_state, kalshi_blocker = _kalshi_parent_state(kalshi_status)
@@ -2636,6 +2777,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "realized_pnl": _float((pillar_performance.get(name) or {}).get("net_generated_cash")),
                 "unrealized_pnl": _float(broker_state.get("unrealized_pnl", (v2_metrics.get(name) or {}).get("unrealized_pnl", 0.0))),
                 "positions": positions_count,
+                "positions_unknown": bool(broker_state.get("positions_unknown")),
                 "completed_trades": _float((pillar_performance.get(name) or {}).get("number_of_trades")),
                 "win_rate": f"{_float((pillar_performance.get(name) or {}).get('win_rate')) * 100:.2f}%",
                 "expectancy": _float((pillar_performance.get(name) or {}).get("expectancy")),
@@ -2651,7 +2793,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "blocker": blocker,
                 "legacy_exposure": _float(broker_state.get("legacy_exposure", 0.0)),
                 "legacy_positions": max(int(broker_state.get("broker_positions", 0) or 0) - positions_count, 0),
-                "data": (v2_metrics.get(name) or {}).get("data", "FRESH" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
+                "data": broker_state.get("freshness") or (v2_metrics.get(name) or {}).get("data", "FRESH" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
                 "research": (v2_metrics.get(name) or {}).get("research", "ACTIVE" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
                 "learning": (v2_metrics.get(name) or {}).get("learning", "ACTIVE" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
                 "evidence": (v2_metrics.get(name) or {}).get("evidence", "COLLECTING"),
