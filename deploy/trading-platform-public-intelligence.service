@@ -1,0 +1,23 @@
+[Unit]
+Description=Trading Platform Public Intelligence Streams (Research Only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/cjhaake1/trading-platform
+EnvironmentFile=-/home/cjhaake1/trading-platform/.env
+ExecStart=/home/cjhaake1/trading-platform/.venv/bin/autotrader-public-intelligence --stream
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+# Research collector only; it has no broker-control interface.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/cjhaake1/trading-platform/var
+
+[Install]
+WantedBy=default.target

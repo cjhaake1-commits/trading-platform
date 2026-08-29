@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .adapters.bloomberg import BloombergAdapter
 from .benchmark_tracking import BenchmarkTracker, write_benchmark_snapshot
+from .derived_intelligence import DerivedIntelligenceEngine
 from .public_market_intelligence import PublicIntelligenceCollector
 from .research_platform import ResearchStore, build_daily_report
 from .runtime import JobResult
@@ -38,6 +39,7 @@ class ResearchRefreshJob:
             collector = PublicIntelligenceCollector()
             collector.store = collector.store.__class__(self.public_intelligence_path)
             result = collector.collect_once(now)
+            result["derived_intelligence"] = DerivedIntelligenceEngine(collector.store).run(now)
             states = [str(item.get("state") or "") for item in result.get("sources", {}).values()]
             if any(state == "CONNECTED" for state in states):
                 state = "CONNECTED"

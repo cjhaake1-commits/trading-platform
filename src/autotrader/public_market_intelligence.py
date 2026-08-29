@@ -82,6 +82,22 @@ class PublicIntelligenceStore:
                     latency_ms REAL,
                     error TEXT
                 );
+                CREATE TABLE IF NOT EXISTS derived_features (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feature_time TEXT NOT NULL,
+                    feature_name TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    symbol TEXT,
+                    horizon_seconds INTEGER,
+                    value REAL NOT NULL,
+                    sample_size INTEGER NOT NULL,
+                    metadata_json TEXT NOT NULL,
+                    UNIQUE(feature_time, feature_name, source, symbol, horizon_seconds)
+                );
+                CREATE INDEX IF NOT EXISTS idx_derived_feature_name_time
+                    ON derived_features(feature_name, feature_time);
+                CREATE INDEX IF NOT EXISTS idx_derived_feature_symbol_time
+                    ON derived_features(symbol, feature_time);
                 """
             )
 
@@ -150,6 +166,69 @@ class PublicIntelligenceStore:
     def source_health(self) -> list[dict[str, object]]:
         with self._connect() as connection:
             return [dict(row) for row in connection.execute("SELECT * FROM source_health ORDER BY source")]
+
+    def observations(
+        self,
+        *,
+        source: str | None = None,
+        event_type: str | None = None,
+        symbol: str | None = None,
+        limit: int = 5000,
+    ) -> list[dict[str, object]]:
+        clauses: list[str] = []
+        values: list[object] = []
+        for column, value in (("source", source), ("event_type", event_type), ("symbol", symbol)):
+            if value is not None:
+                clauses.append(f"{column}=?")
+                values.append(value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        values.append(max(1, min(int(limit), 50_000)))
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"SELECT * FROM observations {where} ORDER BY id DESC LIMIT ?",  # noqa: S608
+                values,
+            )
+        result: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            item["metadata"] = json.loads(str(item.pop("metadata_json") or "{}"))
+            result.append(item)
+        return result
+
+    def append_features(self, rows: Iterable[Mapping[str, object]]) -> int:
+        payload = list(rows)
+        if not payload:
+            return 0
+        with self._connect() as connection:
+            connection.executemany(
+                """
+                INSERT OR REPLACE INTO derived_features(
+                    feature_time,feature_name,source,symbol,horizon_seconds,
+                    value,sample_size,metadata_json
+                ) VALUES(?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        row["feature_time"], row["feature_name"], row["source"],
+                        row.get("symbol"), row.get("horizon_seconds"), row["value"],
+                        row["sample_size"], json.dumps(row.get("metadata") or {}, sort_keys=True, default=str),
+                    )
+                    for row in payload
+                ],
+            )
+        return len(payload)
+
+    def derived_features(self, *, limit: int = 1000) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM derived_features ORDER BY id DESC LIMIT ?", (max(1, min(limit, 10_000)),)
+            )
+        result: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            item["metadata"] = json.loads(str(item.pop("metadata_json") or "{}"))
+            result.append(item)
+        return result
 
 
 class JsonHttpClient:
@@ -513,6 +592,17 @@ async def stream_coinbase_and_bluesky(
     )
     counts = {"coinbase": 0, "bluesky": 0}
     stop = asyncio.Event()
+    coinbase_min_interval = max(0.1, float(os.getenv("PUBLIC_COINBASE_SAMPLE_SECONDS", "1.0")))
+    bluesky_terms = tuple(
+        term.lower()
+        for term in _split_csv(
+            os.getenv(
+                "PUBLIC_BLUESKY_TERMS",
+                "bitcoin,btc,ethereum,eth,solana,crypto,stocks,market,fed,inflation,oil,gold,treasury",
+            )
+        )
+    )
+    last_coinbase_write: dict[tuple[str, str], float] = {}
 
     async def coinbase() -> None:
         url = os.getenv("PUBLIC_COINBASE_WS", "wss://ws-feed.exchange.coinbase.com")
@@ -531,6 +621,12 @@ async def stream_coinbase_and_bluesky(
                 kind = str(message.get("type") or "")
                 if kind not in {"ticker", "snapshot", "l2update"}:
                     continue
+                product = str(message.get("product_id") or "")
+                key = (product, kind)
+                monotonic = time.monotonic()
+                if kind == "l2update" and monotonic - last_coinbase_write.get(key, 0.0) < coinbase_min_interval:
+                    continue
+                last_coinbase_write[key] = monotonic
                 metadata: dict[str, object] = {"type": kind}
                 for key in (
                     "price",
@@ -551,7 +647,7 @@ async def stream_coinbase_and_bluesky(
                             event_type="market_microstructure",
                             observed_at=_utc_now(),
                             source_time=str(message.get("time") or "") or None,
-                            symbol=str(message.get("product_id") or "") or None,
+                            symbol=product or None,
                             value=float(message["price"]) if message.get("price") is not None else None,
                             metadata=metadata,
                         )
@@ -576,6 +672,9 @@ async def stream_coinbase_and_bluesky(
                     continue
                 text = str(record.get("text") or "")
                 if not text:
+                    continue
+                lowered = text.lower()
+                if bluesky_terms and not any(term in lowered for term in bluesky_terms):
                     continue
                 store.append(
                     [

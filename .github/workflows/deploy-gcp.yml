@@ -36,7 +36,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]'
+          pip install -e '.[dev,streaming]'
 
       - name: Safety guard
         shell: bash
@@ -88,6 +88,7 @@ jobs:
           APP=/home/cjhaake1/trading-platform
           BRANCH=bootstrap-paper-trading-core
           RUNTIME_SERVICE=trading-platform-paper-runtime.service
+          INTELLIGENCE_SERVICE=trading-platform-public-intelligence.service
           cd "$APP"
 
           BEFORE=$(git rev-parse HEAD)
@@ -122,6 +123,7 @@ jobs:
           # Validate in the VM environment before restarting anything.
           .venv/bin/python -m py_compile streamlit_app.py
           .venv/bin/python -m compileall -q src
+          .venv/bin/python -m pip install -q -e '.[streaming]'
 
           CHANGED=$(git diff --name-only "$BEFORE" "$TARGET" || true)
           echo 'Changed files:'
@@ -140,6 +142,24 @@ jobs:
 
           USER_ID=$(id -u)
           export XDG_RUNTIME_DIR="/run/user/${USER_ID}"
+
+          # Install/update the research-only public stream collector. It is
+          # supervised separately and cannot submit broker orders.
+          mkdir -p "$HOME/.config/systemd/user"
+          install -m 0644 "$APP/deploy/$INTELLIGENCE_SERVICE" "$HOME/.config/systemd/user/$INTELLIGENCE_SERVICE"
+          systemctl --user daemon-reload
+          stream_enabled=true
+          if [ -f .env ] && grep -Eq '^PUBLIC_INTELLIGENCE_STREAM_ENABLED[[:space:]]*=[[:space:]]*(false|0|no|off)[[:space:]]*$' .env; then
+            stream_enabled=false
+          fi
+          if [ "$stream_enabled" = true ]; then
+            systemctl --user enable --now "$INTELLIGENCE_SERVICE"
+            if echo "$CHANGED" | grep -Eq '^(src/autotrader/(public_market_intelligence|derived_intelligence|public_intelligence_app)\.py|deploy/trading-platform-public-intelligence\.service)'; then
+              systemctl --user restart "$INTELLIGENCE_SERVICE"
+            fi
+          else
+            systemctl --user disable --now "$INTELLIGENCE_SERVICE" || true
+          fi
 
           # Runtime source is reloaded through the existing user service so the
           # service's environment, restart policy, and reconciliation entrypoint
@@ -203,9 +223,11 @@ jobs:
 
           RUNTIME_COUNT=$(ps -eo args | grep -E '/autotrader-runtime ' | grep -v grep | wc -l || true)
           STREAMLIT_COUNT=$(ps -eo args | grep -E '/streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' | grep -v grep | wc -l || true)
+          INTELLIGENCE_COUNT=$(ps -eo args | grep -E '/autotrader-public-intelligence --stream' | grep -v grep | wc -l || true)
 
           echo "RUNTIME_COUNT=$RUNTIME_COUNT"
           echo "STREAMLIT_COUNT=$STREAMLIT_COUNT"
+          echo "INTELLIGENCE_COUNT=$INTELLIGENCE_COUNT"
 
           if [ "$RUNTIME_COUNT" -ne 1 ]; then
             echo 'Unexpected autonomous runtime count; deployment health failed.' >&2
@@ -214,6 +236,11 @@ jobs:
 
           if [ "$STREAMLIT_COUNT" -ne 1 ]; then
             echo 'Unexpected Streamlit process count; deployment health failed.' >&2
+            exit 1
+          fi
+
+          if [ "$stream_enabled" = true ] && [ "$INTELLIGENCE_COUNT" -ne 1 ]; then
+            echo 'Unexpected public-intelligence stream count; deployment health failed.' >&2
             exit 1
           fi
 
