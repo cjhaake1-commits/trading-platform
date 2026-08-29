@@ -431,6 +431,30 @@ class AutonomousPaperTradingJob:
                         "last_price": candidate.last_price,
                     }
                 )
+                if instrument.asset_class is AssetClass.CRYPTO:
+                    # Persist the observed candidate even when no order signal
+                    # survives qualification. The existing experiment ledger
+                    # is the decision-lineage store; no synthetic agent
+                    # opinions are added.
+                    candidate_identity = f"{instrument.symbol}|{bars[-1].timestamp.isoformat()}|{candidate.score:.6f}"
+                    self.experiment_ledger.record_decision(
+                        pillar="alpaca_crypto",
+                        symbol=instrument.symbol,
+                        strategy="candidate_observation",
+                        timeframe=self.config.interval,
+                        lane="OBSERVATION",
+                        decision="qualified_candidate" if candidate.score >= minimum_score else "candidate_observed",
+                        entry_price=candidate.last_price,
+                        edge=None,
+                        features={
+                            "candidate_id": __import__("hashlib").sha256(candidate_identity.encode()).hexdigest()[:32],
+                            "score": candidate.score,
+                            "momentum_pct": candidate.momentum_pct,
+                            "volatility": candidate.average_range_pct / 100.0,
+                            "votes": {"technical": candidate.score},
+                            "agent_status": {"technical": "CONNECTED", "fundamental": "NOT_CONNECTED", "sentiment": "NOT_CONNECTED", "news_macro": "NOT_CONNECTED"},
+                        },
+                    )
             champion_signal = choose_long_signal(
                 instrument,
                 bars,
