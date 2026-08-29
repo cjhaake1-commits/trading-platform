@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from statistics import mean, pstdev
+from math import sqrt
+from statistics import mean
 
 from .models import Instrument, MarketBar, Side, TradeProposal
 
@@ -85,11 +86,17 @@ class BaselineStrategies:
             return None
         closes = [b.close for b in bars[-self.config.zscore_window :]]
         avg = mean(closes)
-        sigma = pstdev(closes)
+        # ``statistics.pstdev`` in Python 3.12 can receive provider numeric
+        # scalar subclasses whose second-moment accumulator is a float but is
+        # still routed through the Fraction fast path.  Normalize explicitly
+        # so a valid metals scan cannot disable the persistent job.
+        values = [float(close) for close in closes]
+        avg = mean(values)
+        sigma = sqrt(sum((value - avg) ** 2 for value in values) / len(values))
         if sigma == 0:
             return None
-        z = (closes[-1] - avg) / sigma
-        price = closes[-1]
+        z = (values[-1] - avg) / sigma
+        price = values[-1]
 
         if z <= -self.config.zscore_entry:
             return self._proposal(
