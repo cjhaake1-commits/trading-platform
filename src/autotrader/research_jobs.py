@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from .adapters.bloomberg import BloombergAdapter
 from .research_platform import ResearchStore, build_daily_report
 from .runtime import JobResult
 
@@ -16,7 +17,8 @@ class ResearchRefreshJob:
     def run(self, now: datetime) -> JobResult:
         store = ResearchStore(self.path)
         counts = {
-            lane: len(store.research(lane)) for lane in ("etf", "institutional", "politician", "academic", "github")
+            lane: len(store.research(lane))
+            for lane in ("etf", "institutional", "politician", "academic", "github")
         }
         for lane, count in counts.items():
             store.put_provider_status(
@@ -25,10 +27,24 @@ class ResearchRefreshJob:
                 records_ingested=count,
                 last_error=None if count else "No records ingested",
             )
+
+        bloomberg = BloombergAdapter().probe()
+        store.put_provider_status(
+            "bloomberg",
+            status=bloomberg.state,
+            records_ingested=0,
+            last_error=None if bloomberg.connected or bloomberg.state == "DISABLED" else bloomberg.reason,
+        )
+
         return JobResult(
             True,
             "Research refresh completed",
-            {"lanes": counts, "refreshed_at": now.isoformat(), "broker_control": False},
+            {
+                "lanes": counts,
+                "bloomberg": bloomberg.as_dict(),
+                "refreshed_at": now.isoformat(),
+                "broker_control": False,
+            },
         )
 
 
