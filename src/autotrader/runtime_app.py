@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +26,14 @@ from .research_jobs import DailyReportJob, ResearchRefreshJob
 from .runtime import AutonomousRuntime, JobResult, RunMode, RuntimeConfig
 
 AUTONOMOUS_ARM_ENV = "AUTONOMOUS_TRADING_ENABLED"
+
+# The service launches the package from ``src``; FoundationAuditJob also
+# reads the repository-root Streamlit data service.  Make that dependency
+# explicit and restart-safe instead of relying on an interactive shell's
+# implicit current-directory import path.
+_REPOSITORY_ROOT = str(Path(__file__).resolve().parents[2])
+if _REPOSITORY_ROOT not in sys.path:
+    sys.path.insert(0, _REPOSITORY_ROOT)
 
 
 def autonomous_trading_armed() -> bool:
