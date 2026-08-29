@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
 import os
 import platform
-from collections.abc import Mapping
-from dataclasses import asdict, dataclass
-from typing import Any
+import typing
 
 
 _VALID_MODES = {"auto", "dapi", "sapi"}
@@ -16,7 +15,7 @@ def _env_bool(value: object, default: bool = False) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class BloombergConfig:
     """Licensed Bloomberg research connection settings.
 
@@ -38,7 +37,7 @@ class BloombergConfig:
     application_name: str = ""
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> "BloombergConfig":
+    def from_env(cls, env: typing.Mapping[str, str] | None = None) -> "BloombergConfig":
         source = os.environ if env is None else env
         mode = str(source.get("BLOOMBERG_MODE", "auto")).strip().lower()
         if mode not in _VALID_MODES:
@@ -90,14 +89,14 @@ class BloombergConfig:
 
     def public_summary(self) -> dict[str, object]:
         """Return non-secret configuration suitable for health telemetry."""
-        payload = asdict(self)
+        payload = dataclasses.asdict(self)
         payload.pop("auth_options", None)
         payload["application_name_configured"] = bool(self.application_name)
         payload.pop("application_name", None)
         return payload
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class BloombergConnectionStatus:
     state: str
     connected: bool
@@ -110,7 +109,7 @@ class BloombergConnectionStatus:
     research_only: bool = True
 
     def as_dict(self) -> dict[str, object]:
-        return asdict(self)
+        return dataclasses.asdict(self)
 
 
 class BloombergAdapter:
@@ -137,7 +136,7 @@ class BloombergAdapter:
             research_only=True,
         )
 
-    def build_session_options(self, blpapi_module: Any) -> Any:
+    def build_session_options(self, blpapi_module: typing.Any) -> typing.Any:
         errors = self.config.validation_errors()
         if errors:
             raise RuntimeError("; ".join(errors))
