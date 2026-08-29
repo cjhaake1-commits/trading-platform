@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from pathlib import Path
 
 from .adapters.bloomberg import BloombergAdapter
 from .benchmark_tracking import BenchmarkTracker, write_benchmark_snapshot
@@ -14,6 +16,18 @@ class ResearchRefreshJob:
     path: str = "var/autotrader/research.db"
     name: str = "research-refresh"
     cadence_seconds: float = 3600.0
+    benchmark_path: str = "var/autotrader/benchmark-market-snapshot.json"
+    benchmark_cadence_seconds: float = 21600.0
+
+    def _benchmark_due(self, now: datetime) -> bool:
+        if os.getenv("BENCHMARK_TRACKING_ENABLED", "true").strip().lower() != "true":
+            return False
+        snapshot = Path(self.benchmark_path)
+        if not snapshot.exists():
+            return True
+        observed = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+        age = observed.timestamp() - snapshot.stat().st_mtime
+        return age >= self.benchmark_cadence_seconds
 
     def run(self, now: datetime) -> JobResult:
         store = ResearchStore(self.path)
@@ -37,12 +51,27 @@ class ResearchRefreshJob:
             last_error=None if bloomberg.connected or bloomberg.state == "DISABLED" else bloomberg.reason,
         )
 
+        benchmark: dict[str, object] = {
+            "state": "CACHED",
+            "snapshot": self.benchmark_path,
+            "research_only": True,
+            "broker_control": False,
+        }
+        if self._benchmark_due(now):
+            benchmark = BenchmarkTrackingJob(
+                path=self.benchmark_path,
+                research_path=self.path,
+            ).run(now).data
+        elif os.getenv("BENCHMARK_TRACKING_ENABLED", "true").strip().lower() != "true":
+            benchmark["state"] = "DISABLED"
+
         return JobResult(
             True,
             "Research refresh completed",
             {
                 "lanes": counts,
                 "bloomberg": bloomberg.as_dict(),
+                "benchmark_market_data": benchmark,
                 "refreshed_at": now.isoformat(),
                 "broker_control": False,
             },

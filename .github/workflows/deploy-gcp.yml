@@ -87,6 +87,7 @@ jobs:
 
           APP=/home/cjhaake1/trading-platform
           BRANCH=bootstrap-paper-trading-core
+          RUNTIME_SERVICE=trading-platform-paper-runtime.service
           cd "$APP"
 
           BEFORE=$(git rev-parse HEAD)
@@ -101,7 +102,7 @@ jobs:
             exit 1
           fi
 
-          # Never deploy if the live VM has explicitly enabled real-money mode.
+          # Never deploy or restart if the VM has enabled real-money mode.
           if [ -f .env ] && grep -Eq '^LIVE_TRADING_ENABLED[[:space:]]*=[[:space:]]*(true|1|yes|on)[[:space:]]*$' .env; then
             echo 'Refusing deployment: LIVE_TRADING_ENABLED is enabled on the VM.' >&2
             exit 1
@@ -129,12 +130,46 @@ jobs:
           restart_streamlit=0
           restart_runtime=0
 
-          if echo "$CHANGED" | grep -Eq '^(streamlit_app\.py|src/.+dashboard|src/.+branding)'; then
+          if echo "$CHANGED" | grep -Eq '^(streamlit_app\.py|performance_board\.py|src/.+dashboard|src/.+branding)'; then
             restart_streamlit=1
           fi
 
           if echo "$CHANGED" | grep -Eq '^src/autotrader/'; then
             restart_runtime=1
+          fi
+
+          USER_ID=$(id -u)
+          export XDG_RUNTIME_DIR="/run/user/${USER_ID}"
+
+          # Runtime source is reloaded through the existing user service so the
+          # service's environment, restart policy, and reconciliation entrypoint
+          # remain authoritative. This deployment target is paper/sim only.
+          if [ "$restart_runtime" -eq 1 ]; then
+            if ! systemctl --user list-unit-files --type=service | grep -q "^${RUNTIME_SERVICE}"; then
+              echo "Runtime service ${RUNTIME_SERVICE} is not installed; rolling source back." >&2
+              git reset --hard "$BEFORE"
+              exit 1
+            fi
+            systemctl --user restart "$RUNTIME_SERVICE"
+            runtime_ready=0
+            for _ in $(seq 1 30); do
+              if systemctl --user is-active --quiet "$RUNTIME_SERVICE"; then
+                runtime_ready=1
+                break
+              fi
+              sleep 1
+            done
+            if [ "$runtime_ready" -ne 1 ]; then
+              echo 'Paper runtime did not become active; rolling source back.' >&2
+              git reset --hard "$BEFORE"
+              systemctl --user restart "$RUNTIME_SERVICE" || true
+              exit 1
+            fi
+            echo 'RUNTIME_SOURCE_CHANGED=1'
+            echo 'RUNTIME_RESTARTED=1'
+          else
+            echo 'RUNTIME_SOURCE_CHANGED=0'
+            echo 'RUNTIME_RESTARTED=0'
           fi
 
           # Streamlit restart is isolated from trading runtime.
@@ -148,21 +183,14 @@ jobs:
               > "$APP/var/autotrader/streamlit.log" 2>&1 &
           fi
 
-          # Runtime source changes are deliberately not restarted blindly.
-          # Existing positions/orders remain protected until the runtime's own
-          # graceful reconciliation/restart path is explicitly available.
-          if [ "$restart_runtime" -eq 1 ]; then
-            echo 'RUNTIME_SOURCE_CHANGED=1'
-            echo 'Runtime left running; graceful runtime restart/reconciliation required.'
-          else
-            echo 'RUNTIME_SOURCE_CHANGED=0'
-          fi
-
-          sleep 3
+          sleep 5
 
           if ! curl -fsS --max-time 15 http://127.0.0.1:8501/ >/dev/null; then
             echo 'Streamlit health check failed. Rolling source back.' >&2
             git reset --hard "$BEFORE"
+            if [ "$restart_runtime" -eq 1 ]; then
+              systemctl --user restart "$RUNTIME_SERVICE" || true
+            fi
             pkill -f 'streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' || true
             sleep 2
             nohup "$APP/.venv/bin/streamlit" run "$APP/streamlit_app.py" \
@@ -173,8 +201,8 @@ jobs:
             exit 1
           fi
 
-          RUNTIME_COUNT=$(ps -eo args | grep -E '/autotrader-runtime ' | grep -v grep | wc -l)
-          STREAMLIT_COUNT=$(ps -eo args | grep -E '/streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' | grep -v grep | wc -l)
+          RUNTIME_COUNT=$(ps -eo args | grep -E '/autotrader-runtime ' | grep -v grep | wc -l || true)
+          STREAMLIT_COUNT=$(ps -eo args | grep -E '/streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' | grep -v grep | wc -l || true)
 
           echo "RUNTIME_COUNT=$RUNTIME_COUNT"
           echo "STREAMLIT_COUNT=$STREAMLIT_COUNT"
