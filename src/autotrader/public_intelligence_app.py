@@ -4,7 +4,11 @@ import argparse
 import asyncio
 import json
 
-from .public_market_intelligence import PublicIntelligenceCollector, PublicIntelligenceStore, stream_coinbase_and_bluesky
+from .public_market_intelligence import (
+    PublicIntelligenceCollector,
+    PublicIntelligenceStore,
+    stream_coinbase_and_bluesky,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
