@@ -137,6 +137,27 @@ These thresholds are deliberately configurable through the
 `LIVE_READINESS_*` environment values, but learning code must not lower them.
 Policy changes require human review and a versioned governance record.
 
+## Benchmark evidence command
+
+The readiness command consumes normalized evidence from
+`var/autotrader/benchmark-evidence.json` by default:
+
+```bash
+autotrader-benchmark-readiness
+```
+
+To use it as a strict paper-edge gate in CI or an operator checklist:
+
+```bash
+autotrader-benchmark-readiness --require-paper-edge
+```
+
+Expected evidence fields include observation days, completed trades, market
+regimes, data coverage, net strategy return, drawdown, total and rolling
+benchmark returns, benchmark drawdowns, and the accounting/cost/stress/lineage
+verification flags. Missing evidence remains `LEARNING` or
+`BLOCKED_DATA_INTEGRITY`; it is never treated as success.
+
 ## Live-capital boundary
 
 A result of `PAPER_EDGE_CONFIRMED` does **not** enable live trading. It means the
