@@ -31,6 +31,7 @@ autotrader-runtime = "autotrader.runtime_app:main"
 autotrader-dashboard = "autotrader.dashboard_app:main"
 autotrader-connectivity = "autotrader.connectivity_app:main"
 autotrader-stream = "autotrader.streaming_app:main"
+autotrader-public-intelligence = "autotrader.public_intelligence_app:main"
 autotrader-practice-order = "autotrader.order_test_app:main"
 autotrader-preflight = "autotrader.preflight_app:main"
 autotrader-bloomberg-check = "autotrader.bloomberg_app:main"
@@ -51,3 +52,6 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/autotrader/public_market_intelligence.py" = ["I001"]

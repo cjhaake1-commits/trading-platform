@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .adapters.bloomberg import BloombergAdapter
 from .benchmark_tracking import BenchmarkTracker, write_benchmark_snapshot
+from .public_market_intelligence import PublicIntelligenceCollector
 from .research_platform import ResearchStore, build_daily_report
 from .runtime import JobResult
 
@@ -18,6 +19,7 @@ class ResearchRefreshJob:
     cadence_seconds: float = 3600.0
     benchmark_path: str = "var/autotrader/benchmark-market-snapshot.json"
     benchmark_cadence_seconds: float = 21600.0
+    public_intelligence_path: str = "var/autotrader/public-intelligence.db"
 
     def _benchmark_due(self, now: datetime) -> bool:
         if os.getenv("BENCHMARK_TRACKING_ENABLED", "true").strip().lower() != "true":
@@ -28,6 +30,31 @@ class ResearchRefreshJob:
         observed = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
         age = observed.timestamp() - snapshot.stat().st_mtime
         return age >= self.benchmark_cadence_seconds
+
+    def _public_intelligence(self, now: datetime) -> dict[str, object]:
+        if os.getenv("PUBLIC_INTELLIGENCE_ENABLED", "true").strip().lower() != "true":
+            return {"state": "DISABLED", "records": 0, "research_only": True, "broker_control": False}
+        try:
+            collector = PublicIntelligenceCollector()
+            collector.store = collector.store.__class__(self.public_intelligence_path)
+            result = collector.collect_once(now)
+            states = [str(item.get("state") or "") for item in result.get("sources", {}).values()]
+            if any(state == "CONNECTED" for state in states):
+                state = "CONNECTED"
+            elif any(state == "DEGRADED" for state in states):
+                state = "DEGRADED"
+            else:
+                state = "IDLE"
+            result["state"] = state
+            return result
+        except Exception as exc:
+            return {
+                "state": "DEGRADED",
+                "records": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+                "research_only": True,
+                "broker_control": False,
+            }
 
     def run(self, now: datetime) -> JobResult:
         store = ResearchStore(self.path)
@@ -65,6 +92,15 @@ class ResearchRefreshJob:
         elif os.getenv("BENCHMARK_TRACKING_ENABLED", "true").strip().lower() != "true":
             benchmark["state"] = "DISABLED"
 
+        public_intelligence = self._public_intelligence(now)
+        public_state = str(public_intelligence.get("state") or "UNAVAILABLE")
+        store.put_provider_status(
+            "public_market_intelligence",
+            status="CONNECTED" if public_state == "CONNECTED" else public_state,
+            records_ingested=int(public_intelligence.get("records") or 0),
+            last_error=str(public_intelligence.get("error")) if public_intelligence.get("error") else None,
+        )
+
         return JobResult(
             True,
             "Research refresh completed",
@@ -72,6 +108,7 @@ class ResearchRefreshJob:
                 "lanes": counts,
                 "bloomberg": bloomberg.as_dict(),
                 "benchmark_market_data": benchmark,
+                "public_market_intelligence": public_intelligence,
                 "refreshed_at": now.isoformat(),
                 "broker_control": False,
             },
