@@ -856,19 +856,43 @@ def _international_ownership() -> tuple[set[str], set[str]]:
     order_ids: set[str] = set()
     symbols: set[str] = set()
     try:
+        from autotrader.international_trading import INTERNATIONAL_CURRENT_EPOCH
         with sqlite3.connect("var/autotrader/international_trades.db") as conn:
             rows = conn.execute(
                 "SELECT order_id, instrument FROM international_trades "
                 "WHERE status = 'executed' AND closed_at IS NULL"
             ).fetchall()
-        for order_id, instrument in rows:
+            current_rows = conn.execute(
+                "SELECT order_id, instrument FROM international_trades "
+                "WHERE status = 'executed' AND closed_at IS NULL AND allocation_epoch = ?",
+                (INTERNATIONAL_CURRENT_EPOCH,),
+            ).fetchall()
+        # The first query is retained for diagnostic symbol visibility. Only
+        # current-epoch order IDs are financial ownership evidence.
+        for order_id, _instrument in current_rows:
             if order_id:
                 order_ids.add(str(order_id))
+        for _, instrument in rows:
             if instrument:
                 symbols.add(_canonical_symbol(instrument))
     except sqlite3.Error:
         pass
     return order_ids, symbols
+
+
+def _international_legacy_order_ids() -> set[str]:
+    """Return historical provider-linked IDs excluded by the current epoch."""
+    try:
+        from autotrader.international_trading import INTERNATIONAL_CURRENT_EPOCH
+        with sqlite3.connect("var/autotrader/international_trades.db") as conn:
+            rows = conn.execute(
+                "SELECT order_id FROM international_trades "
+                "WHERE order_id IS NOT NULL AND allocation_epoch != ?",
+                (INTERNATIONAL_CURRENT_EPOCH,),
+            ).fetchall()
+        return {str(row[0]) for row in rows if row[0]}
+    except sqlite3.Error:
+        return set()
 
 
 def _saxo_position_fields(row: dict[str, object]) -> dict[str, object]:
@@ -925,6 +949,7 @@ def fetch_live_broker_data() -> tuple[
     errors: list[str] = []
     eligible_symbols = _eligible_strategy_symbols()
     international_order_ids, international_symbols = _international_ownership()
+    international_legacy_order_ids = _international_legacy_order_ids()
     active_metals_symbols: set[str] = set()
     try:
         with sqlite3.connect("var/autotrader/metals_trades.db") as conn:
@@ -1173,13 +1198,18 @@ def fetch_live_broker_data() -> tuple[
                 # source order ID can establish platform ownership.
                 owned = bool(item["order_id"] and item["order_id"] in international_order_ids)
                 pillar_status["International"]["broker_positions"] += 1
+                classification = (
+                    "VALID_STRATEGY_POSITION" if owned else
+                    "LEGACY_PLATFORM_POSITION" if item["order_id"] in international_legacy_order_ids else
+                    "LEGACY_BROKER_EXPOSURE"
+                )
                 positions.append({
                     "pillar": "International", "broker": "Saxo SIM",
                     "asset_class": item["asset_class"], "symbol": item["symbol"],
                     "quantity": item["quantity"], "average_price": item["average_price"],
                     "current_price": None, "market_value": item["market_value"],
                     "unrealized_pnl": item["unrealized_pnl"], "unrealized_pct": None,
-                    "classification": "VALID_STRATEGY_POSITION" if owned else "LEGACY_BROKER_EXPOSURE",
+                    "classification": classification,
                     "classification_reason": "open executed platform trade matched Saxo position" if owned else "Saxo position has no open platform trade ownership record",
                 })
                 metrics["gross_exposure"] += _float(item["market_value"])

@@ -4,6 +4,8 @@ import pytest
 
 from autotrader.brokers.saxo_sim import SaxoOrderResult
 from autotrader.international_trading import (
+    INTERNATIONAL_CURRENT_EPOCH,
+    INTERNATIONAL_LEGACY_EPOCH,
     InternationalExecutionPolicy,
     InternationalExecutionService,
     InternationalOrderSpec,
@@ -56,6 +58,49 @@ def service(tmp_path, broker=None, policy=None):
     broker = broker or FakeSaxoBroker()
     history = InternationalTradeHistory(tmp_path / "ledger.db")
     return InternationalExecutionService(broker, history, policy=policy), broker, history
+
+
+def test_current_epoch_is_restart_safe_and_legacy_rows_are_excluded(tmp_path):
+    path = tmp_path / "ledger.db"
+    history = InternationalTradeHistory(path)
+    trade_id = history.record_proposal(spec(), quantity=1, decision="approved", rejection_reason=None, now=datetime.now(UTC))
+    with history._connect() as connection:
+        connection.execute(
+            "UPDATE international_trades SET allocation_epoch = ?, status = 'executed', "
+            "order_id = 'legacy-order', closed_at = NULL WHERE id = ?",
+            (INTERNATIONAL_LEGACY_EPOCH, trade_id),
+        )
+    restarted = InternationalTradeHistory(path)
+    assert restarted.current_epoch_order_ids() == set()
+    assert restarted.legacy_order_ids() == {"legacy-order"}
+
+
+def test_new_execution_is_tagged_to_current_epoch(tmp_path):
+    execution, _, history = service(tmp_path)
+    result = execution.execute(spec(), portfolio(), international_deployed=0)
+    assert result.submitted
+    record = history.records()[0]
+    assert record["allocation_epoch"] == INTERNATIONAL_CURRENT_EPOCH
+
+
+def test_same_symbol_does_not_prove_current_epoch_ownership(tmp_path):
+    history = InternationalTradeHistory(tmp_path / "ledger.db")
+    with history._connect() as connection:
+        connection.execute(
+            "INSERT INTO international_trades (proposed_at, broker, pillar, instrument, side, proposed_entry, "
+            "stop_price, quantity, notional, model_confidence, model_version, strategy_version, risk_decision, "
+            "status, order_id, allocation_epoch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (datetime.now(UTC).isoformat(), "saxo-sim", "International", "AIR:xpar", "BUY", 100, 95, 1, 100,
+             .8, "m", "s", "approved", "executed", "old-air", INTERNATIONAL_LEGACY_EPOCH),
+        )
+    assert "old-air" not in history.current_epoch_order_ids()
+
+
+def test_legacy_inventory_is_diagnostic_not_current_economics(tmp_path):
+    history = InternationalTradeHistory(tmp_path / "ledger.db")
+    records = history.records()
+    assert len(records) == 0
+    assert history.current_epoch_order_ids() == set()
 
 
 def test_risk_rejection_prevents_broker_submission_and_is_logged(tmp_path):

@@ -13,6 +13,10 @@ from .models import PortfolioState, TradeProposal
 from .risk import RiskContext, RiskEngine, RiskLimits
 from .risk_stack import LayeredRiskStack, RiskStackDecision
 
+INTERNATIONAL_CURRENT_FUND_ID = "paper-fund"
+INTERNATIONAL_CURRENT_EPOCH = "international-current-fund-v1"
+INTERNATIONAL_LEGACY_EPOCH = "international-legacy-pre-v1"
+
 
 @dataclass(frozen=True)
 class InternationalOrderSpec:
@@ -131,7 +135,8 @@ class InternationalTradeHistory:
                     closed_at TEXT,
                     holding_period_seconds REAL,
                     final_outcome TEXT,
-                    metadata_json TEXT NOT NULL DEFAULT '{{}}'
+                    metadata_json TEXT NOT NULL DEFAULT '{{}}',
+                    allocation_epoch TEXT NOT NULL DEFAULT '{INTERNATIONAL_LEGACY_EPOCH}'
                 )
                 """
             )
@@ -145,6 +150,24 @@ class InternationalTradeHistory:
                 connection.execute(f"ALTER TABLE {self.table_name} ADD COLUMN market_regime TEXT")
             if "risk_amount" not in columns:
                 connection.execute(f"ALTER TABLE {self.table_name} ADD COLUMN risk_amount REAL NOT NULL DEFAULT 0")
+            if "allocation_epoch" not in columns:
+                # Existing provider-linked trades predate the current fund
+                # boundary.  They remain durable evidence, but are legacy.
+                connection.execute(
+                    f"ALTER TABLE {self.table_name} ADD COLUMN allocation_epoch TEXT NOT NULL "
+                    f"DEFAULT '{INTERNATIONAL_LEGACY_EPOCH}'"
+                )
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS international_fund_epoch ("
+                "fund_id TEXT PRIMARY KEY, allocation_epoch TEXT NOT NULL, "
+                "starting_capital REAL NOT NULL, created_at TEXT NOT NULL, active INTEGER NOT NULL)"
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO international_fund_epoch "
+                "(fund_id, allocation_epoch, starting_capital, created_at, active) VALUES (?, ?, ?, ?, 1)",
+                (INTERNATIONAL_CURRENT_FUND_ID, INTERNATIONAL_CURRENT_EPOCH, INTERNATIONAL_SIM_CAPITAL,
+                 datetime.now(UTC).isoformat()),
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
@@ -167,8 +190,8 @@ class InternationalTradeHistory:
                     proposed_at, broker, pillar, instrument, side, proposed_entry,
                     stop_price, target_price, quantity, notional, model_confidence,
                     model_version, strategy_version, market_regime, risk_amount,
-                    risk_decision, rejection_reason, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    risk_decision, rejection_reason, status, allocation_epoch
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     now.astimezone(UTC).isoformat(),
@@ -189,6 +212,7 @@ class InternationalTradeHistory:
                     decision,
                     rejection_reason,
                     "rejected" if rejection_reason else "approved",
+                    INTERNATIONAL_CURRENT_EPOCH,
                 ),
             )
             return int(cursor.lastrowid)
@@ -259,6 +283,23 @@ class InternationalTradeHistory:
 
     def learning_records(self) -> list[dict[str, object]]:
         return [row for row in self.records() if row["status"] == "closed"]
+
+    def current_epoch_order_ids(self) -> set[str]:
+        return {
+            str(row["order_id"])
+            for row in self.records()
+            if row.get("allocation_epoch") == INTERNATIONAL_CURRENT_EPOCH
+            and row.get("status") == "executed"
+            and row.get("closed_at") is None
+            and row.get("order_id")
+        }
+
+    def legacy_order_ids(self) -> set[str]:
+        return {
+            str(row["order_id"])
+            for row in self.records()
+            if row.get("allocation_epoch") != INTERNATIONAL_CURRENT_EPOCH and row.get("order_id")
+        }
 
 
 class InternationalExecutionService:

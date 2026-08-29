@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 import streamlit as st
 
 import streamlit_app as core
+from autotrader.international_trading import INTERNATIONAL_CURRENT_EPOCH
 
 # Read-only observation board. No controls in this module may alter trading,
 # allocation, execution, strategy, risk, credentials, or provider state.
@@ -148,6 +150,17 @@ def _saxo_live_truth():
             result["error"] = "Saxo SIM default account key unavailable"
             return result
         result["connected"] = True
+        current_order_ids: set[str] = set()
+        with sqlite3.connect("var/autotrader/international_trades.db") as connection:
+            current_order_ids = {
+                str(row[0]) for row in connection.execute(
+                    "SELECT order_id FROM international_trades "
+                    "WHERE allocation_epoch = ? AND status = 'executed' AND closed_at IS NULL",
+                    (INTERNATIONAL_CURRENT_EPOCH,),
+                ) if row[0]
+            }
+        result["legacy_positions"] = 0
+        result["legacy_exposure"] = 0.0
         payload = adapter.list_positions(account_key=account_key)
         rows = payload.get("Data", []) if isinstance(payload, dict) else []
         for row in rows if isinstance(rows, list) else []:
@@ -160,10 +173,15 @@ def _saxo_live_truth():
             exposure = abs(first_number(view, ["Exposure"], 0.0))
             pnl = first_number(view, ["ProfitLossOnTrade"], 0.0)
             cost_basis = amount * open_price if amount and open_price else exposure
-            result["deployed"] += cost_basis
-            result["market_value"] += exposure if exposure else max(cost_basis + pnl, 0.0)
-            result["unrealized"] += pnl
-            result["positions"] += 1
+            source_order_id = str(base.get("SourceOrderId") or base.get("OrderId") or row.get("SourceOrderId") or row.get("OrderId") or "")
+            if source_order_id in current_order_ids:
+                result["deployed"] += cost_basis
+                result["market_value"] += exposure if exposure else max(cost_basis + pnl, 0.0)
+                result["unrealized"] += pnl
+                result["positions"] += 1
+            else:
+                result["legacy_positions"] += 1
+                result["legacy_exposure"] += exposure or max(cost_basis + pnl, 0.0)
         orders = adapter.list_orders(account_key=account_key)
         order_rows = orders.get("Data", []) if isinstance(orders, dict) else []
         result["working_orders"] = len(order_rows) if isinstance(order_rows, list) else 0
