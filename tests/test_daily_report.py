@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import UTC, datetime
 
-from autotrader.daily_report import write_report
+from autotrader.daily_report import _strategy_classification, write_report
 from autotrader.paper_experiment import PaperExperimentLedger
 from scripts.create_forward_campaign_checkpoint import _provider_health, build_checkpoint
 
@@ -44,6 +44,12 @@ def test_daily_report_contains_descriptive_strategy_evidence(tmp_path):
     data = __import__("json").loads(report[0].read_text())
     assert data["strategy_evidence"]["MOMENTUM"]["signals"] == 1
     assert "does not imply governance promotion" in data["evidence_limitations"][-1]
+
+
+def test_daily_report_classifies_legacy_and_infrastructure_strategies():
+    assert _strategy_classification("crypto.momentum") == "CURRENT_MULTI_STRATEGY"
+    assert _strategy_classification("autonomous:sma_cross") == "LEGACY_BASELINE"
+    assert _strategy_classification("candidate_observation") == "INFRASTRUCTURE"
 
 
 def test_daily_report_keeps_runtime_provider_metrics_explicitly_proxied(tmp_path, monkeypatch):

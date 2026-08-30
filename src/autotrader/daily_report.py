@@ -9,6 +9,16 @@ from pathlib import Path
 
 ENGINES = ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps")
 ALIASES = {"Stocks": {"Stocks", "Stocks/Crypto", "alpaca_equities"}, "Crypto": {"Crypto", "alpaca_crypto"}, "Forex": {"Forex", "oanda_fx"}, "Metals": {"Metals", "alpaca_metals"}, "International": {"International", "ibkr_global"}, "Kalshi Predictions": {"Kalshi Predictions", "kalshi_predictions"}, "Kalshi Perps": {"Kalshi Perps", "kalshi_perps"}}
+CURRENT_STRATEGIES = {"MOMENTUM", "BREAKOUT", "MEAN_REVERSION", "TREND_FOLLOWING", "RELATIVE_STRENGTH"}
+
+
+def _strategy_classification(strategy: str) -> str:
+    normalized = strategy.upper().replace("CRYPTO.", "")
+    if normalized in CURRENT_STRATEGIES:
+        return "CURRENT_MULTI_STRATEGY"
+    if "POSITION_MANAGEMENT" in normalized or normalized in {"CANDIDATE_OBSERVATION", "CYCLE"}:
+        return "INFRASTRUCTURE"
+    return "LEGACY_BASELINE"
 
 
 def _read(path: str) -> object:
@@ -69,7 +79,7 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
     strategy_evidence = {}
     for row in rows:
         strategy = row["strategy"] or "UNKNOWN"
-        item = strategy_evidence.setdefault(strategy, {"observations": 0, "signals": 0, "qualified": 0, "regimes": {}})
+        item = strategy_evidence.setdefault(strategy, {"classification": _strategy_classification(strategy), "observations": 0, "signals": 0, "qualified": 0, "regimes": {}})
         item["observations"] += 1
         item["signals"] += row["candidate_status"] == "SIGNAL"
         item["qualified"] += row["candidate_status"] == "QUALIFIED"
