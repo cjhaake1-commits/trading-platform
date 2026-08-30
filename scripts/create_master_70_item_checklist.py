@@ -150,8 +150,18 @@ def build_checklist() -> dict[str, object]:
     forward = read("var/reports/overnight-forward-campaign.json")
     progress = read("var/reports/overnight-progress.json")
     validation = read("var/reports/validation-evidence.json")
+    integrity = read("var/reports/lifecycle-integrity-2026-08-30.json")
     safety = forward.get("safety", {}) if isinstance(forward.get("safety"), dict) else {}
-    items = [{"id": item_id, "requirement": text, "status": _status(item_id, safety, forward, progress, validation)[0], "basis": _status(item_id, safety, forward, progress, validation)[1]} for item_id, text in ITEMS]
+    items = []
+    for item_id, text in ITEMS:
+        status, basis = _status(item_id, safety, forward, progress, validation)
+        invariant_map = {"D": "strategy_aliasing", "F": "confluence_tie_handling", "J": "actual_shadow_economics_separate", "1": "stable_parent_lifecycle", "2": "distinct_event_identity", "3": "stable_parent_lifecycle", "4": "shadow_parent_linkage", "5": "actual_order_attribution", "29": "provider_native_directional_semantics", "38": "same_instrument_exposure"}
+        invariant = invariant_map.get(item_id)
+        if invariant:
+            value = (integrity.get("invariants") or {}).get(invariant)
+            if value is True:
+                status, basis = "PASS", f"lifecycle integrity evidence: {invariant}"
+        items.append({"id": item_id, "requirement": text, "status": status, "basis": basis})
     return {"report_id": "MASTER_70_ITEM_ACCEPTANCE", "generated_at": datetime.now(UTC).isoformat(), "items": items, "all_pass": all(item["status"] == "PASS" for item in items)}
 
 
