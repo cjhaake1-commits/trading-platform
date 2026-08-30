@@ -3451,6 +3451,9 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
             "Last successful call": max(successes, default="UNKNOWN"),
             "Requests (job proxy)": len(entries) if entries else "UNKNOWN",
             "Failures": failures if entries else "UNKNOWN",
+            "Timeouts": "UNKNOWN",
+            "Retries": "UNKNOWN",
+            "Measurement scope": "runtime_job_proxy",
             "p50 latency ms (job proxy)": durations[(len(durations) - 1) // 2] if durations else "UNKNOWN",
             "p95 latency ms (job proxy)": durations[max(0, (len(durations) * 95 + 99) // 100 - 1)] if durations else "UNKNOWN",
         })

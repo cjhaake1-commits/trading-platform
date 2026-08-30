@@ -164,6 +164,13 @@ def test_dashboard_exposes_kalshi_candidate_telemetry():
     assert '"Calibrated edge"' in source
 
 
+def test_provider_health_labels_non_kalshi_metrics_as_job_proxy():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert '"Measurement scope": "runtime_job_proxy"' in source
+    assert '"Timeouts": "UNKNOWN"' in source
+    assert '"Retries": "UNKNOWN"' in source
+
+
 def test_autonomous_lab_engine_table_contains_required_funnel_columns():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     for label in ("Markets Scanned", "Strategy Evaluations", "Positive Edge/Proxy", "Actual Orders", "Shadow Trades", "Realized P&L", "Top Bottleneck"):
