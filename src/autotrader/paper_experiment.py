@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -116,6 +117,50 @@ class PaperExperimentLedger:
                     updated_at TEXT NOT NULL
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS activity_observations (
+                    experiment_id TEXT PRIMARY KEY,
+                    occurred_at TEXT NOT NULL,
+                    pillar TEXT NOT NULL,
+                    engine TEXT NOT NULL,
+                    provider TEXT,
+                    market TEXT NOT NULL,
+                    asset_class TEXT,
+                    strategy TEXT NOT NULL,
+                    strategy_version TEXT,
+                    model_version TEXT,
+                    timeframe TEXT,
+                    market_regime TEXT,
+                    features_json TEXT NOT NULL,
+                    signal_direction TEXT,
+                    raw_score REAL,
+                    normalized_confidence REAL,
+                    estimated_edge REAL,
+                    expected_value REAL,
+                    candidate_status TEXT NOT NULL,
+                    qualification_result TEXT,
+                    rejection_reason TEXT,
+                    risk_decision TEXT,
+                    position_sizing_json TEXT,
+                    available_capital REAL,
+                    existing_exposure REAL,
+                    correlation_exposure REAL,
+                    order_id TEXT,
+                    provider_order_id TEXT,
+                    fill_id TEXT,
+                    entry_price REAL,
+                    exit_price REAL,
+                    quantity REAL,
+                    fees REAL,
+                    slippage REAL,
+                    realized_pnl REAL,
+                    unrealized_pnl REAL,
+                    holding_period_seconds REAL,
+                    exit_reason TEXT,
+                    result_classification TEXT,
+                    learning_update TEXT
+                )"""
+            )
 
     def record_decision(
         self,
@@ -130,11 +175,13 @@ class PaperExperimentLedger:
         edge: EdgeEstimate | None,
         features: dict[str, object],
     ) -> int:
+        experiment_id = f"EXP-{uuid.uuid4().hex}"
+        occurred_at = datetime.now(UTC).isoformat()
         with sqlite3.connect(self.path) as connection:
             cursor = connection.execute(
                 "INSERT INTO experiment_decisions (occurred_at,pillar,symbol,strategy,timeframe,lane,decision,entry_price,edge_json,features_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
-                    datetime.now(UTC).isoformat(),
+                    occurred_at,
                     pillar,
                     symbol,
                     strategy,
@@ -146,7 +193,83 @@ class PaperExperimentLedger:
                     json.dumps(features, default=str),
                 ),
             )
+            connection.execute(
+                """INSERT INTO activity_observations
+                (experiment_id,occurred_at,pillar,engine,market,strategy,timeframe,features_json,
+                 candidate_status,qualification_result,rejection_reason,risk_decision,entry_price)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    experiment_id,
+                    occurred_at,
+                    pillar,
+                    pillar,
+                    symbol,
+                    strategy,
+                    timeframe,
+                    json.dumps(features, default=str),
+                    "DECISION",
+                    decision,
+                    decision if decision not in {"QUALIFIED", "APPROVED", "TRADE"} else None,
+                    decision,
+                    entry_price,
+                ),
+            )
             return int(cursor.lastrowid)
+
+    def record_activity(self, **observation: object) -> str:
+        """Persist a complete funnel observation without creating a broker order."""
+        experiment_id = str(observation.get("experiment_id") or f"EXP-{uuid.uuid4().hex}")
+        occurred_at = str(observation.get("timestamp") or datetime.now(UTC).isoformat())
+        columns = {
+            "experiment_id": experiment_id,
+            "occurred_at": occurred_at,
+            "pillar": observation.get("pillar", "UNKNOWN"),
+            "engine": observation.get("engine", "UNKNOWN"),
+            "provider": observation.get("provider"),
+            "market": observation.get("market", "UNKNOWN"),
+            "asset_class": observation.get("asset_class"),
+            "strategy": observation.get("strategy", "UNKNOWN"),
+            "strategy_version": observation.get("strategy_version"),
+            "model_version": observation.get("model_version"),
+            "timeframe": observation.get("timeframe"),
+            "market_regime": observation.get("market_regime"),
+            "features_json": json.dumps(observation.get("features", {}), default=str),
+            "signal_direction": observation.get("signal_direction"),
+            "raw_score": observation.get("raw_score"),
+            "normalized_confidence": observation.get("normalized_confidence"),
+            "estimated_edge": observation.get("estimated_edge"),
+            "expected_value": observation.get("expected_value"),
+            "candidate_status": observation.get("candidate_status", "OBSERVED"),
+            "qualification_result": observation.get("qualification_result"),
+            "rejection_reason": observation.get("rejection_reason"),
+            "risk_decision": observation.get("risk_decision"),
+            "position_sizing_json": json.dumps(observation.get("position_sizing", {}), default=str),
+            "available_capital": observation.get("available_capital"),
+            "existing_exposure": observation.get("existing_exposure"),
+            "correlation_exposure": observation.get("correlation_exposure"),
+            "order_id": observation.get("order_id"),
+            "provider_order_id": observation.get("provider_order_id"),
+            "fill_id": observation.get("fill_id"),
+            "entry_price": observation.get("entry_price"),
+            "exit_price": observation.get("exit_price"),
+            "quantity": observation.get("quantity"),
+            "fees": observation.get("fees"),
+            "slippage": observation.get("slippage"),
+            "realized_pnl": observation.get("realized_pnl"),
+            "unrealized_pnl": observation.get("unrealized_pnl"),
+            "holding_period_seconds": observation.get("holding_period_seconds"),
+            "exit_reason": observation.get("exit_reason"),
+            "result_classification": observation.get("result_classification"),
+            "learning_update": observation.get("learning_update"),
+        }
+        names = ",".join(columns)
+        placeholders = ",".join("?" for _ in columns)
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                f"INSERT OR IGNORE INTO activity_observations ({names}) VALUES ({placeholders})",
+                tuple(columns.values()),
+            )
+        return experiment_id
 
     def record_outcome(self, decision_id: int, outcome: dict[str, object]) -> None:
         with sqlite3.connect(self.path) as connection:

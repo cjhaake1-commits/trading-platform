@@ -149,6 +149,36 @@ def test_champion_challenger_decision_and_outcome_are_persisted(tmp_path):
     assert "mfe" in row[1]
 
 
+def test_unified_activity_observation_has_unique_experiment_id(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    experiment_id = ledger.record_activity(
+        pillar="alpaca_crypto",
+        engine="crypto",
+        provider="alpaca-paper",
+        market="BTC/USD",
+        strategy="momentum",
+        strategy_version="v1",
+        model_version="m1",
+        timeframe="15m",
+        features={"volume_ratio": 1.4},
+        raw_score=0.72,
+        normalized_confidence=0.61,
+        estimated_edge=0.01,
+        candidate_status="REJECTED",
+        qualification_result="NO",
+        rejection_reason="risk_cap",
+        risk_decision="BLOCK",
+    )
+    import sqlite3
+
+    with sqlite3.connect(tmp_path / "experiment.db") as connection:
+        row = connection.execute(
+            "SELECT experiment_id, market, raw_score, rejection_reason FROM activity_observations"
+        ).fetchone()
+    assert row == (experiment_id, "BTC/USD", 0.72, "risk_cap")
+    assert experiment_id.startswith("EXP-")
+
+
 def test_experimental_crypto_position_cap_is_bounded_to_twenty_percent():
     config = PaperExperimentConfig(enabled=True)
     assert experimental_position_quantity_cap(pillar_capital=1000.0, entry_price=100.0, config=config) * 100.0 == 200.0
