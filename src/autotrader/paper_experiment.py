@@ -84,7 +84,7 @@ class PaperExperimentLedger:
     def __init__(self, path: str | Path = "var/autotrader/paper_experiment.db") -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS experiment_decisions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,7 +246,7 @@ class PaperExperimentLedger:
     ) -> int:
         experiment_id = experiment_id or f"EXP-{uuid.uuid4().hex}"
         occurred_at = datetime.now(UTC).isoformat()
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             cursor = connection.execute(
                 "INSERT INTO experiment_decisions (occurred_at,pillar,symbol,strategy,timeframe,lane,decision,entry_price,edge_json,features_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -335,7 +335,7 @@ class PaperExperimentLedger:
         columns = {"event_id": event_id, **columns}
         names = ",".join(columns)
         placeholders = ",".join("?" for _ in columns)
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             connection.execute(
                 f"INSERT OR IGNORE INTO activity_observations ({names}) VALUES ({placeholders})",
                 tuple(columns.values()),
@@ -345,7 +345,7 @@ class PaperExperimentLedger:
     def backfill_activity_observations(self) -> int:
         """Make pre-V1 decision rows visible in the unified funnel once."""
         inserted = 0
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             rows = connection.execute(
                 "SELECT id,occurred_at,pillar,symbol,strategy,timeframe,decision,entry_price,features_json FROM experiment_decisions"
             ).fetchall()
@@ -375,7 +375,7 @@ class PaperExperimentLedger:
         """Persist a research-only trade; this method has no broker or P&L side effects."""
         if direction not in {"BUY", "SELL"}:
             raise ValueError("shadow trades require a directional BUY or SELL hypothesis")
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             connection.execute(
                 """INSERT OR IGNORE INTO shadow_trades
                 (shadow_id,experiment_id,pillar,strategy_id,market,direction,hypothetical_entry,entry_at,
@@ -407,7 +407,7 @@ class PaperExperimentLedger:
             raise ValueError("time stop must be positive")
         current = (now or datetime.now(UTC)).astimezone(UTC)
         counts = {"closed": 0, "insufficient_data": 0, "open": 0}
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             rows = connection.execute(
                 "SELECT shadow_id,market,direction,hypothetical_entry,entry_at,hypothetical_stop,hypothetical_target "
                 "FROM shadow_trades WHERE exit_at IS NULL"
@@ -465,7 +465,7 @@ class PaperExperimentLedger:
         return counts
 
     def record_outcome(self, decision_id: int, outcome: dict[str, object]) -> None:
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             connection.execute(
                 "UPDATE experiment_decisions SET outcome_json=? WHERE id=?",
                 (json.dumps(outcome, default=str), decision_id),
@@ -495,7 +495,7 @@ class PaperExperimentLedger:
             .hexdigest()[:32]
         )
         now = datetime.now(UTC).isoformat()
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             connection.execute(
                 """INSERT OR IGNORE INTO counterfactual_observations
                 (observation_id,occurred_at,symbol,champion_decision,challenger_decision,
@@ -523,7 +523,7 @@ class PaperExperimentLedger:
         """Resolve horizons from real bars; unavailable prices remain UNKNOWN."""
         now = (now or datetime.now(UTC)).astimezone(UTC)
         counts = {"evaluated": 0, "partially_evaluated": 0, "pending": 0, "insufficient_data": 0, "expired": 0}
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             rows = connection.execute(
                 "SELECT * FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')"
             ).fetchall()
@@ -593,7 +593,7 @@ class PaperExperimentLedger:
         return counts
 
     def pending_counterfactual_symbols(self) -> list[str]:
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             rows = connection.execute(
                 "SELECT DISTINCT symbol FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')"
             ).fetchall()
@@ -608,7 +608,7 @@ class PaperExperimentLedger:
         """
         inserted = 0
         existing = 0
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             rows = connection.execute(
                 "SELECT id,occurred_at,symbol,entry_price,edge_json,features_json FROM experiment_decisions WHERE lane='EXPERIMENTAL_PAPER'"
             ).fetchall()
@@ -661,7 +661,7 @@ class PaperExperimentLedger:
         return {"inserted": inserted, "existing": existing}
 
     def counterfactual_summary(self) -> dict[str, object]:
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(self.path, timeout=30.0) as connection:
             rows = connection.execute(
                 "SELECT champion_decision,challenger_decision,state,outcomes_json FROM counterfactual_observations"
             ).fetchall()
