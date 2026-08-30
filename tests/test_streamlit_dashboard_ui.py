@@ -175,3 +175,4 @@ def test_autonomous_lab_engine_table_contains_required_funnel_columns():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     for label in ("Markets Scanned", "Strategy Evaluations", "Positive Edge/Proxy", "Actual Orders", "Shadow Trades", "Realized P&L", "Top Bottleneck"):
         assert f'"{label}"' in source
+    assert '"Status": status' in source
