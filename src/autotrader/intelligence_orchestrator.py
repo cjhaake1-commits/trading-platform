@@ -57,6 +57,7 @@ class IntelligenceOrchestrator:
         self.learning.checkpoint("intelligence_orchestrator", status="HEALTHY", records=len(self.universe.securities))
         resolution = self.learning.resolve_from_public_store()
         statistics = self.learning.update_hypothesis_statistics()
+        lifecycle = self.learning.evaluate_lifecycle()
         attribution = update_attributions(self.learning.path)
         relationships = observe_cross_pillar(self.learning.path, observed_at=observed)
         integrity = build_integrity(self.learning.path)
@@ -64,6 +65,7 @@ class IntelligenceOrchestrator:
                 "fusion_observations": len(self.universe.securities), "forward_jobs": len(self.universe.securities) * 5,
                 "forward_resolution": resolution,
                 "hypothesis_statistics_updated": statistics, "attribution": attribution,
+                "lifecycle_transitions": lifecycle,
                 "cross_pillar_observations": relationships, "integrity": integrity,
                 "execution_authorized": False,
                 "research_only": True}

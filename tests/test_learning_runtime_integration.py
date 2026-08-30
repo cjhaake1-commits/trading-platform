@@ -36,6 +36,16 @@ def test_ohlc_job_resolves_and_missing_is_retry(tmp_path):
     assert not resolve_ohlc_job(tree, observation_id="missing", horizon="30M", entry_price=100, bars=[])
 
 
+def test_public_resolver_uses_chronological_ohlc_and_leaves_scalar_only_pending(tmp_path):
+    import sqlite3
+    tree = IntelligenceLearningTree(tmp_path / "r.db")
+    tree.schedule(observation_id="o", symbol="ABC", observed_at="2020-01-01T00:00:00+00:00", metadata={"entry_price": 100})
+    with sqlite3.connect(tmp_path / "p.db") as con:
+        con.execute("create table observations(symbol text,value real,source_time text)")
+        con.execute("insert into observations values ('ABC', 110, '2020-01-01T01:00:00+00:00')")
+    assert tree.resolve_from_public_store(tmp_path / "p.db", now=__import__('datetime').datetime(2020, 1, 2, tzinfo=__import__('datetime').timezone.utc))["resolved"] == 0
+
+
 def test_attribution_and_relationship_runtime_tables(tmp_path):
     tree = IntelligenceLearningTree(tmp_path / "research.db")
     tree.schedule(observation_id="x", symbol="ABC", observed_at="2026-01-01T00:00:00+00:00")

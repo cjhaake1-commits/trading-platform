@@ -80,6 +80,15 @@ class IntelligenceLearningTree:
                 classification TEXT NOT NULL, sample_count INTEGER NOT NULL, expectancy_delta REAL,
                 updated_at TEXT NOT NULL, PRIMARY KEY(hypothesis_id, feature_family, version)
             );
+            CREATE TABLE IF NOT EXISTS intelligence_hypothesis_outcomes (
+                hypothesis_id TEXT NOT NULL, observation_id TEXT NOT NULL, horizon TEXT NOT NULL,
+                PRIMARY KEY(hypothesis_id, observation_id, horizon)
+            );
+            CREATE TABLE IF NOT EXISTS intelligence_lifecycle_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, hypothesis_id TEXT NOT NULL, old_state TEXT,
+                new_state TEXT NOT NULL, transitioned_at TEXT NOT NULL, reason TEXT, sample_count INTEGER,
+                expectancy REAL, cost_adjusted_expectancy REAL, drawdown REAL, mfe REAL, mae REAL
+            );
             CREATE TABLE IF NOT EXISTS intelligence_relationships (
                 relationship_id TEXT NOT NULL, observed_at TEXT NOT NULL, regime TEXT,
                 state TEXT NOT NULL, confidence REAL, outcome REAL, sample_count INTEGER NOT NULL DEFAULT 1,
@@ -124,17 +133,22 @@ class IntelligenceLearningTree:
             jobs = self.pending(now=current)
             resolved = 0
             for job in jobs:
-                row = public.execute("SELECT value,source_time FROM observations WHERE symbol=? AND value IS NOT NULL AND source_time IS NOT NULL ORDER BY source_time DESC LIMIT 1", (job["symbol"],)).fetchone()
-                if row is None or str(row["source_time"]) < str(job["due_at"]):
-                    continue
                 meta = json.loads(str(job["metadata_json"] or "{}"))
                 entry = meta.get("entry_price")
                 if entry in (None, 0):
                     continue
-                change = float(row["value"]) / float(entry) - 1.0
-                if self.resolve(observation_id=str(job["observation_id"]), horizon=str(job["horizon"]), return_pct=change,
-                                metadata={"observed_at": row["source_time"], "source": "public_intelligence"}):
+                bars = []
+                try:
+                    bars = [dict(row) for row in public.execute("SELECT * FROM market_bars WHERE symbol=? AND source_time>? AND source_time<=? ORDER BY source_time", (job["symbol"], meta.get("observed_at", ""), job["due_at"]))]
+                except sqlite3.OperationalError:
+                    pass
+                if not bars:
+                    continue
+                from .learning_runtime import resolve_ohlc_job
+                if resolve_ohlc_job(self, observation_id=str(job["observation_id"]), horizon=str(job["horizon"]), entry_price=float(entry), bars=bars, direction=str(meta.get("direction", "BUY")), transaction_cost=float(meta.get("transaction_cost", 0.0))):
+                    self.associate_outcome(str(job["observation_id"]), str(job["horizon"]))
                     resolved += 1
+            self.update_hypothesis_statistics()
             return {"resolved": resolved, "pending": len(self.pending(now=current))}
         finally:
             public.close()
@@ -186,6 +200,31 @@ class IntelligenceLearningTree:
                 values = [float(x[0]) for x in conn.execute("SELECT return_pct FROM intelligence_outcome_jobs WHERE observation_id=? AND status='RESOLVED' AND return_pct IS NOT NULL", (row['observation_id'],))]
                 updated += conn.execute("UPDATE intelligence_hypotheses SET sample_count=?,forward_count=?,expectancy=?,median_return=?,win_rate=?,average_mfe=?,average_mae=?,max_drawdown=?,cost_adjusted_expectancy=?,last_observation=COALESCE(last_observation,?),last_resolution=? WHERE reason LIKE ?", (row['n'], row['n'], row['expectancy'], sorted(values)[len(values)//2] if values else None, sum(x > 0 for x in values)/len(values) if values else None, row['mfe'], row['mae'], row['dd'], row['expectancy'], row['observation_id'], datetime.now(UTC).isoformat(), f"%observation={row['observation_id']}%")).rowcount
         return updated
+
+    def associate_outcome(self, observation_id: str, horizon: str) -> int:
+        with self._connect() as conn:
+            hypotheses = conn.execute("SELECT hypothesis_id FROM intelligence_hypotheses WHERE reason LIKE ?", (f"%observation={observation_id}%",)).fetchall()
+            for row in hypotheses:
+                conn.execute("INSERT OR IGNORE INTO intelligence_hypothesis_outcomes VALUES(?,?,?)", (row[0], observation_id, horizon))
+            return len(hypotheses)
+
+    def evaluate_lifecycle(self) -> int:
+        transitions = 0
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM intelligence_hypotheses").fetchall()
+            for row in rows:
+                target, reason = self.promotion_status(sample_count=row["sample_count"], forward_count=row["forward_count"], expectancy=row["cost_adjusted_expectancy"] or row["expectancy"], max_drawdown=row["max_drawdown"])
+                current = row["status"]
+                if current in {"DISCOVERED", "OBSERVING"} and row["sample_count"] == 0:
+                    target = "OBSERVING"
+                if current == "ELIGIBLE_FOR_MODEL" and target in {"REJECTED", "SHADOW_TESTING"}:
+                    pass
+                elif current == target:
+                    continue
+                conn.execute("UPDATE intelligence_hypotheses SET status=?,reason=?,updated_at=? WHERE hypothesis_id=?", (target, reason, datetime.now(UTC).isoformat(), row["hypothesis_id"]))
+                conn.execute("INSERT INTO intelligence_lifecycle_audit(hypothesis_id,old_state,new_state,transitioned_at,reason,sample_count,expectancy,cost_adjusted_expectancy,drawdown,mfe,mae) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (row["hypothesis_id"], current, target, datetime.now(UTC).isoformat(), reason, row["sample_count"], row["expectancy"], row["cost_adjusted_expectancy"], row["max_drawdown"], row["average_mfe"], row["average_mae"]))
+                transitions += 1
+        return transitions
 
     def checkpoint(self, source: str, *, status: str, records: int = 0, error: str | None = None) -> None:
         now = datetime.now(UTC).isoformat()
