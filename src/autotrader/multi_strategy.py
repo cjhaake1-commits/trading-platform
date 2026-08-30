@@ -89,7 +89,13 @@ def aggregate_confluence(evaluations: tuple[StrategyEvaluation, ...]) -> Conflue
     directional = [item for item in evaluations if item.direction in {"BUY", "SELL"}]
     direction = "HOLD"
     if directional:
-        direction = max(("BUY", "SELL"), key=lambda side: (votes[side], mean(item.confidence for item in directional if item.direction == side)))
+        direction = max(
+            ("BUY", "SELL"),
+            key=lambda side: (
+                votes[side],
+                mean([item.confidence for item in directional if item.direction == side] or [0.0]),
+            ),
+        )
     weights = [item.confidence for item in evaluations]
     weighted = sum(item.confidence * (1 if item.direction == direction else 0) for item in evaluations) / max(sum(weights), 1e-12)
     return ConfluenceDecision(
