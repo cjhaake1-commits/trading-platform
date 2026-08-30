@@ -54,6 +54,36 @@ def test_kalshi_telemetry_snapshot_preserves_request_health_fields():
     assert snapshot["p95_latency_ms"] == 40.0
 
 
+def test_kalshi_transient_network_failure_uses_bounded_retry(monkeypatch):
+    from urllib.error import URLError
+
+    import autotrader.kalshi.client as module
+
+    calls = []
+
+    def fake_urlopen(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise URLError("temporary")
+        class Response:
+            status = 200
+            headers = {}
+            def read(self):
+                return b"{}"
+            def __enter__(self):
+                return self
+            def __exit__(self, *exc):
+                return False
+        return Response()
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    client = KalshiReadOnlyClient(KalshiConfig(), max_retries=1)
+    assert client._get("events") == {}
+    assert len(calls) == 2
+    assert client.telemetry.retries == 1
+
+
 def test_demo_mutation_transport_is_separate_and_guarded(monkeypatch):
     monkeypatch.setenv("KALSHI_DEMO_TRADING_ENABLED", "true")
     monkeypatch.setenv("KALSHI_LIVE_TRADING_ENABLED", "false")

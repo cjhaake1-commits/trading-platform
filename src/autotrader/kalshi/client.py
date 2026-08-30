@@ -116,6 +116,9 @@ class KalshiReadOnlyClient:
                 self.telemetry.last_latency_ms = (time.monotonic() - started) * 1000
                 self.telemetry.latencies_ms.append(self.telemetry.last_latency_ms)
                 self.telemetry.last_error = type(exc).__name__
+                if attempt < self.max_retries:
+                    time.sleep(min(2 ** attempt, 4))
+                    continue
                 raise
         raise RuntimeError("bounded Kalshi request exhausted")
 
