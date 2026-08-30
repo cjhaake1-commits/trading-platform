@@ -7,6 +7,7 @@ from .corporate_features import derive_features
 from .intelligence_fusion import CorporateFeatureSnapshot, IntelligenceFusionEngine, MarketConfirmationSnapshot
 from .intelligence_learning import IntelligenceLearningTree
 from .intelligence_persistence import IntelligencePersistence
+from .learning_runtime import build_integrity, observe_cross_pillar, update_attributions
 from .research_universe import ResearchUniverse
 from .sec_edgar import normalize_filing
 from .social_market_intelligence import SocialMarketSnapshot
@@ -55,8 +56,14 @@ class IntelligenceOrchestrator:
                                              sample_count=1, expectancy_delta=None)
         self.learning.checkpoint("intelligence_orchestrator", status="HEALTHY", records=len(self.universe.securities))
         resolution = self.learning.resolve_from_public_store()
+        statistics = self.learning.update_hypothesis_statistics()
+        attribution = update_attributions(self.learning.path)
+        relationships = observe_cross_pillar(self.learning.path, observed_at=observed)
+        integrity = build_integrity(self.learning.path)
         return {"observed_at": observed, "universe_size": len(self.universe.securities),
                 "fusion_observations": len(self.universe.securities), "forward_jobs": len(self.universe.securities) * 5,
                 "forward_resolution": resolution,
+                "hypothesis_statistics_updated": statistics, "attribution": attribution,
+                "cross_pillar_observations": relationships, "integrity": integrity,
                 "execution_authorized": False,
                 "research_only": True}
