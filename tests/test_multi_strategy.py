@@ -31,3 +31,12 @@ def test_confluence_handles_hold_only_evaluations():
     )
     decision = aggregate_confluence(evaluations)
     assert decision.direction == "HOLD"
+
+
+def test_strategy_methods_are_not_aliases_and_relative_strength_is_explicitly_unavailable():
+    evaluations = evaluate_strategies(Instrument("BTC/USD", __import__("autotrader.models", fromlist=["AssetClass"]).AssetClass.CRYPTO), _bars(), 30.0)
+    methods = {item.strategy_id.rsplit(".", 1)[-1]: item.features["source_method"] for item in evaluations}
+    assert methods["momentum"] == "momentum"
+    assert methods["trend_following"] == "trend_following"
+    assert methods["relative_strength"] == "INSUFFICIENT_DATA"
+    assert next(item for item in evaluations if item.strategy_id.endswith("relative_strength")).rejection_reason == "INSUFFICIENT_DATA"

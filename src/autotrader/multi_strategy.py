@@ -9,11 +9,11 @@ from .models import Instrument, MarketBar
 from .strategies import BaselineStrategies
 
 STRATEGY_METHODS = {
-    "MOMENTUM": "sma_cross",
+    "MOMENTUM": "momentum",
     "BREAKOUT": "breakout",
     "MEAN_REVERSION": "mean_reversion",
-    "TREND_FOLLOWING": "sma_cross",
-    "RELATIVE_STRENGTH": "sma_cross",
+    "TREND_FOLLOWING": "trend_following",
+    "RELATIVE_STRENGTH": None,
 }
 
 
@@ -58,7 +58,7 @@ def evaluate_strategies(
     engine = strategies or BaselineStrategies()
     results: list[StrategyEvaluation] = []
     for strategy_id, method_name in STRATEGY_METHODS.items():
-        proposal = getattr(engine, method_name)(instrument, bars)
+        proposal = getattr(engine, method_name)(instrument, bars) if method_name else None
         direction = proposal.side.value.upper() if proposal else "HOLD"
         signal = proposal is not None
         confidence = proposal.confidence if proposal else 0.0
@@ -73,10 +73,10 @@ def evaluate_strategies(
                 confidence=float(confidence),
                 estimated_edge=edge,
                 expected_value=edge * confidence,
-                features={"bar_count": len(bars), "source_method": method_name},
+                features={"bar_count": len(bars), "source_method": method_name or "INSUFFICIENT_DATA"},
                 candidate=True,
                 signal=signal,
-                rejection_reason=None if signal else "NO_STRATEGY_SIGNAL",
+                rejection_reason=None if signal else ("INSUFFICIENT_DATA" if strategy_id == "RELATIVE_STRENGTH" else "NO_STRATEGY_SIGNAL"),
             )
         )
     return tuple(results)

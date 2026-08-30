@@ -55,6 +55,35 @@ class BaselineStrategies:
             )
         return None
 
+    def momentum(self, instrument: Instrument, bars: list[MarketBar]) -> TradeProposal | None:
+        """Rate-of-change momentum, independent of moving-average structure."""
+        window = self.config.slow_window
+        if len(bars) < window + 1:
+            return None
+        start, price = float(bars[-window - 1].close), float(bars[-1].close)
+        change = price / start - 1.0 if start else 0.0
+        if change > 0:
+            return self._proposal(instrument, Side.BUY, price, "momentum", f"roc={change:.4%}")
+        if change < 0:
+            return self._proposal(instrument, Side.SELL, price, "momentum", f"roc={change:.4%}")
+        return None
+
+    def trend_following(self, instrument: Instrument, bars: list[MarketBar]) -> TradeProposal | None:
+        """Trend structure using both moving-average ordering and slope."""
+        need = max(self.config.fast_window, self.config.slow_window) + 1
+        if len(bars) < need:
+            return None
+        closes = [float(bar.close) for bar in bars]
+        fast_now = mean(closes[-self.config.fast_window :])
+        slow_now = mean(closes[-self.config.slow_window :])
+        fast_prior = mean(closes[-self.config.fast_window - 1 : -1])
+        price = closes[-1]
+        if fast_now > slow_now and fast_now > fast_prior:
+            return self._proposal(instrument, Side.BUY, price, "trend_following", "fast_ma rising above slow_ma")
+        if fast_now < slow_now and fast_now < fast_prior:
+            return self._proposal(instrument, Side.SELL, price, "trend_following", "fast_ma falling below slow_ma")
+        return None
+
     def breakout(self, instrument: Instrument, bars: list[MarketBar]) -> TradeProposal | None:
         if len(bars) < self.config.breakout_window + 1:
             return None
