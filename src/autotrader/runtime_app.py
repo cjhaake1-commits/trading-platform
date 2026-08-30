@@ -73,6 +73,13 @@ class FoundationAuditJob:
                 )
         # Financial input is read directly from providers.  dashboard/data.json
         # is an output cache only and is deliberately not read here.
+        # The console entry point starts with ``src`` on sys.path, not the
+        # repository root.  Resolve the dashboard helper explicitly so this
+        # read-only audit job cannot permanently self-disable on restart.
+        import sys
+        repo_root = Path(__file__).resolve().parents[2]
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
         from streamlit_app import _alpaca_crypto_history, _kalshi_status, fetch_live_broker_data
 
         live_positions, _metrics, live_status, provider_errors = fetch_live_broker_data.__wrapped__()
@@ -111,7 +118,10 @@ class FoundationAuditJob:
             provider_seen = observed[pillar]
             if not provider_seen:
                 normalized[pillar] = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": 1000.0,
-                    "starting_equity": None, "economic_equity": None, "available_cash": None,
+                    # SQLite keeps the identity columns NOT NULL.  Zero is a
+                    # storage sentinel only; accounting_status/source state
+                    # that this is not an economic observation.
+                    "starting_equity": 0.0, "economic_equity": 0.0, "available_cash": None,
                     "deployed_cash": None, "pending": None, "notional_exposure": None,
                     "position_market_value": None, "realized_today": None, "unrealized": None,
                     "accounting_status": "ACCOUNTING_UNVERIFIED", "identity_difference": None,

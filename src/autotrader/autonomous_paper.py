@@ -1377,6 +1377,42 @@ class AutonomousPaperTradingJob:
         for symbol, position in portfolio.positions.items():
             if position.asset_class is not AssetClass.CRYPTO:
                 continue
+            # Alpaca can retain an untradeable fractional remainder after a
+            # fill/exit.  Repeatedly routing it through the guarded exit
+            # coordinator creates an endless duplicate-exit loop.  Preserve
+            # the position as provider truth, but record a durable no-trade
+            # observation and leave it alone until the provider can support
+            # the minimum notional.
+            dust_notional = abs(position.quantity * position.average_price)
+            if dust_notional < self.config.alpaca_crypto_min_notional:
+                row = {
+                    "symbol": symbol,
+                    "decision": "DUST_POSITION_BELOW_PROVIDER_MINIMUM",
+                    "reason": "provider position remainder is below Alpaca minimum order notional; no order attempted",
+                    "current_price": None,
+                    "momentum_pct": None,
+                    "score": None,
+                    "strategy": "position_management",
+                    "lane": "POSITION_MANAGEMENT",
+                    "current_edge": None,
+                    "capital": dust_notional,
+                    "original_strategy": "unknown",
+                    "original_edge": None,
+                    "thesis_valid": False,
+                    "edge_valid": False,
+                    "would_open_today": False,
+                    "confirmation_cycles": 0,
+                    "holding_horizon_valid": False,
+                }
+                decisions.append(row)
+                self.experiment_ledger.record_decision(
+                    pillar="alpaca_crypto", symbol=symbol,
+                    strategy="position_management", timeframe=self.config.interval,
+                    lane="POSITION_MANAGEMENT",
+                    decision=row["decision"], entry_price=position.average_price,
+                    edge=None, features={"reason": row["reason"], "capital": dust_notional},
+                )
+                continue
             instrument, bars = history_by_symbol.get(symbol.replace("/", "").upper(), (None, None))
             candidate = self.scanner.score_instrument(instrument, bars) if instrument and bars else None
             signal = choose_experimental_long_signal(
