@@ -2,11 +2,11 @@
 
 Date: 2026-08-30 15:51 UTC  
 Branch: `bootstrap-paper-trading-core`  
-Verified SHA: `7c28a0414603a6a1c5cbbf36313ac9e3882e94d3`
+Verified SHA: `884a9e73dbec379d3e8ec5f4678840ace9fdc2aa`
 
 ## Validation
 
-- Complete test suite: **425 passed** (416 preflight baseline; nine intelligence/fusion/forward-evidence tests added or integrated).
+- Complete test suite: **431 passed** (416 preflight baseline; fifteen intelligence/fusion/forward-evidence tests added or integrated).
 - Ruff: passed.
 - `compileall`: passed.
 - `git diff --check`: passed.
@@ -16,7 +16,7 @@ Verified SHA: `7c28a0414603a6a1c5cbbf36313ac9e3882e94d3`
 
 `trading-platform-public-intelligence.service` is active after deployment. The existing paper runtime and Streamlit process were not restarted. The service has one collector process and its shutdown trace is the expected SIGINT from the controlled restart, not a restart loop.
 
-The existing research database is `var/autotrader/research.db`. Post-deployment read-only verification found 1,113 durable research records, 154,727 research features, six `intelligence_fusion` records, 15 idempotent forward-outcome jobs, zero resolved outcomes (all horizons are future-dated), and one orchestrator checkpoint. Database size was 26,009,600 bytes. The collector continues to use the existing Coinbase/Bluesky public-data stream and now performs a bounded fusion-learning tick at startup.
+The existing research database is `var/autotrader/research.db`. Post-deployment read-only verification found 1,162 durable research records, 156,655 research features, 42 `intelligence_fusion` records, 195 idempotent forward-outcome jobs, zero resolved outcomes (all horizons are future-dated), four hypotheses, one attribution row, and healthy orchestrator/SEC checkpoints. Database size was 26,451,968 bytes. The collector uses the existing Coinbase/Bluesky public-data stream and recurring bounded maintenance cadence.
 
 ## Safety and existing platform
 
@@ -36,4 +36,4 @@ SEC and other source availability remains governed by configured lawful endpoint
 
 ## Limitations
 
-The new orchestrator currently provides a bounded corporate/fusion learning tick and durable outcome scheduling; it does not claim complete historical SEC backfill, full multi-platform social authorization, outcome resolution before the relevant horizons, or validated economic expectancy. Those require source availability and forward evidence. No execution thresholds or risk controls were changed.
+The scheduler is active but SEC is currently `AUTH_REQUIRED` because `SEC_USER_AGENT` is not configured. The orchestrator provides recurring corporate/fusion maintenance, durable outcome scheduling, automatic hypothesis population, and conservative attribution gates; it does not claim complete historical SEC backfill, full multi-platform social authorization, outcome resolution before the relevant horizons, or validated economic expectancy. Those require source availability and forward evidence. No execution thresholds or risk controls were changed.
