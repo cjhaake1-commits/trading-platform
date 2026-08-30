@@ -102,6 +102,8 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
     ledger = _read_portfolio(ledger_path)
     audit = _read_audit(audit_path)
     learning = _read_learning()
+    lab = _read_json(Path("var/reports/overnight-forward-campaign.json"))
+    daily_learning = _read_json(Path("var/reports/daily-learning-2026-08-30.json"))
     portfolio = ledger.get("portfolio") or {}
     positions = ledger.get("positions") or []
     cash_dashboard = ledger.get("cash_dashboard") or {}
@@ -194,6 +196,46 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
         for item in learning.get("history", [])
     ) or "<tr><td colspan='4'>No parameter updates yet</td></tr>"
 
+    lab_engines = lab.get("engines") if isinstance(lab.get("engines"), dict) else {}
+    lab_rows = ""
+    for name in ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps"):
+        values = lab_engines.get(name) if isinstance(lab_engines.get(name), dict) else {}
+        cells = [
+            name, values.get("activity_health", "UNKNOWN"), values.get("latest", "UNKNOWN"),
+            values.get("markets_scanned", "UNKNOWN"), values.get("strategy_evaluations", "UNKNOWN"),
+            values.get("candidates", "UNKNOWN"), values.get("signals", "UNKNOWN"),
+            values.get("qualified", "UNKNOWN"), values.get("actual_orders", "UNKNOWN"),
+            values.get("shadow_entries", "UNKNOWN"), values.get("fills", "UNKNOWN"),
+            values.get("shadow_exits", "UNKNOWN"), values.get("shadow_expectancy", "UNKNOWN"),
+        ]
+        lab_rows += "<tr>" + "".join(f"<td>{html.escape(str(cell))}</td>" for cell in cells) + "</tr>"
+    lab_rows = lab_rows or "<tr><td colspan='13'>UNKNOWN</td></tr>"
+    strategy_rows = ""
+    strategy_evidence = daily_learning.get("strategy_evidence") if isinstance(daily_learning.get("strategy_evidence"), dict) else {}
+    for strategy, values in sorted(strategy_evidence.items()):
+        if not isinstance(values, dict):
+            continue
+        strategy_rows += "<tr>" + "".join(
+            f"<td>{html.escape(str(cell))}</td>" for cell in (
+                strategy, values.get("classification", "UNKNOWN"), values.get("observations", "UNKNOWN"),
+                values.get("signals", "UNKNOWN"), values.get("qualified", "UNKNOWN"),
+            )
+        ) + "</tr>"
+    strategy_rows = strategy_rows or "<tr><td colspan='5'>UNKNOWN</td></tr>"
+    provider_rows = ""
+    provider_metrics = daily_learning.get("provider_performance") if isinstance(daily_learning.get("provider_performance"), dict) else {}
+    for provider, values in sorted(provider_metrics.items()):
+        values = values if isinstance(values, dict) else {}
+        provider_rows += "<tr>" + "".join(
+            f"<td>{html.escape(str(cell))}</td>" for cell in (
+                provider, values.get("status", "UNKNOWN"), values.get("requests", values.get("requests_job_proxy", "UNKNOWN")),
+                values.get("failures", "UNKNOWN"), values.get("timeouts", "UNKNOWN"),
+                values.get("p50_latency_ms", values.get("p50_latency_ms_job_proxy", "UNKNOWN")),
+                values.get("p95_latency_ms", values.get("p95_latency_ms_job_proxy", "UNKNOWN")),
+            )
+        ) + "</tr>"
+    provider_rows = provider_rows or "<tr><td colspan='7'>UNKNOWN</td></tr>"
+
     return f"""<!doctype html>
 <html><head><meta charset='utf-8'><meta http-equiv='refresh' content='10'>
 <title>Autotrader Paper Dashboard</title>
@@ -256,6 +298,16 @@ Current parameters: <code>{html.escape(json.dumps(learning_params, sort_keys=Tru
 Guardrails: <code>hard limits immutable; cash/no-trade valid</code>
 </div>
 <table><thead><tr><th>Parameter</th><th>Old</th><th>New</th><th>Reason</th></tr></thead><tbody>{learning_rows}</tbody></table>
+</section>
+<section><h2>AUTONOMOUS TRADING LAB</h2>
+<div class='card meta'>Evidence source: <code>overnight-forward-campaign.json</code>. UNKNOWN means the authoritative source did not provide a value.</div>
+<table><thead><tr><th>Engine</th><th>Health</th><th>Last Cycle</th><th>Markets</th><th>Evaluations</th><th>Candidates</th><th>Signals</th><th>Qualified</th><th>Actual Orders</th><th>Shadow Trades</th><th>Fills</th><th>Shadow Exits</th><th>Shadow Expectancy</th></tr></thead><tbody>{lab_rows}</tbody></table>
+</section>
+<section><h2>Strategy leaderboard</h2>
+<table><thead><tr><th>Strategy</th><th>Evidence</th><th>Observations</th><th>Signals</th><th>Qualified</th></tr></thead><tbody>{strategy_rows}</tbody></table>
+</section>
+<section><h2>Provider health</h2>
+<table><thead><tr><th>Provider</th><th>Status</th><th>Requests</th><th>Failures</th><th>Timeouts</th><th>p50 ms</th><th>p95 ms</th></tr></thead><tbody>{provider_rows}</tbody></table>
 </section>
 <section><h2>Open positions</h2>
 <table><thead><tr><th>Symbol</th><th>Asset</th><th>Quantity</th><th>Avg price</th><th>Stop</th></tr></thead>
