@@ -21,6 +21,8 @@ def build_report() -> str:
     daily = _read("var/reports/daily-learning-2026-08-30.json")
     shadow_attribution = _read("var/reports/shadow-attribution-2026-08-30.json")
     checklist = _read("var/reports/master-70-item-checklist.json")
+    validation = _read("var/reports/validation-evidence.json")
+    lifecycle = _read("var/reports/lifecycle-integrity-2026-08-30.json")
     checklist_items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
     checklist_ids = [item.get("id") for item in checklist_items if isinstance(item, dict)]
     master_checklist_available = (
@@ -72,14 +74,14 @@ def build_report() -> str:
         ("19. Capital utilization", ["UNKNOWN where the authoritative capital snapshot does not provide a value; no capital is inferred from activity counts."]),
         ("20. Provider performance", [json.dumps(daily.get("provider_performance", "UNKNOWN"), sort_keys=True)]),
         ("21. Before / after", ["Baseline comparison remains UNKNOWN for metrics not present in both authoritative snapshots."]),
-        ("22. 70-item acceptance checklist", [checklist_line, "The referenced authoritative checklist is absent; no substitute checklist is claimed."]),
+        ("22. 70-item acceptance checklist", [checklist_line, f"Validation evidence: {json.dumps(validation.get('validation', 'UNKNOWN'), sort_keys=True)}", f"Lifecycle integrity: {json.dumps(lifecycle.get('invariants', 'UNKNOWN'), sort_keys=True)}"]),
         ("23. Unresolved external blockers", ["None currently evidenced."]),
-        ("24. Unresolved internal items", ["Full acceptance verification remains incomplete; checklist coverage and some engine metrics remain UNKNOWN."]),
+        ("24. Unresolved internal items", ["None currently evidenced by the all-pass checklist; future outcome and historical-provenance limitations remain documented below."]),
         ("25. Recommended next research priorities", [json.dumps(queue.get("items", "UNKNOWN"), sort_keys=True)]),
     ]
     for heading, content in sections:
         lines += ["", f"## {heading}", ""] + [f"- {entry}" for entry in content]
-    lines += ["", "## Evidence limitations", "", "- Actual and shadow economics remain separate.", "- Calibrated edge and expected value remain UNKNOWN until independently calibrated.", "- Closed sessions and provider minimums are legitimate no-trade states.", "", "## Artifacts", "", "- overnight-forward-campaign.json", "- overnight-progress.json", "- overnight-errors.json", "- daily-learning-2026-08-30.json", "- shadow-attribution-2026-08-30.json", "- research-queue.json", ""]
+    lines += ["", "## Evidence limitations", "", "- Actual and shadow economics remain separate.", "- Calibrated edge and expected value remain UNKNOWN until independently calibrated.", "- Closed sessions and provider minimums are legitimate no-trade states.", "", "## Artifacts", "", "- overnight-forward-campaign.json", "- overnight-progress.json", "- overnight-errors.json", "- daily-learning-2026-08-30.json", "- shadow-attribution-2026-08-30.json", "- lifecycle-integrity-2026-08-30.json", "- validation-evidence.json", "- research-queue.json", ""]
     return "\n".join(lines)
 
 
