@@ -4,7 +4,7 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from html import escape
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -3410,7 +3410,8 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         with sqlite3.connect("var/autotrader/audit.db") as connection:
             audit_rows = connection.execute(
                 "SELECT data_json, created_at FROM audit_events "
-                "WHERE event_type = 'runtime_job' AND created_at >= datetime('now', '-24 hours')"
+                "WHERE event_type = 'runtime_job' AND created_at >= ?",
+                ((datetime.now(UTC) - timedelta(hours=24)).isoformat(),),
             ).fetchall()
         for raw, created_at in audit_rows:
             try:

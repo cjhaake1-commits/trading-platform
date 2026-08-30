@@ -149,3 +149,9 @@ def test_streamlit_dashboard_reads_normalized_ledger_authority():
 def test_streamlit_dashboard_defaults_auto_refresh_off():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     assert 'st.session_state.get("dashboard_auto_refresh", False)' in source
+
+
+def test_provider_health_uses_lab_utc_cutoff_not_sqlite_wall_clock():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert "timedelta(hours=24)" in source
+    assert "datetime('now', '-24 hours')" not in source
