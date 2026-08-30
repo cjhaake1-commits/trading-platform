@@ -15,3 +15,4 @@ def test_final_report_contains_requested_handoff_sections(tmp_path, monkeypatch)
     for number in range(1, 26):
         assert f"## {number}." in report
     assert "70-item acceptance checklist" in report
+    assert "does not hardcode a stale test count" in report

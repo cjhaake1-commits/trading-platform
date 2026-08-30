@@ -46,7 +46,7 @@ def build_report() -> str:
         ("1. Work completed overnight", ["Evidence-driven research queue, monotonic campaign success accounting, shadow scorecards, provider telemetry, and paper safety reporting are persisted."]),
         ("2. Defects discovered", ["Historical runtime failures remain visible in the error ledger; no unresolved failures are currently evidenced."]),
         ("3. Defects repaired", ["Campaign checkpoint now exposes trailing consecutive successes and an explicit observation window."]),
-        ("4. New regression tests", ["Full suite result is reported by the engineering checkpoint; latest known result: 382 passed."]),
+        ("4. New regression tests", ["Full suite result must be taken from the latest validation command output; this report does not hardcode a stale test count."]),
         ("5. Crypto forward campaign", [f"{json.dumps((forward.get('engines') or {}).get('Crypto', {}), sort_keys=True)}"]),
         ("6. Stocks status", [json.dumps((forward.get("engines") or {}).get("Stocks", "UNKNOWN"), sort_keys=True)]),
         ("7. Crypto status", [json.dumps((forward.get("engines") or {}).get("Crypto", "UNKNOWN"), sort_keys=True)]),
