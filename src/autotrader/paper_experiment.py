@@ -161,6 +161,31 @@ class PaperExperimentLedger:
                     learning_update TEXT
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS shadow_trades (
+                    shadow_id TEXT PRIMARY KEY,
+                    experiment_id TEXT NOT NULL,
+                    pillar TEXT NOT NULL,
+                    strategy_id TEXT NOT NULL,
+                    market TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    hypothetical_entry REAL NOT NULL,
+                    entry_at TEXT NOT NULL,
+                    entry_reason TEXT NOT NULL,
+                    qualification_score REAL,
+                    prevented_by_threshold TEXT,
+                    hypothetical_stop REAL,
+                    hypothetical_target REAL,
+                    hypothetical_exit REAL,
+                    exit_at TEXT,
+                    hypothetical_pnl REAL,
+                    mfe REAL,
+                    mae REAL,
+                    result TEXT,
+                    regime TEXT,
+                    CHECK (shadow_id <> '')
+                )"""
+            )
 
     def record_decision(
         self,
@@ -292,6 +317,23 @@ class PaperExperimentLedger:
                 )
                 inserted += connection.total_changes - before
         return inserted
+
+    def record_shadow_trade(self, *, shadow_id: str, experiment_id: str, pillar: str, strategy_id: str,
+                            market: str, direction: str, hypothetical_entry: float, entry_at: str,
+                            entry_reason: str, qualification_score: float | None = None,
+                            prevented_by_threshold: str | None = None, hypothetical_stop: float | None = None,
+                            hypothetical_target: float | None = None, regime: str | None = None) -> str:
+        """Persist a research-only trade; this method has no broker or P&L side effects."""
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO shadow_trades
+                (shadow_id,experiment_id,pillar,strategy_id,market,direction,hypothetical_entry,entry_at,
+                 entry_reason,qualification_score,prevented_by_threshold,hypothetical_stop,hypothetical_target,regime)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (shadow_id, experiment_id, pillar, strategy_id, market, direction, hypothetical_entry, entry_at,
+                 entry_reason, qualification_score, prevented_by_threshold, hypothetical_stop, hypothetical_target, regime),
+            )
+        return shadow_id
 
     def record_outcome(self, decision_id: int, outcome: dict[str, object]) -> None:
         with sqlite3.connect(self.path) as connection:

@@ -179,6 +179,21 @@ def test_unified_activity_observation_has_unique_experiment_id(tmp_path):
     assert experiment_id.startswith("EXP-")
 
 
+def test_shadow_trade_is_provider_free_and_separate(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    shadow_id = ledger.record_shadow_trade(
+        shadow_id="SHADOW-1", experiment_id="EXP-1", pillar="Crypto", strategy_id="crypto.momentum",
+        market="BTC/USD", direction="BUY", hypothetical_entry=100.0, entry_at="2026-01-01T00:00:00+00:00",
+        entry_reason="near threshold", qualification_score=0.58, prevented_by_threshold="confidence<0.60",
+        hypothetical_stop=98.0, hypothetical_target=104.0, regime="TRENDING",
+    )
+    import sqlite3
+
+    with sqlite3.connect(tmp_path / "experiment.db") as connection:
+        assert connection.execute("SELECT shadow_id, hypothetical_pnl FROM shadow_trades").fetchone() == (shadow_id, None)
+        assert connection.execute("SELECT COUNT(*) FROM activity_observations").fetchone()[0] == 0
+
+
 def test_experimental_crypto_position_cap_is_bounded_to_twenty_percent():
     config = PaperExperimentConfig(enabled=True)
     assert experimental_position_quantity_cap(pillar_capital=1000.0, entry_price=100.0, config=config) * 100.0 == 200.0
