@@ -1,5 +1,5 @@
 from autotrader.paper_experiment import PaperExperimentLedger
-from scripts.create_activity_lab_report import _ledger_summary
+from scripts.create_activity_lab_report import _ledger_summary, _safety_snapshot
 
 
 def test_activity_report_exposes_full_funnel_without_inventing_provider_stages(tmp_path):
@@ -16,3 +16,12 @@ def test_activity_report_exposes_full_funnel_without_inventing_provider_stages(t
     assert funnel["CANDIDATES"] == 1
     assert funnel["SIGNALS"] == 1
     assert funnel["LIQUID"] == "UNKNOWN"
+
+
+def test_activity_report_safety_snapshot_is_paper_only():
+    assert _safety_snapshot() == {
+        "mode": "paper",
+        "live_trading_enabled": False,
+        "real_money_orders": 0,
+        "execution_policy": "paper/simulation/demo only",
+    }

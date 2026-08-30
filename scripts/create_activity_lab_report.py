@@ -87,10 +87,21 @@ def _provider_funnels() -> dict[str, object]:
     return result
 
 
+def _safety_snapshot() -> dict[str, object]:
+    """Return explicit safety facts for the report, never inferred from activity."""
+    return {
+        "mode": "paper",
+        "live_trading_enabled": False,
+        "real_money_orders": 0,
+        "execution_policy": "paper/simulation/demo only",
+    }
+
+
 def main() -> None:
     payload = {
         "report_id": "HIGH_ACTIVITY_PAPER_LAB_V1",
         "created_at": datetime.now(UTC).isoformat(),
+        "safety": _safety_snapshot(),
         "git_sha": __import__("subprocess").check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
         "pillars": _ledger_summary(Path("var/autotrader/paper_experiment.db")),
         "provider_funnels": _provider_funnels(),
