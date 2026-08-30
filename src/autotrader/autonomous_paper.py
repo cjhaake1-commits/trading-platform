@@ -32,6 +32,7 @@ from .experiment_state import load_experiment_baseline_start, position_is_experi
 from .learning import load_learned_parameters
 from .marketdata import YahooHistoricalData
 from .models import AssetClass, Instrument, PortfolioState, Side, TradeIntent, TradeProposal
+from .multi_strategy import aggregate_confluence, evaluate_strategies
 from .order_test_app import _sync_submitted_position
 from .paper_experiment import (
     EdgeEstimate,
@@ -434,6 +435,37 @@ class AutonomousPaperTradingJob:
                     }
                 )
                 if instrument.asset_class is AssetClass.CRYPTO:
+                    strategy_evaluations = evaluate_strategies(
+                        instrument, bars, candidate.score, timeframe=self.config.interval, strategies=self.strategies
+                    )
+                    confluence = aggregate_confluence(strategy_evaluations)
+                    for evaluation in strategy_evaluations:
+                        self.experiment_ledger.record_activity(
+                            experiment_id=f"{experiment_id}-{evaluation.strategy_id}" if experiment_id else None,
+                            pillar="Crypto", engine="crypto", provider="Alpaca Paper", market=instrument.symbol,
+                            asset_class="crypto", strategy=evaluation.strategy_id, strategy_version="v1",
+                            model_version="runtime-v1", timeframe=evaluation.timeframe,
+                            features={**evaluation.features, "confluence": confluence.__dict__},
+                            signal_direction=evaluation.direction, raw_score=evaluation.raw_score,
+                            normalized_confidence=evaluation.confidence, estimated_edge=evaluation.estimated_edge,
+                            expected_value=evaluation.expected_value,
+                            candidate_status="SIGNAL" if evaluation.signal else "CANDIDATE",
+                            qualification_result="SIGNAL" if evaluation.signal else "REJECTED",
+                            rejection_reason=evaluation.rejection_reason, learning_update="strategy_evaluated",
+                        )
+                    # Near-threshold, valid Crypto candidates become provider-free
+                    # shadow entries; they never enter portfolio or broker state.
+                    if experiment_id and candidate.score >= minimum_score * 0.80 and candidate.score < minimum_score:
+                        shadow_id = f"SHADOW-{__import__('hashlib').sha256(experiment_id.encode()).hexdigest()[:24]}"
+                        self.experiment_ledger.record_shadow_trade(
+                            shadow_id=shadow_id, experiment_id=experiment_id, pillar="Crypto",
+                            strategy_id="crypto.confluence.v1", market=instrument.symbol,
+                            direction=confluence.direction, hypothetical_entry=candidate.last_price,
+                            entry_at=bars[-1].timestamp.isoformat(), entry_reason="near_threshold_confluence",
+                            qualification_score=confluence.weighted_confidence,
+                            prevented_by_threshold=f"candidate_score<{minimum_score}",
+                            hypothetical_stop=candidate.suggested_stop, regime="UNKNOWN",
+                        )
                     # Persist the observed candidate even when no order signal
                     # survives qualification. The existing experiment ledger
                     # is the decision-lineage store; no synthetic agent
