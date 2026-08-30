@@ -178,3 +178,4 @@ def test_autonomous_lab_engine_table_contains_required_funnel_columns():
     assert '"Status": status' in source
     assert 'pillar_performance = ctx.get("pillar_performance")' in source
     assert '"Actual Expectancy": actual_expectancy' in source
+    assert '"Stocks": "US Stocks / ETFs"' in source

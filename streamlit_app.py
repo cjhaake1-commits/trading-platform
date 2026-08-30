@@ -3409,8 +3409,9 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         if is_kalshi:
             status = provider.get("state", "UNKNOWN")
         shadow_values = shadow_by_pillar.get(name) if isinstance(shadow_by_pillar.get(name), dict) else {}
-        actual_values = pillar_performance.get(name) if isinstance(pillar_performance.get(name), dict) else {}
-        actual_provider = live_pillar_status.get(name) if isinstance(live_pillar_status.get(name), dict) else {}
+        accounting_name = {"Stocks": "US Stocks / ETFs", "Metals": "Metals / Commodities", "Kalshi Predictions": "Kalshi", "Kalshi Perps": "Kalshi"}.get(name, name)
+        actual_values = pillar_performance.get(accounting_name) if isinstance(pillar_performance.get(accounting_name), dict) else {}
+        actual_provider = live_pillar_status.get(accounting_name) if isinstance(live_pillar_status.get(accounting_name), dict) else {}
         actual_expectancy = actual_values.get("expectancy", "UNKNOWN")
         realized_pnl = actual_values.get("realized_pnl", actual_values.get("net_generated_cash", "UNKNOWN"))
         open_actual = actual_provider.get("positions", "UNKNOWN")
