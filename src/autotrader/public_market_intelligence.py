@@ -711,7 +711,17 @@ async def stream_coinbase_and_bluesky(
                 pass
             await asyncio.sleep(max(5.0, maintenance_seconds))
 
-    tasks = [asyncio.create_task(coinbase()), asyncio.create_task(bluesky())]
+    async def resilient(stream) -> None:
+        """A provider outage must not terminate the research service."""
+        while not stop.is_set():
+            try:
+                await stream()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                await asyncio.sleep(5.0)
+
+    tasks = [asyncio.create_task(resilient(coinbase)), asyncio.create_task(resilient(bluesky))]
     if maintenance is not None:
         tasks.append(asyncio.create_task(maintain()))
     if max_events is None:
