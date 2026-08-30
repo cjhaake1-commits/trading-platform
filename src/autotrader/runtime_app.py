@@ -68,6 +68,24 @@ class ForwardCampaignCheckpointJob:
 
 
 @dataclass
+class OvernightErrorLedgerJob:
+    """Refresh the explicit exception ledger without changing trading state."""
+
+    audit_db: str = "var/autotrader/audit.db"
+    name: str = "overnight-error-ledger"
+    cadence_seconds: float = 300.0
+
+    def run(self, now: datetime) -> JobResult:
+        try:
+            from scripts.create_overnight_error_ledger import write_error_ledger
+
+            path = write_error_ledger()
+            return JobResult(True, "Overnight error ledger written", {"path": str(path), "updated_at": now.isoformat()})
+        except Exception as exc:
+            return JobResult(True, "Overnight error ledger unavailable", {"state": "DEGRADED", "error": f"{type(exc).__name__}: {exc}", "updated_at": now.isoformat()})
+
+
+@dataclass
 class FoundationAuditJob:
     """Persist truthful accounting/learning readiness without broker mutation."""
     ledger_path: str = "var/autotrader/portfolio.db"
@@ -409,6 +427,7 @@ def main() -> None:
     jobs = [HeartbeatJob(), FoundationAuditJob(ledger_path=args.ledger)]
     if args.autonomous_paper:
         jobs.append(ForwardCampaignCheckpointJob())
+        jobs.append(OvernightErrorLedgerJob(audit_db=args.audit_db))
         jobs.append(ActiveV2ReconciliationJob(ledger_path=args.ledger))
         jobs.append(CryptoLifecycleReconciliationJob(ledger_path=args.ledger))
         jobs.append(
