@@ -21,10 +21,18 @@ def build_error_ledger(audit_path: str = "var/autotrader/audit.db", *, now: date
         rows = []
     errors = []
     malformed = 0
+    successful_jobs_after: dict[str, list[str]] = {}
+    decoded_rows = []
     for event_type, message, data_json, created_at in rows:
         try:
             data = json.loads(data_json)
         except json.JSONDecodeError:
+            data = None
+        decoded_rows.append((event_type, message, data, created_at))
+        if event_type == "runtime_job" and isinstance(data, dict) and data.get("ok") is True:
+            successful_jobs_after.setdefault(str(data.get("job", "UNKNOWN")), []).append(created_at)
+    for event_type, message, data, created_at in decoded_rows:
+        if data is None:
             malformed += 1
             errors.append({
                 "timestamp": created_at, "component": "autonomous-runtime", "engine": "UNKNOWN",
@@ -35,17 +43,19 @@ def build_error_ledger(audit_path: str = "var/autotrader/audit.db", *, now: date
             continue
         if event_type != "runtime_job" or data.get("ok") is not False:
             continue
+        job = str(data.get("job", "UNKNOWN"))
+        recovered = any(timestamp > created_at for timestamp in successful_jobs_after.get(job, []))
         errors.append({
             "timestamp": created_at,
             "component": "autonomous-runtime",
-            "engine": data.get("job", "UNKNOWN"),
+            "engine": job,
             "exception_type": data.get("exception_type", "JobResultFailure"),
             "message": message,
             "root_cause": data.get("error") or message,
-            "repair": data.get("repair", "UNKNOWN"),
+            "repair": data.get("repair", "UNKNOWN") if not recovered else "Subsequent successful job execution observed",
             "regression_test": data.get("regression_test", "UNKNOWN"),
             "commit": data.get("commit", "UNKNOWN"),
-            "resolved": bool(data.get("resolved", False)),
+            "resolved": bool(data.get("resolved", False) or recovered),
         })
     return {
         "report_id": "OVERNIGHT_ERROR_LEDGER",

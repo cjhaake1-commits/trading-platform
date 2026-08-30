@@ -37,3 +37,20 @@ def test_write_error_ledger_uses_explicit_audit_path(tmp_path):
     output = tmp_path / "errors.json"
     write_error_ledger(audit_path=str(audit), output=str(output))
     assert len(json.loads(output.read_text())["errors"]) == 1
+
+
+def test_error_ledger_marks_failure_recovered_by_later_success(tmp_path):
+    audit = tmp_path / "audit.db"
+    with sqlite3.connect(audit) as connection:
+        connection.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, event_type TEXT, message TEXT, data_json TEXT, created_at TEXT)")
+        connection.execute(
+            "INSERT INTO audit_events VALUES (1, 'runtime_job', 'failed', ?, '2026-08-30T00:00:00+00:00')",
+            (json.dumps({"job": "worker", "ok": False, "error": "boom"}),),
+        )
+        connection.execute(
+            "INSERT INTO audit_events VALUES (2, 'runtime_job', 'success', ?, '2026-08-30T00:01:00+00:00')",
+            (json.dumps({"job": "worker", "ok": True}),),
+        )
+    report = build_error_ledger(str(audit), now=datetime(2026, 8, 30, 1, tzinfo=UTC))
+    assert report["errors"][0]["resolved"] is True
+    assert "Subsequent successful" in report["errors"][0]["repair"]
