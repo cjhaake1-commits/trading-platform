@@ -108,7 +108,7 @@ def build_report(db_path: str = "var/autotrader/paper_experiment.db", now: datet
                 top.append({"dimension": dimension, "key": key, **summary})
     top.sort(key=lambda item: (item["hypothetical_pnl"] if isinstance(item["hypothetical_pnl"], (int, float)) else 0, -item["completed"]))
     classification = "INSUFFICIENT_EVIDENCE" if len(completed) < 30 else ("CONCENTRATED" if top and top[0]["completed"] / len(completed) >= 0.5 else "BROAD_SYSTEMIC")
-    return {"report_id": "CRYPTO_SHADOW_ATTRIBUTION", "generated_at": current.isoformat(), "scope": "completed Crypto shadow trades only", "overall": _summary(completed), "negative_expectancy_shape": classification, "by_dimension": by_dimension, "largest_negative_groups": top[:10], "evidence_limitations": ["shadow schema has no strategy_version, timeframe, confidence, or confluence fields; those dimensions remain UNKNOWN", "descriptive attribution does not imply a threshold or exit-rule change", "actual paper economics are excluded"]}
+    return {"report_id": "CRYPTO_SHADOW_ATTRIBUTION", "generated_at": current.isoformat(), "scope": "completed Crypto shadow trades only", "overall": _summary(completed), "negative_expectancy_shape": classification, "by_dimension": by_dimension, "largest_negative_groups": top[:10], "evidence_limitations": ["legacy rows may still have UNKNOWN provenance; current rows are attributed only where persisted provenance exists", "descriptive attribution does not imply a threshold or exit-rule change", "actual paper economics are excluded"]}
 
 
 def write_report(db_path: str = "var/autotrader/paper_experiment.db", output_dir: str = "var/reports", now: datetime | None = None) -> tuple[Path, Path]:
