@@ -479,6 +479,10 @@ class AutonomousPaperTradingJob:
                             prevented_by_threshold=f"candidate_score<{minimum_score}",
                             hypothetical_stop=candidate.suggested_stop,
                             regime=confluence.strategy_votes[0].get("regime", "UNKNOWN") if confluence.strategy_votes else "UNKNOWN",
+                            contributing_strategies=[evaluation.strategy_id for evaluation in strategy_evaluations],
+                            strategy_version="v1", timeframe=self.config.interval,
+                            confidence=confluence.weighted_confidence,
+                            confluence_bucket=("CONFLICT" if confluence.conflict_state != "NONE" else f"AGREEMENT_{max(confluence.long_votes, confluence.short_votes, confluence.hold_votes)}"),
                         )
                     # Persist the observed candidate even when no order signal
                     # survives qualification. The existing experiment ledger

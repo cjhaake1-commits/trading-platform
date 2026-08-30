@@ -207,6 +207,11 @@ class PaperExperimentLedger:
                     result TEXT,
                     exit_reason TEXT,
                     regime TEXT,
+                    contributing_strategies_json TEXT,
+                    strategy_version TEXT,
+                    timeframe TEXT,
+                    confidence REAL,
+                    confluence_bucket TEXT,
                     CHECK (shadow_id <> '')
                 )"""
             )
@@ -215,6 +220,15 @@ class PaperExperimentLedger:
             columns = {row[1] for row in connection.execute("PRAGMA table_info(shadow_trades)")}
             if "exit_reason" not in columns:
                 connection.execute("ALTER TABLE shadow_trades ADD COLUMN exit_reason TEXT")
+            for column, definition in {
+                "contributing_strategies_json": "TEXT",
+                "strategy_version": "TEXT",
+                "timeframe": "TEXT",
+                "confidence": "REAL",
+                "confluence_bucket": "TEXT",
+            }.items():
+                if column not in columns:
+                    connection.execute(f"ALTER TABLE shadow_trades ADD COLUMN {column} {definition}")
 
     def record_decision(
         self,
@@ -354,7 +368,10 @@ class PaperExperimentLedger:
                             market: str, direction: str, hypothetical_entry: float, entry_at: str,
                             entry_reason: str, qualification_score: float | None = None,
                             prevented_by_threshold: str | None = None, hypothetical_stop: float | None = None,
-                            hypothetical_target: float | None = None, regime: str | None = None) -> str:
+                            hypothetical_target: float | None = None, regime: str | None = None,
+                            contributing_strategies: list[str] | None = None, strategy_version: str | None = None,
+                            timeframe: str | None = None, confidence: float | None = None,
+                            confluence_bucket: str | None = None) -> str:
         """Persist a research-only trade; this method has no broker or P&L side effects."""
         if direction not in {"BUY", "SELL"}:
             raise ValueError("shadow trades require a directional BUY or SELL hypothesis")
@@ -367,6 +384,11 @@ class PaperExperimentLedger:
                 (shadow_id, experiment_id, pillar, strategy_id, market, direction, hypothetical_entry, entry_at,
                  entry_reason, qualification_score, prevented_by_threshold, hypothetical_stop, hypothetical_target, regime),
             )
+            if any(value is not None for value in (contributing_strategies, strategy_version, timeframe, confidence, confluence_bucket)):
+                connection.execute(
+                    "UPDATE shadow_trades SET contributing_strategies_json=?,strategy_version=?,timeframe=?,confidence=?,confluence_bucket=? WHERE shadow_id=?",
+                    (json.dumps(contributing_strategies or []), strategy_version, timeframe, confidence, confluence_bucket, shadow_id),
+                )
         return shadow_id
 
     def settle_shadow_trades(
