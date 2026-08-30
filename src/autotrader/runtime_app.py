@@ -51,6 +51,23 @@ class HeartbeatJob:
 
 
 @dataclass
+class ForwardCampaignCheckpointJob:
+    """Refresh evidence-only forward campaign coverage on a bounded cadence."""
+
+    name: str = "forward-campaign-checkpoint"
+    cadence_seconds: float = 300.0
+
+    def run(self, now: datetime) -> JobResult:
+        try:
+            from scripts.create_forward_campaign_checkpoint import write_checkpoint
+
+            path = write_checkpoint()
+            return JobResult(True, "Forward campaign checkpoint written", {"path": str(path), "updated_at": now.isoformat()})
+        except Exception as exc:
+            return JobResult(True, "Forward campaign checkpoint unavailable", {"state": "DEGRADED", "error": f"{type(exc).__name__}: {exc}", "updated_at": now.isoformat()})
+
+
+@dataclass
 class FoundationAuditJob:
     """Persist truthful accounting/learning readiness without broker mutation."""
     ledger_path: str = "var/autotrader/portfolio.db"
@@ -391,6 +408,7 @@ def main() -> None:
     )
     jobs = [HeartbeatJob(), FoundationAuditJob(ledger_path=args.ledger)]
     if args.autonomous_paper:
+        jobs.append(ForwardCampaignCheckpointJob())
         jobs.append(ActiveV2ReconciliationJob(ledger_path=args.ledger))
         jobs.append(CryptoLifecycleReconciliationJob(ledger_path=args.ledger))
         jobs.append(
