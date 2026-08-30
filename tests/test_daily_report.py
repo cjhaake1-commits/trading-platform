@@ -81,6 +81,8 @@ def test_daily_report_keeps_runtime_provider_metrics_explicitly_proxied(tmp_path
     data = __import__("json").loads(report[0].read_text())
     assert data["provider_performance"]["OANDA"]["requests_job_proxy"] == 1
     assert data["provider_performance"]["OANDA"]["p95_latency_ms_job_proxy"] == 12.0
+    assert data["provider_performance"]["OANDA"]["timeouts"] == "UNKNOWN"
+    assert data["provider_performance"]["OANDA"]["measurement_scope"] == "runtime_job_proxy"
 
 
 def test_forward_checkpoint_exposes_closed_stocks_readiness():
