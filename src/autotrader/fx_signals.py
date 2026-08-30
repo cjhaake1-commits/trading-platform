@@ -19,14 +19,14 @@ class FxSignalDecision:
 def fx_session(hour_utc: int) -> str:
     hour = hour_utc % 24
     if 0 <= hour < 7:
-        return "asia"
+        return "ASIA"
     if 7 <= hour < 12:
-        return "london"
+        return "LONDON"
     if 12 <= hour < 16:
-        return "london_new_york_overlap"
+        return "LONDON_NEW_YORK_OVERLAP"
     if 16 <= hour < 21:
-        return "new_york"
-    return "late_new_york"
+        return "NEW_YORK"
+    return "OFF_PEAK"
 
 
 def _oanda_price_precision(symbol: str) -> int:
