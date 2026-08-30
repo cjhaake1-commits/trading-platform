@@ -33,6 +33,7 @@ class StrategyEvaluation:
     rejection_reason: str | None = None
     edge_proxy: float | None = None
     ev_proxy: float | None = None
+    data_quality: str = "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,7 @@ def evaluate_strategies(
                 rejection_reason=None if signal else ("INSUFFICIENT_DATA" if strategy_id == "RELATIVE_STRENGTH" else "NO_STRATEGY_SIGNAL"),
                 edge_proxy=edge_proxy,
                 ev_proxy=edge_proxy * confidence,
+                data_quality="INSUFFICIENT_DATA" if strategy_id == "RELATIVE_STRENGTH" else ("FRESH" if bars else "INSUFFICIENT_DATA"),
             )
         )
     return tuple(results)
