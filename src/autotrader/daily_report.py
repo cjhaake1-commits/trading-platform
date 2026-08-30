@@ -37,6 +37,15 @@ def _evidence_classification(completed: int, expectancy: float | None) -> str:
     return "EARLY_SIGNAL"
 
 
+def _bottleneck_classification(reason: str) -> tuple[str, str]:
+    normalized = reason.upper()
+    if any(token in normalized for token in ("EXCEPTION", "TRACEBACK", "BUG")):
+        return "BUG", "Capture the failing path, add a regression, and repair before changing gates."
+    if any(token in normalized for token in ("SESSION", "LIQUID", "SPREAD", "PROVIDER_MINIMUM", "CLOSED")):
+        return "LEGITIMATE", "Preserve the gate and continue measuring eligible forward observations."
+    return "OPTIMIZABLE", "Compare accepted and near-threshold forward populations before changing this gate."
+
+
 def _read(path: str) -> object:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -106,7 +115,12 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
         item["regimes"][regime] = item["regimes"].get(regime, 0) + 1
     for engine in ENGINES:
         selected = [row for row in rows if row["pillar"] in ALIASES[engine]]
-        activity[engine] = {"observations": len(selected), "cycle_complete": sum(row["candidate_status"] == "CYCLE_COMPLETE" for row in selected), "candidates": sum(row["candidate_status"] in {"CANDIDATE", "SIGNAL", "QUALIFIED", "DECISION"} for row in selected), "signals": sum(row["candidate_status"] == "SIGNAL" for row in selected), "qualified": sum(row["candidate_status"] == "QUALIFIED" for row in selected), "top_bottlenecks": dict(Counter(row["rejection_reason"] for row in selected if row["rejection_reason"]).most_common(3)), "regimes": dict(Counter(row["market_regime"] for row in selected if row["market_regime"]))}
+        top_bottlenecks = dict(Counter(row["rejection_reason"] for row in selected if row["rejection_reason"]).most_common(3))
+        bottlenecks = []
+        for reason, count in top_bottlenecks.items():
+            classification, action = _bottleneck_classification(reason)
+            bottlenecks.append({"stage": "FUNNEL", "reason": reason, "count": count, "impact_pct": round(count * 100 / len(selected), 2) if selected else "UNKNOWN", "classification": classification, "recommended_action": action})
+        activity[engine] = {"observations": len(selected), "cycle_complete": sum(row["candidate_status"] == "CYCLE_COMPLETE" for row in selected), "candidates": sum(row["candidate_status"] in {"CANDIDATE", "SIGNAL", "QUALIFIED", "DECISION"} for row in selected), "signals": sum(row["candidate_status"] == "SIGNAL" for row in selected), "qualified": sum(row["candidate_status"] == "QUALIFIED" for row in selected), "top_bottlenecks": top_bottlenecks, "bottlenecks": bottlenecks, "regimes": dict(Counter(row["market_regime"] for row in selected if row["market_regime"]))}
     completed = [row for row in shadows if row["result"] in {"WIN", "LOSS", "FLAT"}]
     wins = [row for row in completed if row["result"] == "WIN"]
     losses = [row for row in completed if row["result"] == "LOSS"]
