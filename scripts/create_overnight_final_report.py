@@ -21,8 +21,11 @@ def build_report() -> str:
     daily = _read("var/reports/daily-learning-2026-08-30.json")
     checklist = _read("var/reports/master-70-item-checklist.json")
     checklist_items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
-    master_checklist_available = bool(checklist_items) and all(
-        isinstance(item, dict) and item.get("status") == "PASS" for item in checklist_items
+    checklist_ids = [item.get("id") for item in checklist_items if isinstance(item, dict)]
+    master_checklist_available = (
+        len(checklist_items) == 70
+        and len(set(checklist_ids)) == 70
+        and all(isinstance(item, dict) and item.get("status") == "PASS" for item in checklist_items)
     )
     safety = forward.get("safety", {})
     runtime = forward.get("runtime_evidence", {})
