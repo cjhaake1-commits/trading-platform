@@ -50,6 +50,8 @@ def test_daily_report_contains_descriptive_strategy_evidence(tmp_path):
 
 def test_daily_report_classifies_legacy_and_infrastructure_strategies():
     assert _strategy_classification("crypto.momentum") == "CURRENT_MULTI_STRATEGY"
+    assert _strategy_classification("SESSION_MOMENTUM") == "CURRENT_MULTI_STRATEGY"
+    assert _strategy_classification("VOLATILITY_EXPANSION") == "CURRENT_MULTI_STRATEGY"
     assert _strategy_classification("autonomous:sma_cross") == "LEGACY_BASELINE"
     assert _strategy_classification("candidate_observation") == "INFRASTRUCTURE"
     assert _evidence_classification(10, 1.0) == "INSUFFICIENT_EVIDENCE"
