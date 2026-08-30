@@ -37,6 +37,29 @@ def _oanda_price(symbol: str, value: float) -> float:
     return round(float(value), _oanda_price_precision(symbol))
 
 
+def _session_momentum(instrument: Instrument, bars) -> TradeProposal | None:
+    """Return a short-horizon session return, distinct from slow ROC momentum."""
+    if len(bars) < 4:
+        return None
+    start = float(bars[-4].close)
+    price = float(bars[-1].close)
+    change = price / start - 1.0 if start else 0.0
+    if change == 0.0:
+        return None
+    side = Side.BUY if change > 0 else Side.SELL
+    stop = price * (0.98 if side is Side.BUY else 1.02)
+    return TradeProposal(
+        symbol=instrument.symbol,
+        asset_class=instrument.asset_class,
+        side=side,
+        entry_price=price,
+        stop_price=_oanda_price(instrument.symbol, stop),
+        confidence=0.50,
+        source="session_momentum",
+        rationale=f"session_roc={change:.4%}",
+    )
+
+
 def qualify_fx_signal(
     instrument: Instrument,
     bars,
@@ -71,6 +94,7 @@ def qualify_fx_signal(
         proposal
         for proposal in (
             strategies.momentum(instrument, bars),
+            _session_momentum(instrument, bars),
             strategies.sma_cross(instrument, bars),
             strategies.breakout(instrument, bars),
             strategies.mean_reversion(instrument, bars),
