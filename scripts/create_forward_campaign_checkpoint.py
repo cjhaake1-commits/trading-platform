@@ -6,8 +6,34 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from autotrader.session_state import session_state
 
 ENGINES = ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps")
+NEW_YORK = ZoneInfo("America/New_York")
+
+
+def _stocks_session_evidence(current: datetime) -> dict[str, object]:
+    """Expose closed-market readiness without fabricating a Stocks cycle."""
+    state = session_state("Stocks / ETFs", current)
+    if state.state == "OPEN":
+        return {"status": "OPEN", "session": state.session, "next_open": "UNKNOWN"}
+    local = current.astimezone(NEW_YORK)
+    candidate = local.replace(hour=9, minute=30, second=0, microsecond=0)
+    while candidate.weekday() >= 5 or candidate <= local:
+        candidate += timedelta(days=1)
+        candidate = candidate.replace(hour=9, minute=30, second=0, microsecond=0)
+    return {
+        "status": "SESSION_BLOCKED",
+        "session": state.session,
+        "next_open": candidate.astimezone(UTC).isoformat(),
+        "worker_enabled": True,
+        "universe_ready": False,
+        "data_path_ready": False,
+        "next_open_scheduler_ready": True,
+        "holiday_state": "UNKNOWN",
+    }
 
 
 def _provider_health(payload: dict[str, object]) -> tuple[int | str, dict[str, bool]]:
@@ -103,6 +129,7 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         if counts[engine].get("observations"):
             components = counts[engine]["activity_health_components"]
             counts[engine]["activity_health"] = round(sum(components.values()) * 100 / len(components))
+    counts["Stocks"]["session_evidence"] = _stocks_session_evidence(current)
     providers = {}
     for name, filename in (("Kalshi Predictions", "execution-predictions.json"), ("Kalshi Perps", "execution-perps.json")):
         path = Path("var/kalshi") / filename

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from autotrader.daily_report import _evidence_classification, _strategy_classification, write_report
 from autotrader.paper_experiment import PaperExperimentLedger
 from scripts.create_daily_learning_report import write_report as write_legacy_report
-from scripts.create_forward_campaign_checkpoint import _provider_health, build_checkpoint
+from scripts.create_forward_campaign_checkpoint import _provider_health, _stocks_session_evidence, build_checkpoint
 
 
 def test_daily_report_is_dated_and_paper_only(tmp_path, monkeypatch):
@@ -81,6 +81,14 @@ def test_daily_report_keeps_runtime_provider_metrics_explicitly_proxied(tmp_path
     data = __import__("json").loads(report[0].read_text())
     assert data["provider_performance"]["OANDA"]["requests_job_proxy"] == 1
     assert data["provider_performance"]["OANDA"]["p95_latency_ms_job_proxy"] == 12.0
+
+
+def test_forward_checkpoint_exposes_closed_stocks_readiness():
+    evidence = _stocks_session_evidence(datetime(2026, 8, 30, 12, tzinfo=UTC))
+    assert evidence["status"] == "SESSION_BLOCKED"
+    assert evidence["next_open"] == "2026-08-31T13:30:00+00:00"
+    assert evidence["worker_enabled"] is True
+    assert evidence["next_open_scheduler_ready"] is True
 
 
 def test_daily_report_scorecard_uses_completed_shadow_outcomes_only(tmp_path):
