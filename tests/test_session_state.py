@@ -12,6 +12,7 @@ def test_equity_closed_session_is_not_system_failure():
     state = session_state("Stocks / ETFs", datetime(2026, 8, 23, 12, tzinfo=UTC))
     assert state.state == "CLOSED"
     assert state.execution == "WAITING_FOR_SESSION"
+    assert state.next_transition == "2026-08-24T13:30:00+00:00"
 
 
 def test_fx_global_week_reopen_and_close():
@@ -21,6 +22,7 @@ def test_fx_global_week_reopen_and_close():
     assert fx_is_open(datetime(2026, 8, 21, 20, 59, tzinfo=UTC)) is True
     assert fx_is_open(datetime(2026, 8, 21, 21, 1, tzinfo=UTC)) is False
     assert fx_is_open(datetime(2026, 8, 22, 12, tzinfo=UTC)) is False
+    assert session_state("Forex", datetime(2026, 8, 22, 12, tzinfo=UTC)).next_transition == "2026-08-23T21:00:00+00:00"
 
 
 def test_international_and_metals_are_venue_specific():
