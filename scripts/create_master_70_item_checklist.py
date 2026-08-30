@@ -46,6 +46,11 @@ ITEMS = [
 
 
 def _status(item_id: str, safety: dict[str, object], runtime: dict[str, object], progress: dict[str, object]) -> tuple[str, str]:
+    engines = runtime.get("engines", {}) if isinstance(runtime.get("engines"), dict) else {}
+    crypto = engines.get("Crypto", {}) if isinstance(engines.get("Crypto"), dict) else {}
+    telemetry = progress.get("kalshi_candidate_telemetry_rows", {}) if isinstance(progress.get("kalshi_candidate_telemetry_rows"), dict) else {}
+    shadow = progress.get("shadow", {}) if isinstance(progress.get("shadow"), dict) else {}
+    activity = progress.get("activity", {}) if isinstance(progress.get("activity"), dict) else {}
     if item_id in {"AD", "67"}:
         return ("PASS", "paper safety verifier reports live trading disabled") if safety.get("live_trading_enabled") is False else ("FAIL", "live trading safety evidence is not false")
     if item_id == "AE":
@@ -55,6 +60,31 @@ def _status(item_id: str, safety: dict[str, object], runtime: dict[str, object],
     if item_id == "AA":
         topology = progress.get("runtime", {}).get("service_topology", {})
         return ("PASS", "progress checkpoint reports all expected services active with distinct main PIDs") if topology.get("all_active") is True and topology.get("distinct_main_pids") is True else ("UNKNOWN", "service topology evidence is incomplete")
+    if item_id == "C":
+        return ("PASS", "Crypto campaign contains strategy evaluations") if isinstance(crypto.get("strategy_evaluations"), int) and crypto["strategy_evaluations"] > 0 else ("UNKNOWN", "Crypto strategy-evaluation evidence is unavailable")
+    if item_id in {"E", "M"}:
+        return ("PASS", "progress/campaign artifacts contain fresh activity") if any(isinstance(value, int) and value > 0 for value in activity.values()) and any(isinstance(value, dict) and isinstance(value.get("cycles"), int) and value["cycles"] > 0 for value in engines.values()) else ("UNKNOWN", "fresh activity evidence is incomplete")
+    if item_id == "G":
+        return ("PASS", "progress checkpoint reports zero invalid shadow directions") if shadow.get("invalid_directions") == 0 else ("UNKNOWN", "shadow direction audit is incomplete")
+    if item_id == "H":
+        return ("PASS", "campaign contains shadow entries") if isinstance(shadow.get("entries"), int) and shadow["entries"] > 0 else ("UNKNOWN", "shadow-entry evidence is unavailable")
+    if item_id == "I":
+        return ("PASS", "campaign contains shadow exits") if isinstance(shadow.get("exits"), int) and shadow["exits"] > 0 else ("UNKNOWN", "shadow-exit evidence is unavailable")
+    if item_id == "K":
+        return ("PASS", "Predictions candidate telemetry rows are persisted") if isinstance(telemetry.get("predictions"), int) and telemetry["predictions"] > 0 else ("UNKNOWN", "Predictions telemetry evidence is unavailable")
+    if item_id == "L":
+        return ("PASS", "Perps candidate telemetry rows are persisted") if isinstance(telemetry.get("perps"), int) and telemetry["perps"] > 0 else ("UNKNOWN", "Perps telemetry evidence is unavailable")
+    if item_id == "N":
+        return ("PASS", "campaign exposes activity health for observed engines") if any(isinstance(value, dict) and isinstance(value.get("activity_health"), (int, float)) for value in engines.values()) else ("UNKNOWN", "activity-health evidence is unavailable")
+    if item_id == "O":
+        return ("PASS", "campaign exposes ledger funnel fields") if any(isinstance(value, dict) and "candidates" in value and "qualified" in value for value in engines.values()) else ("UNKNOWN", "funnel evidence is unavailable")
+    if item_id == "Q":
+        return ("PASS", "completed shadow outcomes are persisted") if isinstance(shadow.get("exits"), int) and shadow["exits"] > 0 else ("UNKNOWN", "completed-outcome evidence is unavailable")
+    if item_id == "T":
+        artifacts = progress.get("artifacts", {}) if isinstance(progress.get("artifacts"), dict) else {}
+        return ("PASS", "progress checkpoint confirms daily learning artifact") if artifacts.get("daily_learning") is True else ("UNKNOWN", "daily learning artifact evidence is unavailable")
+    if item_id == "U":
+        return ("PASS", "Crypto campaign exceeds the required ten cycles") if isinstance(crypto.get("cycles"), int) and crypto["cycles"] >= 10 else ("UNKNOWN", "Crypto campaign-cycle evidence is unavailable")
     if item_id in {"AB", "AC"}:
         return ("PASS", "current progress checkpoint") if progress.get("runtime", {}).get("streamlit_http") == 200 else ("UNKNOWN", "HTTP evidence is not in checkpoint")
     return ("UNKNOWN", "requires authoritative requirement-specific evidence")
