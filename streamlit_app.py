@@ -3267,6 +3267,24 @@ def _render_research_view(ctx: dict[str, object]) -> None:
                 ]
         except sqlite3.Error:
             rows = []
+    if db_path.exists():
+        try:
+            with sqlite3.connect(db_path) as conn:
+                metrics = {
+                    "Research records": conn.execute("SELECT COUNT(*) FROM research_records").fetchone()[0],
+                    "Research features": conn.execute("SELECT COUNT(*) FROM research_features").fetchone()[0],
+                    "Fusion observations": conn.execute("SELECT COUNT(*) FROM research_records WHERE lane='intelligence_fusion'").fetchone()[0],
+                    "Forward jobs": conn.execute("SELECT COUNT(*) FROM intelligence_outcome_jobs").fetchone()[0],
+                    "Resolved outcomes": conn.execute("SELECT COUNT(*) FROM intelligence_outcome_jobs WHERE status='RESOLVED'").fetchone()[0],
+                    "Active hypotheses": conn.execute("SELECT COUNT(*) FROM intelligence_hypotheses WHERE status NOT IN ('REJECTED','RETIRED')").fetchone()[0],
+                }
+            st.markdown("### RESEARCH INTELLIGENCE · LEARNING TREE")
+            st.caption("RESEARCH INTELLIGENCE ONLY · LIVE_TRADING_ENABLED=false · no broker control")
+            columns = st.columns(len(metrics))
+            for column, (label, value) in zip(columns, metrics.items(), strict=True):
+                column.metric(label, str(value))
+        except sqlite3.Error:
+            st.info("Learning Tree metrics are temporarily unavailable.")
     if rows:
         st.dataframe(rows, use_container_width=True, hide_index=True)
     else:

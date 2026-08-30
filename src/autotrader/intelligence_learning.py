@@ -71,6 +71,44 @@ class IntelligenceLearningTree:
         with self._connect() as conn:
             return [dict(row) for row in conn.execute("SELECT * FROM intelligence_outcome_jobs WHERE status='PENDING' AND due_at<=? ORDER BY due_at", (current,))]
 
+    def resolve_from_public_store(self, public_db: str | Path = "var/autotrader/public-intelligence.db",
+                                  *, now: datetime | None = None) -> dict[str, int]:
+        """Resolve only jobs with a post-due public observation; missing data stays pending."""
+        if not Path(public_db).exists():
+            return {"resolved": 0, "pending": len(self.pending(now=now))}
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        public = sqlite3.connect(str(public_db), timeout=10.0)
+        public.row_factory = sqlite3.Row
+        try:
+            jobs = self.pending(now=current)
+            resolved = 0
+            for job in jobs:
+                row = public.execute("SELECT value,source_time FROM observations WHERE symbol=? AND value IS NOT NULL AND source_time IS NOT NULL ORDER BY source_time DESC LIMIT 1", (job["symbol"],)).fetchone()
+                if row is None or str(row["source_time"]) < str(job["due_at"]):
+                    continue
+                meta = json.loads(str(job["metadata_json"] or "{}"))
+                entry = meta.get("entry_price")
+                if entry in (None, 0):
+                    continue
+                change = float(row["value"]) / float(entry) - 1.0
+                if self.resolve(observation_id=str(job["observation_id"]), horizon=str(job["horizon"]), return_pct=change,
+                                metadata={"observed_at": row["source_time"], "source": "public_intelligence"}):
+                    resolved += 1
+            return {"resolved": resolved, "pending": len(self.pending(now=current))}
+        finally:
+            public.close()
+
+    def upsert_hypothesis(self, *, hypothesis_id: str, name: str, version: str,
+                          sample_count: int, forward_count: int, expectancy: float | None,
+                          max_drawdown: float | None, data_quality: str = "VALID") -> tuple[str, str]:
+        status, reason = self.promotion_status(sample_count=sample_count, forward_count=forward_count,
+                                                expectancy=expectancy, max_drawdown=max_drawdown,
+                                                data_quality=data_quality)
+        with self._connect() as conn:
+            conn.execute("INSERT INTO intelligence_hypotheses(hypothesis_id,name,version,status,sample_count,forward_count,expectancy,max_drawdown,reason,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(hypothesis_id) DO UPDATE SET version=excluded.version,status=excluded.status,sample_count=excluded.sample_count,forward_count=excluded.forward_count,expectancy=excluded.expectancy,max_drawdown=excluded.max_drawdown,reason=excluded.reason,updated_at=excluded.updated_at",
+                         (hypothesis_id, name, version, status, sample_count, forward_count, expectancy, max_drawdown, reason, datetime.now(UTC).isoformat()))
+        return status, reason
+
     def resolve(self, *, observation_id: str, horizon: str, return_pct: float,
                 mfe: float | None = None, mae: float | None = None,
                 metadata: Mapping[str, Any] | None = None) -> bool:

@@ -50,7 +50,9 @@ class IntelligenceOrchestrator:
             self.learning.schedule(observation_id=f"fusion:{symbol}:{observed}", symbol=symbol, observed_at=observed,
                                   metadata={"source": "INTELLIGENCE_FUSION", "research_only": True})
         self.learning.checkpoint("intelligence_orchestrator", status="HEALTHY", records=len(self.universe.securities))
+        resolution = self.learning.resolve_from_public_store()
         return {"observed_at": observed, "universe_size": len(self.universe.securities),
                 "fusion_observations": len(self.universe.securities), "forward_jobs": len(self.universe.securities) * 5,
+                "forward_resolution": resolution,
                 "execution_authorized": False,
                 "research_only": True}
