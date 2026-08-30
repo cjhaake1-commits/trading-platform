@@ -3485,7 +3485,7 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
             "Provider": name,
             "Status": "CONNECTED" if any(v.get("state") == "SCANNING" for v in (prediction, perps)) else "UNKNOWN",
             "Last successful call": max(timestamps, default="UNKNOWN"),
-            "Requests (latest cycle)": requests, "Failures": failures, "Timeouts": timeouts,
+            "Requests (latest cycle)": requests, "Failures": failures, "Timeouts": timeouts, "Retries": "UNKNOWN",
             "p50 latency ms (latest cycle)": min(p50) if p50 else "UNKNOWN",
             "p95 latency ms (latest cycle)": max(p95) if p95 else "UNKNOWN",
         })
