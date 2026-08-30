@@ -94,6 +94,8 @@ def _status(item_id: str, safety: dict[str, object], runtime: dict[str, object],
     source_markers = {
         **{str(number): ("src/autotrader/strategies.py", marker) for number, marker in {
             6: "def momentum", 7: "def breakout", 8: "def mean_reversion", 9: "def trend_following",
+        }.items()},
+        **{str(number): ("src/autotrader/multi_strategy.py", marker) for number, marker in {
             10: "INSUFFICIENT_DATA", 11: "strategy_version", 12: "data_quality", 13: "edge_proxy",
             14: "expected_value", 15: "long_votes", 16: "dispersion", 17: "conflict_state",
             18: "TIED_COMPARABLE_CONFIDENCE", 19: "aggregate_confluence",
