@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from .corporate_features import derive_features
 from .intelligence_fusion import CorporateFeatureSnapshot, IntelligenceFusionEngine, MarketConfirmationSnapshot
+from .intelligence_learning import IntelligenceLearningTree
 from .intelligence_persistence import IntelligencePersistence
 from .research_universe import ResearchUniverse
 from .sec_edgar import normalize_filing
@@ -15,6 +16,7 @@ class IntelligenceOrchestrator:
     VERSION = "intelligence-tree-v1"
     def __init__(self, store, *, universe: ResearchUniverse | None = None):
         self.persistence = IntelligencePersistence(store)
+        self.learning = IntelligenceLearningTree(store.path)
         self.universe = universe or ResearchUniverse.configured()
         self.fusion = IntelligenceFusionEngine()
 
@@ -45,6 +47,10 @@ class IntelligenceOrchestrator:
                 "metadata_json": {"fusion": fusion.__dict__, "universe": security, "feature_version": self.VERSION,
                                   "execution_authorized": False}, "paper_shadow_status": "RESEARCH_ONLY",
                 "promotion_status": "OBSERVING", "model_weight": 0.0, "broker_control": 0})
+            self.learning.schedule(observation_id=f"fusion:{symbol}:{observed}", symbol=symbol, observed_at=observed,
+                                  metadata={"source": "INTELLIGENCE_FUSION", "research_only": True})
+        self.learning.checkpoint("intelligence_orchestrator", status="HEALTHY", records=len(self.universe.securities))
         return {"observed_at": observed, "universe_size": len(self.universe.securities),
-                "fusion_observations": len(self.universe.securities), "execution_authorized": False,
+                "fusion_observations": len(self.universe.securities), "forward_jobs": len(self.universe.securities) * 5,
+                "execution_authorized": False,
                 "research_only": True}
