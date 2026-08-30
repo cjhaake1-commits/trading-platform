@@ -156,6 +156,8 @@ def test_forward_checkpoint_exports_ledger_funnel_counts(tmp_path):
     assert crypto["fills"] == 1
     assert crypto["actual_exits"] == 1
     assert crypto["shadow_entries"] == "UNKNOWN"
+    assert crypto["risk_approved"] == "UNKNOWN"
+    assert crypto["capital_approved"] == "UNKNOWN"
 
 
 def test_forward_checkpoint_keeps_provider_history_unknown_when_only_snapshot_exists(tmp_path, monkeypatch):
