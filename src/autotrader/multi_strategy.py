@@ -138,4 +138,43 @@ def aggregate_confluence(evaluations: tuple[StrategyEvaluation, ...]) -> Conflue
     )
 
 
-__all__ = ["ConfluenceDecision", "StrategyEvaluation", "aggregate_confluence", "evaluate_strategies"]
+def evaluate_proposals(
+    instrument: Instrument,
+    bars: list[MarketBar],
+    proposals: dict[str, object | None],
+    *,
+    timeframe: str = "15m",
+    candidate_score: float | None = None,
+) -> tuple[StrategyEvaluation, ...]:
+    """Normalize asset-specific proposals into the shared confluence contract.
+
+    A missing proposal is a HOLD/NO_STRATEGY_SIGNAL observation, never a vote
+    for the first available strategy.  Callers may use this for asset classes
+    whose strategy calculations live outside :class:`BaselineStrategies`.
+    """
+    results = []
+    for strategy_id, proposal in proposals.items():
+        if proposal is None:
+            direction, confidence, rationale = "HOLD", 0.0, "no strategy proposal"
+            rejection = "NO_STRATEGY_SIGNAL"
+        else:
+            direction = proposal.side.value.upper()
+            confidence = float(proposal.confidence)
+            rationale = proposal.rationale
+            rejection = None
+        proxy = max(float(candidate_score or 0.0) / 100.0, 0.0) if proposal is not None else 0.0
+        results.append(StrategyEvaluation(
+            strategy_id=f"{instrument.asset_class.value.lower()}.{strategy_id.lower()}",
+            market=instrument.symbol, timeframe=timeframe, direction=direction,
+            raw_score=float(candidate_score or 0.0), confidence=confidence,
+            estimated_edge=None, expected_value=None,
+            features={"bar_count": len(bars), "rationale": rationale},
+            candidate=True, signal=proposal is not None, rejection_reason=rejection,
+            edge_proxy=proxy, ev_proxy=proxy * confidence,
+            data_quality="FRESH" if bars else "INSUFFICIENT_DATA",
+            regime="UNKNOWN",
+        ))
+    return tuple(results)
+
+
+__all__ = ["ConfluenceDecision", "StrategyEvaluation", "aggregate_confluence", "evaluate_proposals", "evaluate_strategies"]

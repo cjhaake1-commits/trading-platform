@@ -14,6 +14,7 @@ from .international_trading import InternationalExecutionService, InternationalO
 from .marketdata import YahooHistoricalData
 from .metals_trading import MetalsExecutionService, MetalsOrderSpec
 from .models import AssetClass, Instrument, MarketBar, PortfolioState, Side
+from .multi_strategy import aggregate_confluence, evaluate_proposals
 from .paper_experiment import PaperExperimentConfig, PaperExperimentLedger, experimental_candidate
 from .runtime import JobResult
 from .scanner import CandidateScanner
@@ -259,18 +260,21 @@ class MetalsPaperTradingJob:
         if not ranked:
             return None
         candidate = ranked[0]
-        proposal = self.strategies.momentum(candidate.instrument, histories[candidate.instrument])
-        if proposal is None or proposal.side is not Side.BUY:
-            proposal = self.strategies.sma_cross(candidate.instrument, histories[candidate.instrument])
-        if proposal is None or proposal.side is not Side.BUY:
-            proposal = self.strategies.breakout(candidate.instrument, histories[candidate.instrument])
-        if proposal is None or proposal.side is not Side.BUY:
-            proposal = self.strategies.mean_reversion(candidate.instrument, histories[candidate.instrument])
-        if proposal is None or proposal.side is not Side.BUY:
-            proposal = self.strategies.trend_following(candidate.instrument, histories[candidate.instrument])
-        if proposal is None or proposal.side is not Side.BUY:
+        bars = histories[candidate.instrument]
+        proposals = {
+            "momentum": self.strategies.momentum(candidate.instrument, bars),
+            "breakout": self.strategies.breakout(candidate.instrument, bars),
+            "mean_reversion": self.strategies.mean_reversion(candidate.instrument, bars),
+            "trend_following": self.strategies.trend_following(candidate.instrument, bars),
+            "volatility_expansion": self.strategies.volatility_expansion(candidate.instrument, bars),
+            "relative_strength": None,
+        }
+        evaluations = evaluate_proposals(candidate.instrument, bars, proposals, timeframe="1d", candidate_score=candidate.score)
+        confluence = aggregate_confluence(evaluations)
+        if confluence.direction != "BUY":
             return None
-        return candidate, proposal
+        eligible = [proposal for proposal in proposals.values() if proposal is not None and proposal.side is Side.BUY]
+        return candidate, max(eligible, key=lambda proposal: proposal.confidence)
 
     def _best_experimental_signal(self, histories: dict[Instrument, list[MarketBar]]):
         ranked = self.scanner.rank(histories, top_n=len(histories))

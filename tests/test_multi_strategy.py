@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from autotrader.models import AssetClass, Instrument, MarketBar
-from autotrader.multi_strategy import StrategyEvaluation, aggregate_confluence, evaluate_strategies
+from autotrader.multi_strategy import StrategyEvaluation, aggregate_confluence, evaluate_proposals, evaluate_strategies
 
 
 def _bars():
@@ -66,3 +66,13 @@ def test_confluence_persists_insufficient_data_and_edge_proxy_aggregates():
     assert decision.insufficient_data_count == 1
     assert decision.aggregate_edge_proxy == 0.2
     assert all("regime" in vote for vote in decision.strategy_votes)
+
+
+def test_asset_specific_proposals_normalize_missing_votes_without_first_buy_bias():
+    instrument = Instrument("GLD", AssetClass.ETF)
+    proposals = {"momentum": None, "breakout": None}
+    evaluations = evaluate_proposals(instrument, _bars(), proposals, candidate_score=80.0)
+    assert [item.direction for item in evaluations] == ["HOLD", "HOLD"]
+    assert all(item.rejection_reason == "NO_STRATEGY_SIGNAL" for item in evaluations)
+    assert all(item.estimated_edge is None and item.expected_value is None for item in evaluations)
+    assert aggregate_confluence(evaluations).direction == "HOLD"
