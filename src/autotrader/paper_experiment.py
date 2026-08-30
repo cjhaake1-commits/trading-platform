@@ -199,8 +199,9 @@ class PaperExperimentLedger:
         entry_price: float | None,
         edge: EdgeEstimate | None,
         features: dict[str, object],
+        experiment_id: str | None = None,
     ) -> int:
-        experiment_id = f"EXP-{uuid.uuid4().hex}"
+        experiment_id = experiment_id or f"EXP-{uuid.uuid4().hex}"
         occurred_at = datetime.now(UTC).isoformat()
         with sqlite3.connect(self.path) as connection:
             cursor = connection.execute(

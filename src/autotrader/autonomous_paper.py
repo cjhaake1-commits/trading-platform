@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -421,6 +422,7 @@ class AutonomousPaperTradingJob:
                 diagnostics.append({"symbol": instrument.symbol, "score": 0.0, "rejection": "EXECUTION_COOLDOWN"})
                 continue
             candidate = self.scanner.score_instrument(instrument, bars)
+            experiment_id = f"EXP-{uuid.uuid4().hex}" if candidate is not None else None
             if candidate is not None:
                 diagnostics.append(
                     {
@@ -454,6 +456,7 @@ class AutonomousPaperTradingJob:
                             "votes": {"technical": candidate.score},
                             "agent_status": {"technical": "CONNECTED", "fundamental": "NOT_CONNECTED", "sentiment": "NOT_CONNECTED", "news_macro": "NOT_CONNECTED"},
                         },
+                        experiment_id=experiment_id,
                     )
             champion_signal = choose_long_signal(
                 instrument,
@@ -507,6 +510,7 @@ class AutonomousPaperTradingJob:
                     entry_price=signal.proposal.entry_price,
                     edge=signal.edge,
                     features={"score": signal.score, "votes": signal.votes},
+                    experiment_id=experiment_id,
                 )
                 signals.append(signal)
 
