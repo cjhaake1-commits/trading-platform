@@ -26,3 +26,26 @@ def test_normalize_ohlc_repairs_provider_rounding_anomalies():
         100.00,
         100.50,
     )
+
+
+def test_yahoo_empty_history_is_bounded_by_symbol_interval_ttl(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from autotrader.marketdata import YahooHistoricalData
+
+    calls = []
+
+    class FakeYahoo:
+        @staticmethod
+        def download(*args, **kwargs):
+            calls.append((args, kwargs))
+            return None
+
+    monkeypatch.setitem(__import__("sys").modules, "yfinance", FakeYahoo)
+    feed = YahooHistoricalData(empty_result_ttl_seconds=900)
+    instrument = Instrument("UNKNOWN/USD", AssetClass.CRYPTO)
+    start = datetime.now(UTC) - timedelta(days=1)
+    end = datetime.now(UTC)
+    assert feed.history(instrument, start, end, interval="15m") == []
+    assert feed.history(instrument, start, end, interval="15m") == []
+    assert len(calls) == 1

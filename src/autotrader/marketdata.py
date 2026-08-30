@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
@@ -59,6 +60,10 @@ class YahooSymbolMapper:
 @dataclass
 class YahooHistoricalData:
     mapper: YahooSymbolMapper = YahooSymbolMapper()
+    empty_result_ttl_seconds: float = 900.0
+
+    def __post_init__(self) -> None:
+        self._empty_until: dict[tuple[str, str], float] = {}
 
     def history(
         self,
@@ -75,6 +80,10 @@ class YahooHistoricalData:
             ) from exc
 
         symbol = self.mapper.to_yahoo(instrument)
+        cache_key = (symbol, interval)
+        now = time.monotonic()
+        if self._empty_until.get(cache_key, 0.0) > now:
+            return []
         frame = yf.download(
             symbol,
             start=start,
@@ -85,7 +94,9 @@ class YahooHistoricalData:
             threads=False,
         )
         if frame is None or frame.empty:
+            self._empty_until[cache_key] = now + max(self.empty_result_ttl_seconds, 0.0)
             return []
+        self._empty_until.pop(cache_key, None)
 
         # yfinance can return a MultiIndex for one or many symbols depending on
         # version. Reduce to the requested symbol when required.
