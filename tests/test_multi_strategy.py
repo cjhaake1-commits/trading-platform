@@ -65,3 +65,4 @@ def test_confluence_persists_insufficient_data_and_edge_proxy_aggregates():
     decision = aggregate_confluence(evaluations)
     assert decision.insufficient_data_count == 1
     assert decision.aggregate_edge_proxy == 0.2
+    assert all("regime" in vote for vote in decision.strategy_votes)

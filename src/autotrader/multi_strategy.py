@@ -133,7 +133,7 @@ def aggregate_confluence(evaluations: tuple[StrategyEvaluation, ...]) -> Conflue
         dispersion=pvariance(weights) if len(weights) > 1 else 0.0,
         aggregate_edge_proxy=(sum(edge_proxies) / len(edge_proxies)) if edge_proxies else None,
         expected_value=None,
-        strategy_votes=tuple({"strategy_id": item.strategy_id, "direction": item.direction, "confidence": item.confidence} for item in evaluations),
+        strategy_votes=tuple({"strategy_id": item.strategy_id, "direction": item.direction, "confidence": item.confidence, "regime": item.regime} for item in evaluations),
         conflict_state=conflict_state,
     )
 

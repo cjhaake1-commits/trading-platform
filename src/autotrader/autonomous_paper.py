@@ -452,6 +452,7 @@ class AutonomousPaperTradingJob:
                             pillar="Crypto", engine="crypto", provider="Alpaca Paper", market=instrument.symbol,
                             asset_class="crypto", strategy=evaluation.strategy_id, strategy_version="v1",
                             model_version="runtime-v1", timeframe=evaluation.timeframe,
+                            market_regime=evaluation.regime,
                             features={**evaluation.features, "confluence": confluence.__dict__},
                             signal_direction=evaluation.direction, raw_score=evaluation.raw_score,
                             normalized_confidence=evaluation.confidence, estimated_edge=evaluation.estimated_edge,
@@ -476,7 +477,8 @@ class AutonomousPaperTradingJob:
                             entry_at=bars[-1].timestamp.isoformat(), entry_reason="near_threshold_confluence",
                             qualification_score=confluence.weighted_confidence,
                             prevented_by_threshold=f"candidate_score<{minimum_score}",
-                            hypothetical_stop=candidate.suggested_stop, regime="UNKNOWN",
+                            hypothetical_stop=candidate.suggested_stop,
+                            regime=confluence.strategy_votes[0].get("regime", "UNKNOWN") if confluence.strategy_votes else "UNKNOWN",
                         )
                     # Persist the observed candidate even when no order signal
                     # survives qualification. The existing experiment ledger
