@@ -50,3 +50,5 @@ def test_strategy_methods_are_not_aliases_and_relative_strength_is_explicitly_un
     assert methods["trend_following"] == "trend_following"
     assert methods["relative_strength"] == "INSUFFICIENT_DATA"
     assert next(item for item in evaluations if item.strategy_id.endswith("relative_strength")).rejection_reason == "INSUFFICIENT_DATA"
+    assert all(item.estimated_edge is None and item.expected_value is None for item in evaluations)
+    assert all(item.edge_proxy is not None and item.ev_proxy is not None for item in evaluations)

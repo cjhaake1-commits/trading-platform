@@ -25,12 +25,14 @@ class StrategyEvaluation:
     direction: str
     raw_score: float
     confidence: float
-    estimated_edge: float
-    expected_value: float
+    estimated_edge: float | None
+    expected_value: float | None
     features: dict[str, object]
     candidate: bool
     signal: bool
     rejection_reason: str | None = None
+    edge_proxy: float | None = None
+    ev_proxy: float | None = None
 
 
 @dataclass(frozen=True)
@@ -63,7 +65,9 @@ def evaluate_strategies(
         direction = proposal.side.value.upper() if proposal else "HOLD"
         signal = proposal is not None
         confidence = proposal.confidence if proposal else 0.0
-        edge = max(candidate_score / 100.0, 0.0) if signal else 0.0
+        # Candidate score is a research ranking proxy, not calibrated
+        # economics. Keep validated fields unknown until outcome calibration.
+        edge_proxy = max(candidate_score / 100.0, 0.0) if signal else 0.0
         results.append(
             StrategyEvaluation(
                 strategy_id=f"{instrument.asset_class.value.lower()}.{strategy_id.lower()}",
@@ -72,12 +76,14 @@ def evaluate_strategies(
                 direction=direction,
                 raw_score=float(candidate_score),
                 confidence=float(confidence),
-                estimated_edge=edge,
-                expected_value=edge * confidence,
+                estimated_edge=None,
+                expected_value=None,
                 features={"bar_count": len(bars), "source_method": method_name or "INSUFFICIENT_DATA"},
                 candidate=True,
                 signal=signal,
                 rejection_reason=None if signal else ("INSUFFICIENT_DATA" if strategy_id == "RELATIVE_STRENGTH" else "NO_STRATEGY_SIGNAL"),
+                edge_proxy=edge_proxy,
+                ev_proxy=edge_proxy * confidence,
             )
         )
     return tuple(results)
@@ -109,7 +115,7 @@ def aggregate_confluence(evaluations: tuple[StrategyEvaluation, ...]) -> Conflue
         agreement_ratio=(max(votes["BUY"], votes["SELL"]) / len(evaluations)) if direction == "CONFLICT" else (votes[direction] / len(evaluations) if direction != "HOLD" else votes["HOLD"] / len(evaluations)),
         weighted_confidence=0.0 if direction == "CONFLICT" else weighted,
         dispersion=pvariance(weights) if len(weights) > 1 else 0.0,
-        expected_value=mean(item.expected_value for item in evaluations),
+        expected_value=None,
         strategy_votes=tuple({"strategy_id": item.strategy_id, "direction": item.direction, "confidence": item.confidence} for item in evaluations),
         conflict_state=conflict_state,
     )
