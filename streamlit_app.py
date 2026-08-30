@@ -3405,6 +3405,31 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
     st.markdown("### Evidence limitations")
     limitations = daily.get("evidence_limitations", [])
     st.write(limitations if limitations else ["UNKNOWN"])
+    st.markdown("### Strategy leaderboard")
+    registry = _safe_json(Path("var/reports/strategy-registry-v1.json"))
+    definitions = {
+        item.get("strategy_id"): item
+        for item in registry.get("definitions", [])
+        if isinstance(item, dict) and item.get("strategy_id")
+    }
+    leaderboard = []
+    for scorecard in registry.get("scorecards", []):
+        if not isinstance(scorecard, dict):
+            continue
+        definition = definitions.get(scorecard.get("strategy_id"), {})
+        observations = scorecard.get("observations", 0)
+        leaderboard.append({
+            "Strategy": scorecard.get("strategy_id", "UNKNOWN"),
+            "Pillar": definition.get("pillar", "UNKNOWN"),
+            "Status": definition.get("status", "UNKNOWN"),
+            "Observations": observations,
+            "Completed Trades": scorecard.get("trades", "UNKNOWN"),
+            "Expectancy": scorecard.get("expectancy", "UNKNOWN"),
+            "Profit Factor": scorecard.get("profit_factor", "UNKNOWN"),
+            "Drawdown": scorecard.get("max_drawdown", "UNKNOWN"),
+            "Evidence": "INSUFFICIENT_EVIDENCE" if not isinstance(observations, int) or observations < definition.get("minimum_sample_size", 30) else "EARLY_SIGNAL",
+        })
+    st.dataframe(leaderboard or [{"Strategy": "UNKNOWN"}], use_container_width=True, hide_index=True)
 
 
 def render_dashboard() -> None:
