@@ -83,6 +83,11 @@ def main() -> None:
             "position_management",
             "learning_persistence",
         ],
+        "canonical_providers": {
+            "Stocks": "Alpaca Paper", "Crypto": "Alpaca Paper", "Forex": "OANDA Practice",
+            "Metals": "Alpaca Paper", "International": "Saxo SIM",
+            "Kalshi Predictions": "Kalshi Demo", "Kalshi Perps": "Kalshi Demo",
+        },
         "bottleneck_classification": "Evidence-based classification requires a persisted rejection reason; UNKNOWN is retained when unavailable.",
     }
     output = Path("var/reports/activity-lab-v1.json")

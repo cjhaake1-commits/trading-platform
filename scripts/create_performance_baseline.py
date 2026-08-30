@@ -21,6 +21,14 @@ PILLARS = {
     "International": ("International", "ibkr_global"),
 }
 
+CANONICAL_PROVIDERS = {
+    "Stocks": "Alpaca Paper",
+    "Crypto": "Alpaca Paper",
+    "Forex": "OANDA Practice",
+    "Metals": "Alpaca Paper",
+    "International": "Saxo SIM",
+}
+
 
 def _sha() -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -46,6 +54,7 @@ def _pillar_rows() -> dict[str, dict[str, object]]:
             continue
         data = dict(snapshot)
         rows[pillar] = {
+            "execution_provider": CANONICAL_PROVIDERS[pillar],
             "allocated_capital": data.get("allocation_cap"),
             "current_equity": data.get("economic_equity"),
             "available_capital": data.get("available_cash"),
