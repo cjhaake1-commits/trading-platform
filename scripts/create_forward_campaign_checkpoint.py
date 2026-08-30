@@ -16,12 +16,16 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute("SELECT pillar, candidate_status, occurred_at FROM activity_observations WHERE occurred_at >= ?", (cutoff,)).fetchall()
         shadows = connection.execute("SELECT exit_at, hypothetical_pnl FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
+    shared_cycles = sum(row[1] == "CYCLE_COMPLETE" and row[0] == "Stocks/Crypto" for row in rows)
     counts = {}
     for engine in ENGINES:
-        aliases = {engine, engine.lower(), "Stocks/Crypto" if engine == "Stocks" else ""}
+        aliases = {engine, engine.lower()}
         selected = [row for row in rows if row[0] in aliases]
         counts[engine] = {"observations": len(selected), "cycles": sum(row[1] == "CYCLE_COMPLETE" for row in selected), "signals": sum(row[1] == "SIGNAL" for row in selected), "latest": max((row[2] for row in selected), default="UNKNOWN")}
-    return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "shadow": {"entries": len(shadows), "exits": sum(row[0] is not None for row in shadows), "completed_pnl": sum(float(row[1] or 0) for row in shadows if row[0] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; no trade or outcome is synthesized."}
+    for engine in ("Stocks", "Crypto"):
+        counts[engine]["cycles"] = "UNKNOWN"
+        counts[engine]["shared_stocks_crypto_cycles"] = shared_cycles
+    return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "shadow": {"entries": len(shadows), "exits": sum(row[0] is not None for row in shadows), "completed_pnl": sum(float(row[1] or 0) for row in shadows if row[0] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar."}
 
 
 def write_checkpoint(output: str = "var/reports/overnight-forward-campaign.json") -> Path:
