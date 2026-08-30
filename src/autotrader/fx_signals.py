@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .models import Instrument, Side, TradeIntent, TradeProposal
+from .multi_strategy import aggregate_confluence, evaluate_proposals
 from .scanner import CandidateScanner
 from .strategies import BaselineStrategies
 
@@ -90,18 +91,17 @@ def qualify_fx_signal(
             },
         )
 
-    proposals = tuple(
-        proposal
-        for proposal in (
-            strategies.momentum(instrument, bars),
-            _session_momentum(instrument, bars),
-            strategies.sma_cross(instrument, bars),
-            strategies.breakout(instrument, bars),
-            strategies.mean_reversion(instrument, bars),
-            strategies.trend_following(instrument, bars),
-        )
-        if proposal is not None
-    )
+    proposal_set = {
+        "momentum": strategies.momentum(instrument, bars),
+        "session_momentum": _session_momentum(instrument, bars),
+        "trend": strategies.sma_cross(instrument, bars),
+        "breakout": strategies.breakout(instrument, bars),
+        "mean_reversion": strategies.mean_reversion(instrument, bars),
+        "trend_following": strategies.trend_following(instrument, bars),
+    }
+    evaluations = evaluate_proposals(instrument, bars, proposal_set, timeframe="15m", candidate_score=candidate.score)
+    confluence = aggregate_confluence(evaluations)
+    proposals = tuple(proposal for proposal in proposal_set.values() if proposal is not None)
     buys = [proposal for proposal in proposals if proposal.side is Side.BUY]
     sells = [proposal for proposal in proposals if proposal.side is Side.SELL]
 
@@ -112,6 +112,8 @@ def qualify_fx_signal(
         "momentum_pct": round(candidate.momentum_pct, 4),
         "buy_votes": [proposal.source for proposal in buys],
         "sell_votes": [proposal.source for proposal in sells],
+        "strategy_evaluations": [evaluation.__dict__ for evaluation in evaluations],
+        "confluence": confluence.__dict__,
         "qualified": False,
     }
 
