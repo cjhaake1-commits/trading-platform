@@ -19,10 +19,14 @@ class ResearchMarketHistory:
         now = observed_at or datetime.now(UTC).isoformat()
         rows = []
         for bar in bars:
-            timestamp = bar.get("source_time", bar.get("timestamp", bar.get("time")))
-            if not timestamp or bar.get("open") is None or bar.get("high") is None or bar.get("low") is None or bar.get("close") is None:
+            timestamp = bar.get("source_time", bar.get("timestamp", bar.get("time", bar.get("t"))))
+            open_price = bar.get("open", bar.get("o"))
+            high_price = bar.get("high", bar.get("h"))
+            low_price = bar.get("low", bar.get("l"))
+            close_price = bar.get("close", bar.get("c"))
+            if not timestamp or open_price is None or high_price is None or low_price is None or close_price is None:
                 continue
-            rows.append((pillar, provider, str(bar.get("symbol", "")), str(timestamp), float(bar["open"]), float(bar["high"]), float(bar["low"]), float(bar["close"]), float(bar["volume"]) if bar.get("volume") is not None else None, bar.get("market_session"), now, source))
+            rows.append((pillar, provider, str(bar.get("symbol", "")), str(timestamp), float(open_price), float(high_price), float(low_price), float(close_price), float(bar["volume"] if bar.get("volume") is not None else bar.get("v")) if (bar.get("volume") is not None or bar.get("v") is not None) else None, bar.get("market_session"), now, source))
         with sqlite3.connect(self.path) as conn:
             before = conn.total_changes
             conn.executemany("INSERT OR IGNORE INTO market_bars VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", rows)
