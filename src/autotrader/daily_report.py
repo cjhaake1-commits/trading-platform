@@ -62,7 +62,7 @@ def _provider_metrics() -> dict[str, object]:
     result = {name: "UNKNOWN" for name in job_map}
     try:
         cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
-        with sqlite3.connect("var/autotrader/audit.db") as connection:
+        with sqlite3.connect("var/autotrader/audit.db", timeout=30.0) as connection:
             rows = connection.execute(
                 "SELECT data_json, created_at FROM audit_events WHERE event_type='runtime_job' AND created_at >= ?",
                 (cutoff,),
