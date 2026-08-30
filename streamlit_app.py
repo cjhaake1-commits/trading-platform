@@ -3395,7 +3395,7 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
     rows = []
     for name in ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps"):
         values = engines.get(name) if isinstance(engines.get(name), dict) else {}
-        rows.append({"Engine": name, "Cycles": values.get("cycles", "UNKNOWN"), "Observations": values.get("observations", "UNKNOWN"), "Signals": values.get("signals", "UNKNOWN"), "Latest": values.get("latest", "UNKNOWN")})
+        rows.append({"Engine": name, "Activity Health": values.get("activity_health", "UNKNOWN"), "Cycles": values.get("cycles", "UNKNOWN"), "Observations": values.get("observations", "UNKNOWN"), "Signals": values.get("signals", "UNKNOWN"), "Latest": values.get("latest", "UNKNOWN")})
     st.dataframe(rows, use_container_width=True, hide_index=True)
     st.markdown("### Provider cycle health")
     providers = report.get("providers") if isinstance(report.get("providers"), dict) else {}

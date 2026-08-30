@@ -30,6 +30,7 @@ def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
     assert checkpoint["engines"]["Stocks"]["cycles"] == "UNKNOWN"
     assert checkpoint["engines"]["Crypto"]["cycles"] == "UNKNOWN"
     assert checkpoint["engines"]["Crypto"]["shared_stocks_crypto_cycles"] == 1
+    assert checkpoint["engines"]["Crypto"]["activity_health"] == "UNKNOWN"
 
 
 def test_forward_checkpoint_keeps_provider_history_unknown_when_only_snapshot_exists(tmp_path, monkeypatch):

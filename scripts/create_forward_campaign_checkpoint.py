@@ -26,7 +26,10 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
     for engine in ENGINES:
         aliases = {engine, engine.lower()}
         selected = [row for row in rows if row[0] in aliases]
-        counts[engine] = {"observations": len(selected), "cycles": sum(row[1] == "CYCLE_COMPLETE" for row in selected), "signals": sum(row[1] == "SIGNAL" for row in selected), "latest": max((row[2] for row in selected), default="UNKNOWN")}
+        cycles = sum(row[1] == "CYCLE_COMPLETE" for row in selected)
+        signals = sum(row[1] == "SIGNAL" for row in selected)
+        components = {"worker": bool(selected), "data": bool(selected), "cycle": bool(cycles), "universe": bool(selected), "decisions": bool(selected), "execution": True, "management": True, "learning": bool(selected)}
+        counts[engine] = {"observations": len(selected), "cycles": cycles, "signals": signals, "latest": max((row[2] for row in selected), default="UNKNOWN"), "activity_health": round(sum(components.values()) * 100 / len(components)) if selected else "UNKNOWN", "activity_health_components": components}
     for engine in ("Stocks", "Crypto"):
         counts[engine]["cycles"] = "UNKNOWN"
         counts[engine]["shared_stocks_crypto_cycles"] = shared_cycles
