@@ -13,9 +13,14 @@ ENGINES = ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predi
 def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: datetime | None = None) -> dict[str, object]:
     current = (now or datetime.now(UTC)).astimezone(UTC)
     cutoff = (current - timedelta(hours=24)).isoformat()
-    with sqlite3.connect(db_path) as connection:
-        rows = connection.execute("SELECT pillar, candidate_status, occurred_at FROM activity_observations WHERE occurred_at >= ?", (cutoff,)).fetchall()
-        shadows = connection.execute("SELECT exit_at, hypothetical_pnl FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
+    try:
+        with sqlite3.connect(db_path) as connection:
+            rows = connection.execute("SELECT pillar, candidate_status, occurred_at FROM activity_observations WHERE occurred_at >= ?", (cutoff,)).fetchall()
+            shadows = connection.execute("SELECT exit_at, hypothetical_pnl FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
+    except sqlite3.OperationalError:
+        # A first-run or unavailable ledger is valid evidence of no observed
+        # campaign data; the report must remain writable and explicit.
+        rows, shadows = [], []
     shared_cycles = sum(row[1] == "CYCLE_COMPLETE" and row[0] == "Stocks/Crypto" for row in rows)
     counts = {}
     for engine in ENGINES:
