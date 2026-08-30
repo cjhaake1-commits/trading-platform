@@ -462,26 +462,6 @@ class AutonomousPaperTradingJob:
                             qualification_result="SIGNAL" if evaluation.signal else "REJECTED",
                             rejection_reason=evaluation.rejection_reason, learning_update="strategy_evaluated",
                         )
-                elif instrument.asset_class in {AssetClass.STOCK, AssetClass.ETF}:
-                    stock_evaluations = evaluate_strategies(
-                        instrument, bars, candidate.score, timeframe=self.config.interval, strategies=self.strategies
-                    )
-                    stock_confluence = aggregate_confluence(stock_evaluations)
-                    stock_confluence_allows_entry = stock_confluence.direction == "BUY"
-                    for evaluation in stock_evaluations:
-                        self.experiment_ledger.record_activity(
-                            experiment_id=experiment_id,
-                            pillar="Stocks", engine="stocks", provider="Alpaca Paper", market=instrument.symbol,
-                            asset_class=instrument.asset_class.value, strategy=evaluation.strategy_id, strategy_version="v1",
-                            model_version="runtime-v1", timeframe=evaluation.timeframe, market_regime=evaluation.regime,
-                            features={**evaluation.features, "confluence": stock_confluence.__dict__},
-                            signal_direction=evaluation.direction, raw_score=evaluation.raw_score,
-                            normalized_confidence=evaluation.confidence, estimated_edge=evaluation.estimated_edge,
-                            expected_value=evaluation.expected_value,
-                            candidate_status="SIGNAL" if evaluation.signal else "CANDIDATE",
-                            qualification_result="SIGNAL" if evaluation.signal else "REJECTED",
-                            rejection_reason=evaluation.rejection_reason, learning_update="strategy_evaluated",
-                        )
                     # Near-threshold, valid Crypto candidates become provider-free
                     # shadow entries; they never enter portfolio or broker state.
                     if (
@@ -529,6 +509,26 @@ class AutonomousPaperTradingJob:
                         },
                         experiment_id=experiment_id,
                     )
+                elif instrument.asset_class in {AssetClass.STOCK, AssetClass.ETF}:
+                    stock_evaluations = evaluate_strategies(
+                        instrument, bars, candidate.score, timeframe=self.config.interval, strategies=self.strategies
+                    )
+                    stock_confluence = aggregate_confluence(stock_evaluations)
+                    stock_confluence_allows_entry = stock_confluence.direction == "BUY"
+                    for evaluation in stock_evaluations:
+                        self.experiment_ledger.record_activity(
+                            experiment_id=experiment_id,
+                            pillar="Stocks", engine="stocks", provider="Alpaca Paper", market=instrument.symbol,
+                            asset_class=instrument.asset_class.value, strategy=evaluation.strategy_id, strategy_version="v1",
+                            model_version="runtime-v1", timeframe=evaluation.timeframe, market_regime=evaluation.regime,
+                            features={**evaluation.features, "confluence": stock_confluence.__dict__},
+                            signal_direction=evaluation.direction, raw_score=evaluation.raw_score,
+                            normalized_confidence=evaluation.confidence, estimated_edge=evaluation.estimated_edge,
+                            expected_value=evaluation.expected_value,
+                            candidate_status="SIGNAL" if evaluation.signal else "CANDIDATE",
+                            qualification_result="SIGNAL" if evaluation.signal else "REJECTED",
+                            rejection_reason=evaluation.rejection_reason, learning_update="strategy_evaluated",
+                        )
             champion_signal = choose_long_signal(
                 instrument,
                 bars,
