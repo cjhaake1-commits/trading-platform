@@ -176,3 +176,5 @@ def test_autonomous_lab_engine_table_contains_required_funnel_columns():
     for label in ("Markets Scanned", "Strategy Evaluations", "Positive Edge/Proxy", "Actual Orders", "Shadow Trades", "Realized P&L", "Top Bottleneck"):
         assert f'"{label}"' in source
     assert '"Status": status' in source
+    assert 'pillar_performance = ctx.get("pillar_performance")' in source
+    assert '"Actual Expectancy": actual_expectancy' in source

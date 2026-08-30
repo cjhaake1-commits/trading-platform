@@ -3395,6 +3395,8 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
     )
     engines = report.get("engines") if isinstance(report.get("engines"), dict) else {}
     providers = report.get("providers") if isinstance(report.get("providers"), dict) else {}
+    pillar_performance = ctx.get("pillar_performance") if isinstance(ctx.get("pillar_performance"), dict) else {}
+    live_pillar_status = ctx.get("live_pillar_status") if isinstance(ctx.get("live_pillar_status"), dict) else {}
     rows = []
     for name in ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps"):
         values = engines.get(name) if isinstance(engines.get(name), dict) else {}
@@ -3407,6 +3409,11 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         if is_kalshi:
             status = provider.get("state", "UNKNOWN")
         shadow_values = shadow_by_pillar.get(name) if isinstance(shadow_by_pillar.get(name), dict) else {}
+        actual_values = pillar_performance.get(name) if isinstance(pillar_performance.get(name), dict) else {}
+        actual_provider = live_pillar_status.get(name) if isinstance(live_pillar_status.get(name), dict) else {}
+        actual_expectancy = actual_values.get("expectancy", "UNKNOWN")
+        realized_pnl = actual_values.get("realized_pnl", actual_values.get("net_generated_cash", "UNKNOWN"))
+        open_actual = actual_provider.get("positions", "UNKNOWN")
         provider_health = "UNKNOWN"
         if is_kalshi:
             health_components = (
@@ -3418,7 +3425,7 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
                 True,
             )
             provider_health = round(sum(health_components) * 100 / len(health_components))
-        rows.append({"Engine": name, "Status": status, "Activity Health": provider_health if is_kalshi else values.get("activity_health", "UNKNOWN"), "Last Cycle": provider.get("observed_at", values.get("latest", "UNKNOWN")), "Markets Scanned": provider.get("markets", provider.get("instruments", values.get("observations", "UNKNOWN"))), "Strategy Evaluations": daily_values.get("observations", "UNKNOWN"), "Candidates": provider_funnel.get("scanned", daily_values.get("candidates", "UNKNOWN")) if is_kalshi else daily_values.get("candidates", "UNKNOWN"), "Signals": values.get("signals", daily_values.get("signals", "UNKNOWN")), "Positive Edge/Proxy": provider_funnel.get("positive_edge", "UNKNOWN") if is_kalshi else "UNKNOWN", "Qualified": provider_funnel.get("qualified", values.get("qualified", daily_values.get("qualified", "UNKNOWN"))) if is_kalshi else values.get("qualified", daily_values.get("qualified", "UNKNOWN")), "Actual Orders": provider.get("orders", "UNKNOWN") if is_kalshi else "UNKNOWN", "Shadow Trades": shadow_values.get("entries", "UNKNOWN"), "Fills": provider.get("fills", "UNKNOWN") if is_kalshi else "UNKNOWN", "Open Actual": "UNKNOWN", "Open Shadow": (shadow_values.get("entries", 0) - shadow_values.get("completed", 0)) if shadow_values else "UNKNOWN", "Actual Exits": "UNKNOWN", "Shadow Exits": shadow_values.get("completed", "UNKNOWN"), "Actual Expectancy": "UNKNOWN", "Shadow Expectancy": shadow_values.get("hypothetical_expectancy", "UNKNOWN"), "Realized P&L": "UNKNOWN", "Unrealized P&L": provider.get("unrealized_pnl", "UNKNOWN") if is_kalshi else "UNKNOWN", "Learning Observations": daily_values.get("observations", "UNKNOWN"), "Top Bottleneck": (provider.get("last_rejection_reason", daily_values.get("top_bottlenecks")) if is_kalshi else (daily_values.get("top_bottlenecks") or "UNKNOWN")), "Regime": (next(iter((daily_values.get("regimes") or {}).keys()), "UNKNOWN"))})
+        rows.append({"Engine": name, "Status": status, "Activity Health": provider_health if is_kalshi else values.get("activity_health", "UNKNOWN"), "Last Cycle": provider.get("observed_at", values.get("latest", "UNKNOWN")), "Markets Scanned": provider.get("markets", provider.get("instruments", values.get("observations", "UNKNOWN"))), "Strategy Evaluations": daily_values.get("observations", "UNKNOWN"), "Candidates": provider_funnel.get("scanned", daily_values.get("candidates", "UNKNOWN")) if is_kalshi else daily_values.get("candidates", "UNKNOWN"), "Signals": values.get("signals", daily_values.get("signals", "UNKNOWN")), "Positive Edge/Proxy": provider_funnel.get("positive_edge", "UNKNOWN") if is_kalshi else "UNKNOWN", "Qualified": provider_funnel.get("qualified", values.get("qualified", daily_values.get("qualified", "UNKNOWN"))) if is_kalshi else values.get("qualified", daily_values.get("qualified", "UNKNOWN")), "Actual Orders": provider.get("orders", "UNKNOWN") if is_kalshi else "UNKNOWN", "Shadow Trades": shadow_values.get("entries", "UNKNOWN"), "Fills": provider.get("fills", "UNKNOWN") if is_kalshi else "UNKNOWN", "Open Actual": open_actual, "Open Shadow": (shadow_values.get("entries", 0) - shadow_values.get("completed", 0)) if shadow_values else "UNKNOWN", "Actual Exits": actual_values.get("completed_trades", "UNKNOWN"), "Shadow Exits": shadow_values.get("completed", "UNKNOWN"), "Actual Expectancy": actual_expectancy, "Shadow Expectancy": shadow_values.get("hypothetical_expectancy", "UNKNOWN"), "Realized P&L": realized_pnl, "Unrealized P&L": provider.get("unrealized_pnl", actual_provider.get("unrealized_pnl", "UNKNOWN")) if is_kalshi else actual_provider.get("unrealized_pnl", "UNKNOWN"), "Learning Observations": daily_values.get("observations", "UNKNOWN"), "Top Bottleneck": (provider.get("last_rejection_reason", daily_values.get("top_bottlenecks")) if is_kalshi else (daily_values.get("top_bottlenecks") or "UNKNOWN")), "Regime": (next(iter((daily_values.get("regimes") or {}).keys()), "UNKNOWN"))})
     st.dataframe(rows, use_container_width=True, hide_index=True)
     st.markdown("### Provider health")
     provider_rows = []
