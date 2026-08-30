@@ -33,6 +33,30 @@ def _streamlit_http_status() -> int | str:
         return "UNKNOWN"
 
 
+def _service_topology() -> dict[str, object]:
+    """Capture supervised service state without treating shell children as duplicates."""
+    units = (
+        "trading-platform-paper-runtime.service",
+        "trading-platform-streamlit.service",
+        "trading-platform-kalshi-predictions.service",
+        "trading-platform-kalshi-perps.service",
+    )
+    services = {}
+    for unit in units:
+        try:
+            raw = subprocess.check_output(
+                ["systemctl", "--user", "show", unit, "-p", "ActiveState", "-p", "MainPID"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+            values = dict(line.split("=", 1) for line in raw.splitlines() if "=" in line)
+            services[unit] = {"active": values.get("ActiveState") == "active", "main_pid": int(values.get("MainPID", "0"))}
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            services[unit] = {"active": "UNKNOWN", "main_pid": "UNKNOWN"}
+    pids = [value["main_pid"] for value in services.values() if isinstance(value.get("main_pid"), int) and value["main_pid"] > 0]
+    return {"services": services, "all_active": all(value["active"] is True for value in services.values()), "distinct_main_pids": len(pids) == len(set(pids)) if pids else "UNKNOWN"}
+
+
 def build_progress() -> dict[str, object]:
     activity = {"events": "UNKNOWN", "parent_experiments": "UNKNOWN", "event_ids": "UNKNOWN"}
     shadows = {"entries": "UNKNOWN", "exits": "UNKNOWN", "invalid_directions": "UNKNOWN"}
@@ -60,7 +84,7 @@ def build_progress() -> dict[str, object]:
         "generated_at": datetime.now(UTC).isoformat(),
         "git_sha": sha,
         "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper", "verifier": verify()},
-        "runtime": {"healthy": status.get("healthy", "UNKNOWN"), "heartbeat": status.get("last_heartbeat_at", "UNKNOWN"), "execution_state": status.get("execution_state", "UNKNOWN"), "streamlit_http": _streamlit_http_status()},
+        "runtime": {"healthy": status.get("healthy", "UNKNOWN"), "heartbeat": status.get("last_heartbeat_at", "UNKNOWN"), "execution_state": status.get("execution_state", "UNKNOWN"), "streamlit_http": _streamlit_http_status(), "service_topology": _service_topology()},
         "activity": activity,
         "shadow": shadows,
         "kalshi_candidate_telemetry_rows": telemetry,
