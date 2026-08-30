@@ -6,10 +6,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from scripts.create_daily_learning_report import write_report
-
 from .crypto_challenger_v2 import analyze as analyze_challenger_v2
 from .crypto_strategy_discovery import discover as discover_crypto_strategies
+from .daily_report import write_report
 from .experiment_state import load_experiment_baseline_start
 from .learning import RealizedOutcomeLearner
 from .marketdata import YahooHistoricalData
