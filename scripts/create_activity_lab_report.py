@@ -37,6 +37,17 @@ FUNNEL_STAGES = (
 )
 
 
+def _bottleneck(reason: str, count: int, total: int) -> dict[str, object]:
+    normalized = reason.upper()
+    if any(token in normalized for token in ("EXCEPTION", "TRACEBACK", "BUG")):
+        classification, action = "BUG", "Repair the failing path and add a regression before changing gates."
+    elif any(token in normalized for token in ("SESSION", "LIQUID", "SPREAD", "PROVIDER_MINIMUM", "CLOSED")):
+        classification, action = "LEGITIMATE", "Preserve the gate and measure eligible forward observations."
+    else:
+        classification, action = "OPTIMIZABLE", "Compare accepted and near-threshold forward populations before changing the gate."
+    return {"stage": "FUNNEL", "reason": reason, "count": count, "impact_pct": round(count * 100 / total, 2) if total else "UNKNOWN", "classification": classification, "recommended_action": action}
+
+
 def _ledger_summary(path: Path) -> dict[str, dict[str, object]]:
     ledger = PaperExperimentLedger(path)
     ledger.backfill_activity_observations()
@@ -68,6 +79,7 @@ def _ledger_summary(path: Path) -> dict[str, dict[str, object]]:
             "qualified": sum(row[1] == "QUALIFIED" for row in selected),
             "rejected": sum(row[1] == "REJECTED" or row[2] is not None for row in selected),
             "top_rejections": [{"reason": reason, "count": count} for reason, count in rejections.most_common(3)],
+            "bottlenecks": [_bottleneck(reason, count, len(selected)) for reason, count in rejections.most_common(3)],
             "funnel": funnel,
         }
     return result

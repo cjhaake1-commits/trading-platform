@@ -16,6 +16,19 @@ def test_activity_report_exposes_full_funnel_without_inventing_provider_stages(t
     assert funnel["CANDIDATES"] == 1
     assert funnel["SIGNALS"] == 1
     assert funnel["LIQUID"] == "UNKNOWN"
+    assert summary["Crypto"]["bottlenecks"] == []
+
+
+def test_activity_report_classifies_observed_bottlenecks(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    ledger.record_activity(
+        experiment_id="E1", pillar="Crypto", engine="crypto", provider="paper", market="BTC/USD",
+        strategy="MOMENTUM", strategy_version="v1", model_version="v1", features={},
+        candidate_status="REJECTED", qualification_result="NO_TRADE", rejection_reason="NO_EDGE",
+    )
+    bottleneck = _ledger_summary(tmp_path / "experiment.db")["Crypto"]["bottlenecks"][0]
+    assert bottleneck["classification"] == "OPTIMIZABLE"
+    assert bottleneck["impact_pct"] == 100.0
 
 
 def test_activity_report_safety_snapshot_is_paper_only():
