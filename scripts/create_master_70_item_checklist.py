@@ -56,7 +56,11 @@ def _status(item_id: str, safety: dict[str, object], runtime: dict[str, object],
     if item_id == "AE":
         return ("PASS", "paper safety verifier reports zero real-money orders") if safety.get("real_money_orders") == 0 else ("FAIL", "real-money order evidence is nonzero")
     if item_id in {"A", "B"}:
-        return ("PASS", "forward campaign runtime evidence") if runtime.get("unresolved_runtime_failures") == 0 and progress.get("runtime", {}).get("healthy") else ("UNKNOWN", "runtime evidence is incomplete")
+        runtime_evidence = runtime.get("runtime_evidence", {}) if isinstance(runtime.get("runtime_evidence"), dict) else {}
+        clean_window = runtime_evidence.get("unresolved_runtime_failures") == 0 and runtime_evidence.get("consecutive_successful_autonomous_cycles", 0) >= 3
+        if progress.get("runtime", {}).get("healthy") and clean_window:
+            return ("PASS", "current health and three-or-more consecutive successful cycles")
+        return ("UNKNOWN", "runtime evidence is incomplete")
     if item_id == "AA":
         topology = progress.get("runtime", {}).get("service_topology", {})
         return ("PASS", "progress checkpoint reports all expected services active with distinct main PIDs") if topology.get("all_active") is True and topology.get("distinct_main_pids") is True else ("UNKNOWN", "service topology evidence is incomplete")
