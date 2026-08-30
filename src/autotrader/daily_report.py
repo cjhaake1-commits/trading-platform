@@ -21,6 +21,14 @@ def _strategy_classification(strategy: str) -> str:
     return "LEGACY_BASELINE"
 
 
+def _evidence_classification(completed: int, expectancy: float | None) -> str:
+    if completed < 30:
+        return "INSUFFICIENT_EVIDENCE"
+    if expectancy is not None and expectancy > 0 and completed >= 100:
+        return "PROMISING"
+    return "EARLY_SIGNAL"
+
+
 def _read(path: str) -> object:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -131,13 +139,16 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
         strategy_rows = [row for row in shadows if row["strategy_id"] == strategy_id]
         strategy_completed = [row for row in strategy_rows if row["result"] in {"WIN", "LOSS", "FLAT"}]
         strategy_pnl = [float(row["hypothetical_pnl"] or 0.0) for row in strategy_completed]
+        strategy_expectancy = sum(strategy_pnl) / len(strategy_pnl) if strategy_pnl else None
         shadow_by_strategy[strategy_id] = {
             "entries": len(strategy_rows),
             "completed": len(strategy_completed),
             "wins": sum(row["result"] == "WIN" for row in strategy_completed),
             "losses": sum(row["result"] == "LOSS" for row in strategy_completed),
             "hypothetical_pnl": sum(strategy_pnl) if strategy_pnl else "UNKNOWN",
-            "hypothetical_expectancy": sum(strategy_pnl) / len(strategy_pnl) if strategy_pnl else "UNKNOWN",
+            "hypothetical_expectancy": strategy_expectancy if strategy_expectancy is not None else "UNKNOWN",
+            "evidence_classification": _evidence_classification(len(strategy_completed), strategy_expectancy),
+            "governance_status": "EXPERIMENTAL",
         }
     provider_performance = {name: _read(path) for name, path in {
         "Kalshi Predictions": "var/kalshi/execution-predictions.json",
