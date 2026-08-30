@@ -42,13 +42,13 @@ class SecResearchScheduler:
                 cik = str(security.cik or "").zfill(10)
                 request = Request(f"https://data.sec.gov/submissions/CIK{cik}.json", headers={"User-Agent": self.user_agent, "Accept": "application/json"})
                 payload = None
-                for attempt in range(3):
+                for attempt in range(4):
                     try:
                         with urlopen(request, timeout=12) as response:  # noqa: S310 - fixed SEC host
                             payload = json.load(response)
                         break
                     except Exception:
-                        if attempt == 2:
+                        if attempt == 3:
                             raise
                         time.sleep(min(8.0, 2.0 ** attempt))
                 recent = payload.get("filings", {}).get("recent", {}) if isinstance(payload, dict) else {}
@@ -71,7 +71,7 @@ class SecResearchScheduler:
             except Exception as exc:  # source failure is isolated
                 failed += 1
                 self.tree.checkpoint("sec_bootstrap", status="DEGRADED", records=completed, error=f"{type(exc).__name__}: {exc}")
-        status = "HEALTHY" if completed >= total else "DEGRADED"
+        status = "HEALTHY" if completed >= total else ("SUCCESS_NO_CHANGE" if filing_count == 0 and failed == 0 else "DEGRADED")
         self.tree.checkpoint("sec_bootstrap", status=status, records=completed, error=None if status == "HEALTHY" else f"batch completed; failed={failed}")
         self.tree.checkpoint("sec_live_poll", status=status, records=filing_count, error=None if status == "HEALTHY" else "poll degraded")
         return {"status": status, "issuers_total": total, "issuers_completed": completed,

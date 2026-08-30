@@ -1,6 +1,7 @@
 """Lawful, provenance-aware research universe policies."""
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -33,7 +34,16 @@ class ResearchUniverse:
     @classmethod
     def configured(cls) -> "ResearchUniverse":
         symbols = {item.strip().upper() for item in os.getenv("RESEARCH_SYMBOLS", "").split(",") if item.strip()}
-        securities = tuple(item for item in DEFAULT_SECURITIES if not symbols or item.symbol in symbols)
+        configured = os.getenv("RESEARCH_UNIVERSE_JSON", "")
+        expanded = []
+        if configured:
+            try:
+                expanded = [Security(str(x["symbol"]).upper(), str(x.get("cik") or "") or None, x.get("company_name"), x.get("exchange"), tuple(x.get("memberships", ()))) for x in json.loads(configured)]
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+                expanded = []
+        securities = tuple(expanded or DEFAULT_SECURITIES)
+        if symbols:
+            securities = tuple(item for item in securities if item.symbol in symbols)
         return cls(securities=securities, policy=os.getenv("RESEARCH_UNIVERSE_POLICY", "UNION_CORE"))
 
     def records(self) -> list[dict[str, object]]:

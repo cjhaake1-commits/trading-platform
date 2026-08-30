@@ -16,6 +16,32 @@ HORIZONS = {"30M": timedelta(minutes=30), "4H": timedelta(hours=4), "1D": timede
             "5D": timedelta(days=5), "20D": timedelta(days=20)}
 
 
+def map_market_outcome(*, entry_price: float, bars: list[Mapping[str, Any]], direction: str = "BUY",
+                       benchmark_return: float | None = None, transaction_cost: float = 0.0) -> dict[str, float]:
+    """Calculate research-only forward economics from chronological OHLC bars."""
+    if entry_price <= 0 or not bars:
+        raise ValueError("entry_price and bars are required")
+    sign = 1.0 if direction.upper() in {"BUY", "LONG"} else -1.0
+    closes = [float(row["close"]) for row in bars if row.get("close") is not None]
+    if not closes:
+        raise ValueError("bars require close prices")
+    highs = [float(row.get("high", row.get("close"))) for row in bars]
+    lows = [float(row.get("low", row.get("close"))) for row in bars]
+    returns = [sign * (price / entry_price - 1.0) for price in closes]
+    favorable = [sign * ((high if sign > 0 else low) / entry_price - 1.0) for high, low in zip(highs, lows, strict=True)]
+    adverse = [sign * ((low if sign > 0 else high) / entry_price - 1.0) for high, low in zip(highs, lows, strict=True)]
+    peak, drawdown = 1.0, 0.0
+    for value in returns:
+        equity = 1.0 + value
+        peak = max(peak, equity)
+        drawdown = max(drawdown, (peak - equity) / peak)
+    raw = returns[-1] - transaction_cost
+    return {"raw_return": raw, "benchmark_return": benchmark_return or 0.0,
+            "abnormal_return": raw - (benchmark_return or 0.0), "mfe": max(favorable), "mae": min(adverse),
+            "maximum_drawdown": drawdown, "time_to_mfe": float(favorable.index(max(favorable)) + 1),
+            "time_to_mae": float(adverse.index(min(adverse)) + 1), "estimated_transaction_cost": transaction_cost}
+
+
 @dataclass(frozen=True)
 class OutcomeJob:
     observation_id: str
@@ -43,7 +69,7 @@ class IntelligenceLearningTree:
                 hypothesis_id TEXT PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL,
                 status TEXT NOT NULL, sample_count INTEGER NOT NULL DEFAULT 0,
                 forward_count INTEGER NOT NULL DEFAULT 0, expectancy REAL,
-                max_drawdown REAL, reason TEXT, updated_at TEXT NOT NULL
+                max_drawdown REAL, reason TEXT, last_observation TEXT, last_resolution TEXT, updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS intelligence_checkpoints (
                 source TEXT PRIMARY KEY, last_attempt TEXT NOT NULL, last_success TEXT,
@@ -54,8 +80,18 @@ class IntelligenceLearningTree:
                 classification TEXT NOT NULL, sample_count INTEGER NOT NULL, expectancy_delta REAL,
                 updated_at TEXT NOT NULL, PRIMARY KEY(hypothesis_id, feature_family, version)
             );
+            CREATE TABLE IF NOT EXISTS intelligence_relationships (
+                relationship_id TEXT NOT NULL, observed_at TEXT NOT NULL, regime TEXT,
+                state TEXT NOT NULL, confidence REAL, outcome REAL, sample_count INTEGER NOT NULL DEFAULT 1,
+                metadata_json TEXT NOT NULL DEFAULT '{}', PRIMARY KEY(relationship_id, observed_at)
+            );
             CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_due ON intelligence_outcome_jobs(status, due_at);
             """)
+            for column in ("last_observation TEXT", "last_resolution TEXT"):
+                try:
+                    conn.execute(f"ALTER TABLE intelligence_hypotheses ADD COLUMN {column}")
+                except sqlite3.OperationalError:
+                    pass
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=30.0)
@@ -141,6 +177,14 @@ class IntelligenceLearningTree:
             cur = conn.execute("UPDATE intelligence_outcome_jobs SET status='RESOLVED',return_pct=?,mfe=?,mae=?,resolved_at=?,metadata_json=? WHERE observation_id=? AND horizon=? AND status='PENDING'",
                                (return_pct, mfe, mae, datetime.now(UTC).isoformat(), json.dumps(dict(metadata or {}), sort_keys=True), observation_id, horizon))
         return cur.rowcount == 1
+
+    def update_hypothesis_statistics(self) -> int:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT observation_id, AVG(return_pct) expectancy, COUNT(*) n, MAX(drawdown) dd FROM intelligence_outcome_jobs WHERE status='RESOLVED' GROUP BY observation_id").fetchall()
+            updated = 0
+            for row in rows:
+                updated += conn.execute("UPDATE intelligence_hypotheses SET sample_count=?,forward_count=?,expectancy=?,max_drawdown=?,last_observation=COALESCE(last_observation,?),last_resolution=? WHERE reason LIKE ?", (row['n'], row['n'], row['expectancy'], row['dd'], row['observation_id'], datetime.now(UTC).isoformat(), f"%observation={row['observation_id']}%")).rowcount
+        return updated
 
     def checkpoint(self, source: str, *, status: str, records: int = 0, error: str | None = None) -> None:
         now = datetime.now(UTC).isoformat()
