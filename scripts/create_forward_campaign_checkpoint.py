@@ -65,7 +65,8 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         with sqlite3.connect(db_path) as connection:
             rows = connection.execute(
                 "SELECT pillar, candidate_status, occurred_at, strategy, estimated_edge, raw_score, "
-                "order_id, provider_order_id, fill_id, entry_price, exit_price, exit_reason, learning_update "
+                "order_id, provider_order_id, fill_id, entry_price, exit_price, exit_reason, learning_update, "
+                "risk_decision, available_capital "
                 "FROM activity_observations WHERE occurred_at >= ?", (cutoff,)
             ).fetchall()
             shadows = connection.execute("SELECT exit_at, hypothetical_pnl FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
@@ -136,12 +137,17 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         fills = sum(bool(row[8]) for row in selected)
         actual_exits = sum(row[10] is not None and row[11] is not None for row in selected)
         learning_observations = sum(bool(row[12]) for row in selected)
+        risk_rows = [row for row in selected if row[13] is not None]
+        capital_rows = [row for row in selected if row[14] is not None]
+        risk_approved = sum(str(row[13]).upper() in {"APPROVED", "RISK_APPROVED", "QUALIFIED"} for row in risk_rows) if risk_rows else "UNKNOWN"
+        capital_approved = sum(float(row[14]) > 0 for row in capital_rows) if capital_rows else "UNKNOWN"
         components = {"worker": bool(selected), "data": bool(selected), "cycle": bool(cycles), "universe": bool(selected), "decisions": bool(selected), "execution": True, "management": True, "learning": bool(selected)}
         counts[engine] = {
             "observations": len(selected), "cycles": cycles, "signals": signals,
             "strategy_evaluations": strategy_evaluations, "candidates": candidates,
             "positive_edge_or_proxy": positive_edge_or_proxy, "qualified": qualified,
             "actual_orders": actual_orders, "fills": fills, "actual_exits": actual_exits,
+            "risk_approved": risk_approved, "capital_approved": capital_approved,
             "shadow_entries": "UNKNOWN", "shadow_exits": "UNKNOWN",
             "learning_observations": learning_observations,
             "latest": max((row[2] for row in selected), default="UNKNOWN"),
