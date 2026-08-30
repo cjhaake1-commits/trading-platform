@@ -444,13 +444,17 @@ class InternationalPaperTradingJob:
             candidate = ranked_candidate.instrument.symbol
             source = next((item for item in open_instruments if item.symbol.replace('.', '-') == candidate), None)
             bars = histories[ranked_candidate.instrument]
-            proposal = next((p for p in (
-                self.strategies.momentum(ranked_candidate.instrument, bars),
-                self.strategies.sma_cross(ranked_candidate.instrument, bars),
-                self.strategies.breakout(ranked_candidate.instrument, bars),
-                self.strategies.mean_reversion(ranked_candidate.instrument, bars),
-                self.strategies.trend_following(ranked_candidate.instrument, bars),
-            ) if p is not None and p.side is Side.BUY), None)
+            proposals = {
+                "momentum": self.strategies.momentum(ranked_candidate.instrument, bars),
+                "breakout": self.strategies.breakout(ranked_candidate.instrument, bars),
+                "mean_reversion": self.strategies.mean_reversion(ranked_candidate.instrument, bars),
+                "trend_following": self.strategies.trend_following(ranked_candidate.instrument, bars),
+                "relative_strength": None,
+            }
+            evaluations = evaluate_proposals(ranked_candidate.instrument, bars, proposals, timeframe="1d", candidate_score=ranked_candidate.score)
+            confluence = aggregate_confluence(evaluations)
+            eligible = [proposal for proposal in proposals.values() if proposal is not None and proposal.side is Side.BUY]
+            proposal = max(eligible, key=lambda item: item.confidence) if confluence.direction == "BUY" and eligible else None
             provider_minimum_quantity = max(
                 float(source.minimum_trade_size or 0.0) if source else 0.0,
                 float(source.minimum_lot_size or 0.0) if source else 0.0,
@@ -460,7 +464,7 @@ class InternationalPaperTradingJob:
             min_notional = max(ranked_candidate.last_price * provider_minimum_quantity, provider_minimum_value)
             risk_capacity = self.service.policy.allocation_cap * self.service.policy.max_risk_per_trade_pct
             affordable = proposal is not None and min_notional <= self.service.policy.allocation_cap * (1.0 - self.service.policy.min_cash_reserve_pct) and proposal.risk_per_unit * provider_minimum_quantity <= risk_capacity
-            evaluation = {"symbol": candidate, "venue": source.exchange_id if source else None, "price": ranked_candidate.last_price, "minimum_quantity": provider_minimum_quantity, "minimum_order_value": provider_minimum_value, "minimum_notional": min_notional, "affordable": affordable, "score": ranked_candidate.score, "strategy": "NONE" if proposal is None else proposal.source, "precheck": "NOT_RUN", "qualified": False, "rejection": "NO_BUY_STRATEGY" if proposal is None else (None if affordable else "NOT_AFFORDABLE")}
+            evaluation = {"symbol": candidate, "venue": source.exchange_id if source else None, "price": ranked_candidate.last_price, "minimum_quantity": provider_minimum_quantity, "minimum_order_value": provider_minimum_value, "minimum_notional": min_notional, "affordable": affordable, "score": ranked_candidate.score, "strategy": "NONE" if proposal is None else proposal.source, "confluence_direction": confluence.direction, "confluence_conflict": confluence.conflict_state, "confluence_votes": {"BUY": confluence.long_votes, "SELL": confluence.short_votes, "HOLD": confluence.hold_votes, "INSUFFICIENT_DATA": confluence.insufficient_data_count}, "precheck": "NOT_RUN", "qualified": False, "rejection": "NO_CONFLUENT_BUY" if proposal is None else (None if affordable else "NOT_AFFORDABLE")}
             if proposal is not None:
                 funnel["strategy_approved"] = int(funnel["strategy_approved"]) + 1
             if affordable:
