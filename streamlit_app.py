@@ -3386,6 +3386,7 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
     st.markdown("## AUTONOMOUS TRADING LAB")
     report = _safe_json(Path("var/reports/overnight-forward-campaign.json"))
     daily = _safe_json(Path(f"var/reports/daily-learning-{datetime.now(UTC).date().isoformat()}.json"))
+    daily_activity = daily.get("activity") if isinstance(daily.get("activity"), dict) else {}
     safety = report.get("safety") if isinstance(report.get("safety"), dict) else {}
     st.caption(
         f"MODE: {safety.get('mode', 'UNKNOWN')} · LIVE_TRADING_ENABLED: {safety.get('live_trading_enabled', 'UNKNOWN')} · "
@@ -3395,7 +3396,8 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
     rows = []
     for name in ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps"):
         values = engines.get(name) if isinstance(engines.get(name), dict) else {}
-        rows.append({"Engine": name, "Activity Health": values.get("activity_health", "UNKNOWN"), "Cycles": values.get("cycles", "UNKNOWN"), "Observations": values.get("observations", "UNKNOWN"), "Signals": values.get("signals", "UNKNOWN"), "Latest": values.get("latest", "UNKNOWN")})
+        daily_values = daily_activity.get(name) if isinstance(daily_activity.get(name), dict) else {}
+        rows.append({"Engine": name, "Activity Health": values.get("activity_health", "UNKNOWN"), "Last Cycle": values.get("latest", "UNKNOWN"), "Markets Scanned": values.get("observations", "UNKNOWN"), "Strategy Evaluations": daily_values.get("observations", "UNKNOWN"), "Candidates": daily_values.get("candidates", "UNKNOWN"), "Signals": values.get("signals", daily_values.get("signals", "UNKNOWN")), "Positive Edge/Proxy": "UNKNOWN", "Qualified": values.get("qualified", daily_values.get("qualified", "UNKNOWN")), "Actual Orders": "UNKNOWN", "Shadow Trades": "UNKNOWN", "Fills": "UNKNOWN", "Open Actual": "UNKNOWN", "Open Shadow": "UNKNOWN", "Actual Exits": "UNKNOWN", "Shadow Exits": "UNKNOWN", "Actual Expectancy": "UNKNOWN", "Shadow Expectancy": "UNKNOWN", "Realized P&L": "UNKNOWN", "Unrealized P&L": "UNKNOWN", "Learning Observations": daily_values.get("observations", "UNKNOWN"), "Top Bottleneck": (daily_values.get("top_bottlenecks") or "UNKNOWN"), "Regime": (next(iter((daily_values.get("regimes") or {}).keys()), "UNKNOWN"))})
     st.dataframe(rows, use_container_width=True, hide_index=True)
     st.markdown("### Provider health")
     providers = report.get("providers") if isinstance(report.get("providers"), dict) else {}
