@@ -123,6 +123,19 @@ def test_forward_checkpoint_keeps_provider_history_unknown_when_only_snapshot_ex
     checkpoint = build_checkpoint(str(tmp_path / "missing.db"), datetime(2026, 8, 30, 1, tzinfo=UTC))
     assert checkpoint["providers"]["Kalshi Predictions"]["scanned"] == 100
     assert checkpoint["providers"]["Kalshi Predictions"]["historical_cycle_count"] == "UNKNOWN"
+    assert checkpoint["engines"]["Kalshi Predictions"]["cycles"] == "UNKNOWN"
+
+
+def test_forward_checkpoint_exposes_provider_history_in_engine_rows(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "var/kalshi").mkdir(parents=True)
+    (tmp_path / "var/kalshi/execution-predictions.json").write_text(
+        '{"observed_at":"now","markets":100,"cycle_count":12,"state":"SCANNING","funnel":{"data_valid":100}}'
+    )
+    checkpoint = build_checkpoint(str(tmp_path / "missing.db"), datetime(2026, 8, 30, 1, tzinfo=UTC))
+    assert checkpoint["engines"]["Kalshi Predictions"]["cycles"] == 12
+    assert checkpoint["engines"]["Kalshi Predictions"]["observations"] == 100
+    assert checkpoint["engines"]["Kalshi Predictions"]["activity_health"] == 100
 
 
 def test_provider_health_uses_only_observed_components():

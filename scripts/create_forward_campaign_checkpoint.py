@@ -111,6 +111,16 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
             health, components = _provider_health({"observed_at": provider.get("latest_observed_at"), "cycle_count": provider.get("historical_cycle_count"), "markets": provider.get("scanned"), "funnel": provider.get("funnel", {})})
             provider["activity_health"] = health
             provider["activity_health_components"] = components
+    for engine in ("Kalshi Predictions", "Kalshi Perps"):
+        provider = providers.get(engine)
+        if isinstance(provider, dict):
+            counts[engine].update({
+                "observations": provider.get("scanned", "UNKNOWN"),
+                "cycles": provider.get("historical_cycle_count", "UNKNOWN"),
+                "latest": provider.get("latest_observed_at", "UNKNOWN"),
+                "activity_health": provider.get("activity_health", "UNKNOWN"),
+                "activity_health_components": provider.get("activity_health_components", {}),
+            })
     return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "runtime_evidence": runtime_evidence, "providers": providers, "shadow": {"entries": len(shadows), "exits": sum(row[0] is not None for row in shadows), "completed_pnl": sum(float(row[1] or 0) for row in shadows if row[0] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar, and a latest provider snapshot is never counted as historical campaign evidence."}
 
 
