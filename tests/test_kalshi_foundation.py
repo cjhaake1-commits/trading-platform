@@ -41,6 +41,18 @@ def test_client_is_demo_only_and_read_only():
         KalshiReadOnlyClient(KalshiConfig(environment="production"))
 
 
+def test_kalshi_telemetry_snapshot_preserves_request_health_fields():
+    from autotrader.kalshi.client import KalshiTelemetry
+
+    telemetry = KalshiTelemetry(requests=4, successes=3, failures=1, timeouts=1, latencies_ms=[10.0, 20.0, 30.0, 40.0])
+    snapshot = telemetry.snapshot()
+    assert snapshot["requests"] == 4
+    assert snapshot["failures"] == 1
+    assert snapshot["timeouts"] == 1
+    assert snapshot["p50_latency_ms"] == 20.0
+    assert snapshot["p95_latency_ms"] == 40.0
+
+
 def test_demo_mutation_transport_is_separate_and_guarded(monkeypatch):
     monkeypatch.setenv("KALSHI_DEMO_TRADING_ENABLED", "true")
     monkeypatch.setenv("KALSHI_LIVE_TRADING_ENABLED", "false")

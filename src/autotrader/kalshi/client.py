@@ -15,12 +15,37 @@ from .config import KalshiConfig
 class KalshiTelemetry:
     requests: int = 0
     successes: int = 0
+    failures: int = 0
+    timeouts: int = 0
     rate_limited: int = 0
     last_endpoint: str | None = None
     last_status: int | None = None
     last_latency_ms: float | None = None
     last_retry_after: str | None = None
     last_error: str | None = None
+    latencies_ms: list[float] | None = None
+
+    def __post_init__(self) -> None:
+        if self.latencies_ms is None:
+            self.latencies_ms = []
+
+    def snapshot(self) -> dict[str, object]:
+        values = sorted(self.latencies_ms or [])
+
+        def percentile(percent: int) -> float | None:
+            if not values:
+                return None
+            index = max(0, min(len(values) - 1, (len(values) * percent + 99) // 100 - 1))
+            return values[index]
+
+        return {
+            "requests": self.requests, "successes": self.successes,
+            "failures": self.failures, "timeouts": self.timeouts,
+            "rate_limited": self.rate_limited, "last_endpoint": self.last_endpoint,
+            "last_status": self.last_status, "last_latency_ms": self.last_latency_ms,
+            "p50_latency_ms": percentile(50), "p95_latency_ms": percentile(95),
+            "last_retry_after": self.last_retry_after, "last_error": self.last_error,
+        }
 
 
 class KalshiReadOnlyClient:
@@ -64,11 +89,14 @@ class KalshiReadOnlyClient:
                     self.telemetry.successes += 1
                     self.telemetry.last_status = response.status
                     self.telemetry.last_latency_ms = (time.monotonic() - started) * 1000
+                    self.telemetry.latencies_ms.append(self.telemetry.last_latency_ms)
                     self.telemetry.last_retry_after = response.headers.get("Retry-After")
                     return body
             except HTTPError as exc:
+                self.telemetry.failures += 1
                 self.telemetry.last_status = exc.code
                 self.telemetry.last_latency_ms = (time.monotonic() - started) * 1000
+                self.telemetry.latencies_ms.append(self.telemetry.last_latency_ms)
                 self.telemetry.last_retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 self.telemetry.last_error = f"HTTP {exc.code}"
                 if exc.code in {500, 502, 503, 504} and attempt < self.max_retries:
@@ -79,6 +107,11 @@ class KalshiReadOnlyClient:
                 self.telemetry.rate_limited += 1
                 time.sleep(min(float(self.telemetry.last_retry_after or 1), 2.0))
             except (URLError, TimeoutError) as exc:
+                self.telemetry.failures += 1
+                if isinstance(exc, TimeoutError) or getattr(exc, "reason", None).__class__.__name__ == "TimeoutError":
+                    self.telemetry.timeouts += 1
+                self.telemetry.last_latency_ms = (time.monotonic() - started) * 1000
+                self.telemetry.latencies_ms.append(self.telemetry.last_latency_ms)
                 self.telemetry.last_error = type(exc).__name__
                 raise
         raise RuntimeError("bounded Kalshi request exhausted")

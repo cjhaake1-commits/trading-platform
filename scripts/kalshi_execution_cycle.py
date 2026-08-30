@@ -399,6 +399,7 @@ def cycle() -> dict[str, object]:
     except Exception as exc:
         result.update({"state": "API_DEGRADED", "error": type(exc).__name__})
         result["last_rejection_reason"] = "API_DEGRADED"
+    result["provider_telemetry"] = client.telemetry.snapshot()
     _write_candidate_telemetry(engine, result.pop("candidate_telemetry", []))
     _write_status(engine, result)
     return result
