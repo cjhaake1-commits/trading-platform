@@ -20,6 +20,7 @@ def test_error_ledger_preserves_exception_and_unknown_repair_metadata(tmp_path):
     report = build_error_ledger(str(path), now=datetime(2026, 8, 30, 1, tzinfo=UTC))
     assert len(report["errors"]) == 1
     error = report["errors"][0]
+    assert error["job"] == "crypto"
     assert error["exception_type"] == "ValueError"
     assert error["root_cause"] == "bad data"
     assert error["repair"] == "UNKNOWN"

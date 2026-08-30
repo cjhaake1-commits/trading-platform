@@ -36,6 +36,7 @@ def build_error_ledger(audit_path: str = "var/autotrader/audit.db", *, now: date
             malformed += 1
             errors.append({
                 "timestamp": created_at, "component": "autonomous-runtime", "engine": "UNKNOWN",
+                "job": "UNKNOWN",
                 "exception_type": "MalformedAuditData", "message": message,
                 "root_cause": "audit data_json could not be decoded", "repair": "UNKNOWN",
                 "regression_test": "UNKNOWN", "commit": "UNKNOWN", "resolved": False,
@@ -49,6 +50,7 @@ def build_error_ledger(audit_path: str = "var/autotrader/audit.db", *, now: date
             "timestamp": created_at,
             "component": "autonomous-runtime",
             "engine": job,
+            "job": job,
             "exception_type": data.get("exception_type", "JobResultFailure"),
             "message": message,
             "root_cause": data.get("error") or message,
