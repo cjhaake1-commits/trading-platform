@@ -125,6 +125,30 @@ def test_runtime_writes_atomic_status_snapshot(tmp_path):
     assert state["live_trading_enabled"] is False
 
 
+def test_runtime_publishes_fresh_heartbeat_before_slow_job(tmp_path):
+    snapshot = tmp_path / "status.json"
+
+    class ObservingJob:
+        name = "slow-provider"
+        cadence_seconds = 1.0
+
+        def run(self, now):
+            import json
+
+            published = json.loads(snapshot.read_text())
+            assert published["last_heartbeat_at"] == fixed_now().isoformat()
+            assert published["jobs"][self.name]["last_finished_at"] is None
+            return JobResult(True, "ok")
+
+    runtime = AutonomousRuntime(
+        [ObservingJob()],
+        SQLiteAuditStore(tmp_path / "audit.db"),
+        RuntimeConfig(snapshot_path=snapshot, heartbeat_audit_seconds=60.0),
+        now_factory=fixed_now,
+    )
+    runtime.run_once()
+
+
 def test_runtime_is_healthy_when_paper_execution_is_armed(tmp_path):
     runtime = AutonomousRuntime(
         [

@@ -104,6 +104,9 @@ class AutonomousRuntime:
         now = self._now_factory()
         mono_now = self._monotonic()
         self._last_heartbeat_at = now
+        # Publish heartbeat freshness before potentially slow provider/research
+        # jobs run. The final snapshot below still captures their outcomes.
+        self._write_snapshot(self.snapshot())
 
         for job in self.jobs:
             state = self._states[job.name]
