@@ -3458,12 +3458,19 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         prediction = providers.get("Kalshi Predictions") if isinstance(providers.get("Kalshi Predictions"), dict) else {}
         perps = providers.get("Kalshi Perps") if isinstance(providers.get("Kalshi Perps"), dict) else {}
         timestamps = [v.get("latest_observed_at") for v in (prediction, perps) if v.get("latest_observed_at") not in (None, "UNKNOWN")]
+        telemetry = [v.get("provider_telemetry") for v in (prediction, perps) if isinstance(v.get("provider_telemetry"), dict)]
+        requests = sum(int(v.get("requests", 0) or 0) for v in telemetry) if telemetry else "UNKNOWN"
+        failures = sum(int(v.get("failures", 0) or 0) for v in telemetry) if telemetry else "UNKNOWN"
+        timeouts = sum(int(v.get("timeouts", 0) or 0) for v in telemetry) if telemetry else "UNKNOWN"
+        p50 = [float(v["p50_latency_ms"]) for v in telemetry if v.get("p50_latency_ms") is not None]
+        p95 = [float(v["p95_latency_ms"]) for v in telemetry if v.get("p95_latency_ms") is not None]
         provider_rows.append({
             "Provider": name,
             "Status": "CONNECTED" if any(v.get("state") == "SCANNING" for v in (prediction, perps)) else "UNKNOWN",
             "Last successful call": max(timestamps, default="UNKNOWN"),
-            "Requests (job proxy)": "UNKNOWN", "Failures": "UNKNOWN",
-            "p50 latency ms (job proxy)": "UNKNOWN", "p95 latency ms (job proxy)": "UNKNOWN",
+            "Requests (latest cycle)": requests, "Failures": failures, "Timeouts": timeouts,
+            "p50 latency ms (latest cycle)": min(p50) if p50 else "UNKNOWN",
+            "p95 latency ms (latest cycle)": max(p95) if p95 else "UNKNOWN",
         })
     st.dataframe(provider_rows, use_container_width=True, hide_index=True)
     st.markdown("### Kalshi candidate telemetry")

@@ -108,7 +108,7 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         path = Path("var/kalshi") / filename
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            providers[name] = {"latest_observed_at": payload.get("observed_at", "UNKNOWN"), "state": payload.get("state", "UNKNOWN"), "scanned": payload.get("markets", payload.get("instruments", "UNKNOWN")), "orders": payload.get("orders", "UNKNOWN"), "fills": payload.get("fills", "UNKNOWN"), "historical_cycle_count": payload.get("cycle_count", "UNKNOWN"), "funnel": payload.get("funnel", {})}
+            providers[name] = {"latest_observed_at": payload.get("observed_at", "UNKNOWN"), "state": payload.get("state", "UNKNOWN"), "scanned": payload.get("markets", payload.get("instruments", "UNKNOWN")), "orders": payload.get("orders", "UNKNOWN"), "fills": payload.get("fills", "UNKNOWN"), "historical_cycle_count": payload.get("cycle_count", "UNKNOWN"), "funnel": payload.get("funnel", {}), "provider_telemetry": payload.get("provider_telemetry", "UNKNOWN")}
         except (OSError, json.JSONDecodeError):
             providers[name] = {"latest_observed_at": "UNKNOWN", "state": "UNKNOWN", "scanned": "UNKNOWN", "orders": "UNKNOWN", "fills": "UNKNOWN", "historical_cycle_count": "UNKNOWN"}
     for _name, provider in providers.items():
