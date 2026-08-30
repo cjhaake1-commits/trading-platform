@@ -69,11 +69,15 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
                 "risk_decision, available_capital, market "
                 "FROM activity_observations WHERE occurred_at >= ?", (cutoff,)
             ).fetchall()
-            shadows = connection.execute("SELECT exit_at, hypothetical_pnl FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
+            shadows = connection.execute("SELECT pillar, exit_at, hypothetical_pnl FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
     except sqlite3.OperationalError:
         # A first-run or unavailable ledger is valid evidence of no observed
         # campaign data; the report must remain writable and explicit.
         rows, shadows = [], []
+    shadow_by_engine = {}
+    for pillar, exit_at, _pnl in shadows:
+        shadow_by_engine.setdefault(str(pillar), {"entries": 0, "exits": 0})["entries"] += 1
+        shadow_by_engine[str(pillar)]["exits"] += exit_at is not None
     runtime_evidence = {"autonomous_cycles": "UNKNOWN", "successful_autonomous_cycles": "UNKNOWN", "failed_runtime_jobs": "UNKNOWN", "latest_heartbeat": "UNKNOWN"}
     try:
         with sqlite3.connect(audit_path) as connection:
@@ -120,9 +124,8 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         selected = [row for row in rows if row[0] in aliases]
         cycles = sum(row[1] == "CYCLE_COMPLETE" for row in selected)
         signals = sum(row[1] == "SIGNAL" for row in selected)
-        # These are ledger-derived funnel measures.  Keep attribution strict:
-        # only rows belonging to this engine are counted, and shadow lifecycle
-        # rows remain UNKNOWN because the shadow table has no pillar key.
+        # These are ledger-derived funnel measures. Keep attribution strict:
+        # only rows belonging to this engine are counted.
         strategy_evaluations = sum(bool(row[3]) for row in selected)
         candidates = sum(row[1] in {"CANDIDATE", "SIGNAL", "QUALIFIED", "DECISION"} for row in selected)
         qualified = sum(
@@ -150,7 +153,8 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
             "positive_edge_or_proxy": positive_edge_or_proxy, "qualified": qualified,
             "actual_orders": actual_orders, "fills": fills, "actual_exits": actual_exits,
             "risk_approved": risk_approved, "capital_approved": capital_approved,
-            "shadow_entries": "UNKNOWN", "shadow_exits": "UNKNOWN",
+            "shadow_entries": shadow_by_engine.get(engine, {}).get("entries", "UNKNOWN"),
+            "shadow_exits": shadow_by_engine.get(engine, {}).get("exits", "UNKNOWN"),
             "learning_observations": learning_observations,
             "latest": max((row[2] for row in selected), default="UNKNOWN"),
             "activity_health": round(sum(components.values()) * 100 / len(components)) if selected else "UNKNOWN", "activity_health_components": components
@@ -191,7 +195,7 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
                 "activity_health": provider.get("activity_health", "UNKNOWN"),
                 "activity_health_components": provider.get("activity_health_components", {}),
             })
-    return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "runtime_evidence": runtime_evidence, "providers": providers, "shadow": {"entries": len(shadows), "exits": sum(row[0] is not None for row in shadows), "completed_pnl": sum(float(row[1] or 0) for row in shadows if row[0] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar, and a latest provider snapshot is never counted as historical campaign evidence."}
+    return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "runtime_evidence": runtime_evidence, "providers": providers, "shadow": {"entries": len(shadows), "exits": sum(row[1] is not None for row in shadows), "completed_pnl": sum(float(row[2] or 0) for row in shadows if row[1] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar, and a latest provider snapshot is never counted as historical campaign evidence."}
 
 
 def write_checkpoint(output: str = "var/reports/overnight-forward-campaign.json") -> Path:
