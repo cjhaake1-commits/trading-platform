@@ -224,7 +224,8 @@ class MetalsPaperTradingJob:
                 self.strategies.breakout(instrument, bars),
                 self.strategies.mean_reversion(instrument, bars),
                 self.strategies.trend_following(instrument, bars),
-            ) if len(bars) >= self.required_bars else (None,) * 5
+                self.strategies.volatility_expansion(instrument, bars),
+            ) if len(bars) >= self.required_bars else (None,) * 6
             votes = [proposal.source + ":" + proposal.side.value for proposal in proposals if proposal is not None]
             rows.append({
                 "symbol": instrument.symbol,
@@ -282,6 +283,7 @@ class MetalsPaperTradingJob:
                 self.strategies.breakout(candidate.instrument, bars),
                 self.strategies.mean_reversion(candidate.instrument, bars),
                 self.strategies.trend_following(candidate.instrument, bars),
+                self.strategies.volatility_expansion(candidate.instrument, bars),
             )
             selected = experimental_candidate(candidate, proposals, config=self.experiment)
             if selected is not None:

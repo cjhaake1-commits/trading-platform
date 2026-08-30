@@ -50,3 +50,16 @@ def test_mean_reversion_detects_large_drop():
     )
     assert proposal is not None
     assert proposal.side is Side.BUY
+
+
+def test_volatility_expansion_uses_range_expansion_and_direction():
+    strategy = BaselineStrategies(StrategyConfig(breakout_window=3))
+    bars = make_bars([100, 100, 100, 104])
+    bars[-1] = MarketBar(
+        symbol="TEST", asset_class=AssetClass.STOCK, timestamp=bars[-1].timestamp,
+        open=100, high=106, low=98, close=104, volume=1000,
+    )
+    proposal = strategy.volatility_expansion(Instrument("TEST", AssetClass.STOCK), bars)
+    assert proposal is not None
+    assert proposal.source == "volatility_expansion"
+    assert proposal.side is Side.BUY

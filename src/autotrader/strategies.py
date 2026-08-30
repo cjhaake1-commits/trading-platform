@@ -145,6 +145,29 @@ class BaselineStrategies:
             )
         return None
 
+    def volatility_expansion(self, instrument: Instrument, bars: list[MarketBar]) -> TradeProposal | None:
+        """Signal directional range expansion relative to the prior rolling range."""
+        window = self.config.breakout_window
+        if len(bars) < window + 1:
+            return None
+        prior_ranges = [float(bar.high) - float(bar.low) for bar in bars[-window - 1 : -1]]
+        baseline = mean(prior_ranges)
+        current_range = float(bars[-1].high) - float(bars[-1].low)
+        if baseline <= 0 or current_range < baseline * 1.5:
+            return None
+        previous_close = float(bars[-2].close)
+        price = float(bars[-1].close)
+        if price == previous_close:
+            return None
+        side = Side.BUY if price > previous_close else Side.SELL
+        return self._proposal(
+            instrument,
+            side,
+            price,
+            "volatility_expansion",
+            f"range={current_range:.4f} > 1.5x prior_avg={baseline:.4f}",
+        )
+
     def _proposal(
         self,
         instrument: Instrument,
