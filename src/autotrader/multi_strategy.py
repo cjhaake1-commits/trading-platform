@@ -34,6 +34,7 @@ class StrategyEvaluation:
     edge_proxy: float | None = None
     ev_proxy: float | None = None
     data_quality: str = "UNKNOWN"
+    regime: str = "UNKNOWN"
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,13 @@ def evaluate_strategies(
     strategies: BaselineStrategies | None = None,
 ) -> tuple[StrategyEvaluation, ...]:
     engine = strategies or BaselineStrategies()
+    closes = [float(bar.close) for bar in bars if float(bar.close) > 0]
+    regime = "UNKNOWN"
+    if len(closes) >= 5:
+        returns = [closes[index] / closes[index - 1] - 1.0 for index in range(1, len(closes))]
+        avg_abs_return = mean(abs(value) for value in returns)
+        direction = closes[-1] / closes[0] - 1.0
+        regime = "HIGH_VOL" if avg_abs_return >= 0.02 else ("TRENDING" if abs(direction) >= 0.03 else "RANGE")
     results: list[StrategyEvaluation] = []
     for strategy_id, method_name in STRATEGY_METHODS.items():
         proposal = getattr(engine, method_name)(instrument, bars) if method_name else None
@@ -88,6 +96,7 @@ def evaluate_strategies(
                 edge_proxy=edge_proxy,
                 ev_proxy=edge_proxy * confidence,
                 data_quality="INSUFFICIENT_DATA" if strategy_id == "RELATIVE_STRENGTH" else ("FRESH" if bars else "INSUFFICIENT_DATA"),
+                regime=regime,
             )
         )
     return tuple(results)
