@@ -183,3 +183,4 @@ def test_autonomous_lab_engine_table_contains_required_funnel_columns():
     assert '"Sample classification"' in source
     assert '"Best regime": best_regime' in source
     assert '"Worst regime": worst_regime' in source
+    assert '"Shadow Profit Factor"' in source

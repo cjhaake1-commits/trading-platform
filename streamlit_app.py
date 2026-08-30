@@ -3533,11 +3533,13 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
     if experiment_db.exists():
         try:
             with sqlite3.connect(experiment_db) as connection:
-                for strategy_id, completed, wins, losses, pnl in connection.execute(
-                    "SELECT strategy_id, COUNT(*), SUM(result='WIN'), SUM(result='LOSS'), SUM(hypothetical_pnl) "
+                for strategy_id, completed, wins, losses, pnl, gross_profit, gross_loss in connection.execute(
+                    "SELECT strategy_id, COUNT(*), SUM(result='WIN'), SUM(result='LOSS'), SUM(hypothetical_pnl), "
+                    "SUM(CASE WHEN hypothetical_pnl > 0 THEN hypothetical_pnl ELSE 0 END), "
+                    "ABS(SUM(CASE WHEN hypothetical_pnl < 0 THEN hypothetical_pnl ELSE 0 END)) "
                     "FROM shadow_trades WHERE exit_at IS NOT NULL GROUP BY strategy_id"
                 ):
-                    shadow_scorecards[strategy_id] = {"completed": completed, "wins": wins or 0, "losses": losses or 0, "pnl": pnl or 0.0, "expectancy": (pnl or 0.0) / completed if completed else "UNKNOWN"}
+                    shadow_scorecards[strategy_id] = {"completed": completed, "wins": wins or 0, "losses": losses or 0, "pnl": pnl or 0.0, "expectancy": (pnl or 0.0) / completed if completed else "UNKNOWN", "profit_factor": (gross_profit or 0.0) / gross_loss if gross_loss else (float("inf") if gross_profit else "UNKNOWN")}
                 for strategy_id, regime, completed, pnl in connection.execute(
                     "SELECT strategy_id, regime, COUNT(*), SUM(hypothetical_pnl) FROM shadow_trades "
                     "WHERE exit_at IS NOT NULL AND regime IS NOT NULL GROUP BY strategy_id, regime"
@@ -3569,6 +3571,7 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
             "Shadow Wins": shadow.get("wins", "UNKNOWN"),
             "Shadow Losses": shadow.get("losses", "UNKNOWN"),
             "Shadow Expectancy": shadow.get("expectancy", "UNKNOWN"),
+            "Shadow Profit Factor": shadow.get("profit_factor", "UNKNOWN"),
             "Shadow P&L": shadow.get("pnl", "UNKNOWN"),
             "Sample classification": "INSUFFICIENT_EVIDENCE" if not isinstance(observations, int) or observations < definition.get("minimum_sample_size", 30) else "EARLY_SIGNAL",
             "Best regime": best_regime,
