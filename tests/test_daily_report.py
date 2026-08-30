@@ -40,3 +40,21 @@ def test_forward_checkpoint_keeps_provider_history_unknown_when_only_snapshot_ex
     checkpoint = build_checkpoint(str(tmp_path / "missing.db"), datetime(2026, 8, 30, 1, tzinfo=UTC))
     assert checkpoint["providers"]["Kalshi Predictions"]["scanned"] == 100
     assert checkpoint["providers"]["Kalshi Predictions"]["historical_cycle_count"] == "UNKNOWN"
+
+
+def test_forward_checkpoint_reports_runtime_successes_separately(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    ledger.record_activity(
+        experiment_id="E1", pillar="Stocks/Crypto", engine="autonomous-paper-trading", provider="paper",
+        market="shared", strategy="cycle", strategy_version="v1", model_version="v1", timeframe="15m",
+        features={}, candidate_status="CYCLE_COMPLETE", qualification_result="NO_TRADE",
+    )
+    audit = tmp_path / "audit.db"
+    with __import__("sqlite3").connect(audit) as connection:
+        connection.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, event_type TEXT, message TEXT, data_json TEXT, created_at TEXT)")
+        connection.execute("INSERT INTO audit_events VALUES (1, 'runtime_job', 'ok', '{\"job\":\"autonomous-paper-trading\",\"ok\":true}', '2026-08-30T00:00:00+00:00')")
+        connection.execute("INSERT INTO audit_events VALUES (2, 'runtime_heartbeat', 'beat', '{}', '2026-08-30T00:01:00+00:00')")
+    checkpoint = build_checkpoint(str(tmp_path / "experiment.db"), datetime(2026, 8, 30, 1, tzinfo=UTC), str(audit))
+    assert checkpoint["engines"]["Crypto"]["cycles"] == "UNKNOWN"
+    assert checkpoint["runtime_evidence"]["successful_autonomous_cycles"] == 1
+    assert checkpoint["runtime_evidence"]["failed_runtime_jobs"] == 0

@@ -10,7 +10,7 @@ from pathlib import Path
 ENGINES = ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps")
 
 
-def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: datetime | None = None) -> dict[str, object]:
+def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: datetime | None = None, audit_path: str = "var/autotrader/audit.db") -> dict[str, object]:
     current = (now or datetime.now(UTC)).astimezone(UTC)
     cutoff = (current - timedelta(hours=24)).isoformat()
     try:
@@ -21,6 +21,25 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         # A first-run or unavailable ledger is valid evidence of no observed
         # campaign data; the report must remain writable and explicit.
         rows, shadows = [], []
+    runtime_evidence = {"autonomous_cycles": "UNKNOWN", "successful_autonomous_cycles": "UNKNOWN", "failed_runtime_jobs": "UNKNOWN", "latest_heartbeat": "UNKNOWN"}
+    try:
+        with sqlite3.connect(audit_path) as connection:
+            runtime_rows = connection.execute(
+                "SELECT event_type, message, data_json, created_at FROM audit_events WHERE created_at >= ? ORDER BY id",
+                (cutoff,),
+            ).fetchall()
+        autonomous = [row for row in runtime_rows if json.loads(row[2]).get("job") == "autonomous-paper-trading"]
+        successful = [row for row in autonomous if json.loads(row[2]).get("ok") is True]
+        failed = [row for row in runtime_rows if row[0] == "runtime_job" and json.loads(row[2]).get("ok") is False]
+        heartbeats = [row[3] for row in runtime_rows if row[0] == "runtime_heartbeat"]
+        runtime_evidence = {
+            "autonomous_cycles": len(autonomous),
+            "successful_autonomous_cycles": len(successful),
+            "failed_runtime_jobs": len(failed),
+            "latest_heartbeat": max(heartbeats, default="UNKNOWN"),
+        }
+    except (OSError, sqlite3.Error, json.JSONDecodeError):
+        pass
     shared_cycles = sum(row[1] == "CYCLE_COMPLETE" and row[0] == "Stocks/Crypto" for row in rows)
     counts = {}
     for engine in ENGINES:
@@ -41,7 +60,7 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
             providers[name] = {"latest_observed_at": payload.get("observed_at", "UNKNOWN"), "state": payload.get("state", "UNKNOWN"), "scanned": payload.get("markets", payload.get("instruments", "UNKNOWN")), "orders": payload.get("orders", "UNKNOWN"), "fills": payload.get("fills", "UNKNOWN"), "historical_cycle_count": "UNKNOWN"}
         except (OSError, json.JSONDecodeError):
             providers[name] = {"latest_observed_at": "UNKNOWN", "state": "UNKNOWN", "scanned": "UNKNOWN", "orders": "UNKNOWN", "fills": "UNKNOWN", "historical_cycle_count": "UNKNOWN"}
-    return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "providers": providers, "shadow": {"entries": len(shadows), "exits": sum(row[0] is not None for row in shadows), "completed_pnl": sum(float(row[1] or 0) for row in shadows if row[0] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar, and a latest provider snapshot is never counted as historical campaign evidence."}
+    return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "runtime_evidence": runtime_evidence, "providers": providers, "shadow": {"entries": len(shadows), "exits": sum(row[0] is not None for row in shadows), "completed_pnl": sum(float(row[1] or 0) for row in shadows if row[0] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar, and a latest provider snapshot is never counted as historical campaign evidence."}
 
 
 def write_checkpoint(output: str = "var/reports/overnight-forward-campaign.json") -> Path:
