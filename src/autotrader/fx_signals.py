@@ -70,9 +70,11 @@ def qualify_fx_signal(
     proposals = tuple(
         proposal
         for proposal in (
+            strategies.momentum(instrument, bars),
             strategies.sma_cross(instrument, bars),
             strategies.breakout(instrument, bars),
             strategies.mean_reversion(instrument, bars),
+            strategies.trend_following(instrument, bars),
         )
         if proposal is not None
     )

@@ -219,10 +219,12 @@ class MetalsPaperTradingJob:
         for instrument, bars in histories.items():
             candidate = self.scanner.score_instrument(instrument, bars) if bars else None
             proposals = (
+                self.strategies.momentum(instrument, bars),
                 self.strategies.sma_cross(instrument, bars),
                 self.strategies.breakout(instrument, bars),
                 self.strategies.mean_reversion(instrument, bars),
-            ) if len(bars) >= self.required_bars else (None, None, None)
+                self.strategies.trend_following(instrument, bars),
+            ) if len(bars) >= self.required_bars else (None,) * 5
             votes = [proposal.source + ":" + proposal.side.value for proposal in proposals if proposal is not None]
             rows.append({
                 "symbol": instrument.symbol,
@@ -256,11 +258,15 @@ class MetalsPaperTradingJob:
         if not ranked:
             return None
         candidate = ranked[0]
-        proposal = self.strategies.sma_cross(candidate.instrument, histories[candidate.instrument])
+        proposal = self.strategies.momentum(candidate.instrument, histories[candidate.instrument])
+        if proposal is None or proposal.side is not Side.BUY:
+            proposal = self.strategies.sma_cross(candidate.instrument, histories[candidate.instrument])
         if proposal is None or proposal.side is not Side.BUY:
             proposal = self.strategies.breakout(candidate.instrument, histories[candidate.instrument])
         if proposal is None or proposal.side is not Side.BUY:
             proposal = self.strategies.mean_reversion(candidate.instrument, histories[candidate.instrument])
+        if proposal is None or proposal.side is not Side.BUY:
+            proposal = self.strategies.trend_following(candidate.instrument, histories[candidate.instrument])
         if proposal is None or proposal.side is not Side.BUY:
             return None
         return candidate, proposal
@@ -271,9 +277,11 @@ class MetalsPaperTradingJob:
         for candidate in ranked:
             bars = histories[candidate.instrument]
             proposals = (
+                self.strategies.momentum(candidate.instrument, bars),
                 self.strategies.sma_cross(candidate.instrument, bars),
                 self.strategies.breakout(candidate.instrument, bars),
                 self.strategies.mean_reversion(candidate.instrument, bars),
+                self.strategies.trend_following(candidate.instrument, bars),
             )
             selected = experimental_candidate(candidate, proposals, config=self.experiment)
             if selected is not None:
@@ -431,9 +439,11 @@ class InternationalPaperTradingJob:
             source = next((item for item in open_instruments if item.symbol.replace('.', '-') == candidate), None)
             bars = histories[ranked_candidate.instrument]
             proposal = next((p for p in (
+                self.strategies.momentum(ranked_candidate.instrument, bars),
                 self.strategies.sma_cross(ranked_candidate.instrument, bars),
                 self.strategies.breakout(ranked_candidate.instrument, bars),
                 self.strategies.mean_reversion(ranked_candidate.instrument, bars),
+                self.strategies.trend_following(ranked_candidate.instrument, bars),
             ) if p is not None and p.side is Side.BUY), None)
             provider_minimum_quantity = max(
                 float(source.minimum_trade_size or 0.0) if source else 0.0,
