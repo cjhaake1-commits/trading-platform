@@ -76,3 +76,11 @@ def test_asset_specific_proposals_normalize_missing_votes_without_first_buy_bias
     assert all(item.rejection_reason == "NO_STRATEGY_SIGNAL" for item in evaluations)
     assert all(item.estimated_edge is None and item.expected_value is None for item in evaluations)
     assert aggregate_confluence(evaluations).direction == "HOLD"
+
+
+def test_unavailable_relative_strength_is_insufficient_data():
+    evaluations = evaluate_proposals(
+        Instrument("GLD", AssetClass.ETF), _bars(), {"relative_strength": None}, candidate_score=80.0
+    )
+    assert evaluations[0].rejection_reason == "INSUFFICIENT_DATA"
+    assert evaluations[0].data_quality == "INSUFFICIENT_DATA"

@@ -156,7 +156,8 @@ def evaluate_proposals(
     for strategy_id, proposal in proposals.items():
         if proposal is None:
             direction, confidence, rationale = "HOLD", 0.0, "no strategy proposal"
-            rejection = "NO_STRATEGY_SIGNAL"
+            unavailable = strategy_id.upper() in {"RELATIVE_STRENGTH", "RELATIVE_STRENGTH_ROTATION"}
+            rejection = "INSUFFICIENT_DATA" if unavailable else "NO_STRATEGY_SIGNAL"
         else:
             direction = proposal.side.value.upper()
             confidence = float(proposal.confidence)
@@ -171,7 +172,7 @@ def evaluate_proposals(
             features={"bar_count": len(bars), "rationale": rationale},
             candidate=True, signal=proposal is not None, rejection_reason=rejection,
             edge_proxy=proxy, ev_proxy=proxy * confidence,
-            data_quality="FRESH" if bars else "INSUFFICIENT_DATA",
+            data_quality="INSUFFICIENT_DATA" if proposal is None and rejection == "INSUFFICIENT_DATA" else ("FRESH" if bars else "INSUFFICIENT_DATA"),
             regime="UNKNOWN",
         ))
     return tuple(results)
