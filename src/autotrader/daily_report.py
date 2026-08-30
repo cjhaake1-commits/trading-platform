@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections import Counter
-from datetime import UTC, datetime, time
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 
 ENGINES = ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps")
@@ -16,6 +16,45 @@ def _read(path: str) -> object:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return "UNKNOWN"
+
+
+def _provider_metrics() -> dict[str, object]:
+    job_map = {
+        "Alpaca": {"autonomous-paper-trading", "alpaca-metals-paper-trading", "crypto-market-data-archive"},
+        "OANDA": {"oanda-fx-paper-trading"},
+        "Saxo": {"saxo-international-paper-trading"},
+    }
+    result = {name: "UNKNOWN" for name in job_map}
+    try:
+        cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+        with sqlite3.connect("var/autotrader/audit.db") as connection:
+            rows = connection.execute(
+                "SELECT data_json, created_at FROM audit_events WHERE event_type='runtime_job' AND created_at >= ?",
+                (cutoff,),
+            ).fetchall()
+        for provider, jobs in job_map.items():
+            entries = []
+            for raw, created_at in rows:
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if data.get("job") in jobs:
+                    entries.append((data, created_at))
+            durations = sorted(float(data["duration_ms"]) for data, _ in entries if data.get("duration_ms") is not None)
+            successes = [created_at for data, created_at in entries if data.get("ok") is True]
+            result[provider] = {
+                "status": "CONNECTED" if successes else ("DEGRADED" if entries else "UNKNOWN"),
+                "requests_job_proxy": len(entries) if entries else "UNKNOWN",
+                "successes": len(successes) if entries else "UNKNOWN",
+                "failures": sum(data.get("ok") is False for data, _ in entries) if entries else "UNKNOWN",
+                "last_success": max(successes, default="UNKNOWN"),
+                "p50_latency_ms_job_proxy": durations[(len(durations) - 1) // 2] if durations else "UNKNOWN",
+                "p95_latency_ms_job_proxy": durations[max(0, (len(durations) * 95 + 99) // 100 - 1)] if durations else "UNKNOWN",
+            }
+    except sqlite3.Error:
+        pass
+    return result
 
 
 def write_report(now: datetime | None = None, db_path: str = "var/autotrader/paper_experiment.db") -> tuple[Path, Path]:
@@ -44,6 +83,7 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
         "Kalshi Predictions": "var/kalshi/execution-predictions.json",
         "Kalshi Perps": "var/kalshi/execution-perps.json",
     }.items()}
+    provider_performance.update(_provider_metrics())
     report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "activity": activity, "strategy_evidence": strategy_evidence, "actual_results": _read("var/autotrader/learning/performance_stats.json"), "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "provider_performance": provider_performance, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero", "strategy evidence is descriptive and does not imply governance promotion"]}
     directory = Path("var/reports")
     directory.mkdir(parents=True, exist_ok=True)

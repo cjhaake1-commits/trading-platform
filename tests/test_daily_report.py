@@ -45,6 +45,21 @@ def test_daily_report_contains_descriptive_strategy_evidence(tmp_path):
     assert "does not imply governance promotion" in data["evidence_limitations"][-1]
 
 
+def test_daily_report_keeps_runtime_provider_metrics_explicitly_proxied(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    PaperExperimentLedger(tmp_path / "experiment.db")
+    (tmp_path / "var/autotrader").mkdir(parents=True)
+    with __import__("sqlite3").connect(tmp_path / "var/autotrader/audit.db") as connection:
+        connection.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, event_type TEXT, message TEXT, data_json TEXT, created_at TEXT)")
+        connection.execute("INSERT INTO audit_events VALUES (1, 'runtime_job', 'ok', '{\"job\":\"oanda-fx-paper-trading\",\"ok\":true,\"duration_ms\":12}', '2026-08-30T00:00:00+00:00')")
+    report = __import__("autotrader.daily_report", fromlist=["write_report"]).write_report(
+        datetime(2026, 8, 30, 1, tzinfo=UTC), str(tmp_path / "experiment.db")
+    )
+    data = __import__("json").loads(report[0].read_text())
+    assert data["provider_performance"]["OANDA"]["requests_job_proxy"] == 1
+    assert data["provider_performance"]["OANDA"]["p95_latency_ms_job_proxy"] == 12.0
+
+
 def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
     ledger = PaperExperimentLedger(tmp_path / "experiment.db")
     ledger.record_activity(
