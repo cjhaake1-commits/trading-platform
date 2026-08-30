@@ -35,6 +35,7 @@ class StrategyEvaluation:
     ev_proxy: float | None = None
     data_quality: str = "UNKNOWN"
     regime: str = "UNKNOWN"
+    strategy_version: str = "v1"
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,7 @@ def evaluate_strategies(
                 ev_proxy=edge_proxy * confidence,
                 data_quality="INSUFFICIENT_DATA" if strategy_id == "RELATIVE_STRENGTH" else ("FRESH" if bars else "INSUFFICIENT_DATA"),
                 regime=regime,
+                strategy_version="v1",
             )
         )
     return tuple(results)
@@ -174,6 +176,7 @@ def evaluate_proposals(
             edge_proxy=proxy, ev_proxy=proxy * confidence,
             data_quality="INSUFFICIENT_DATA" if proposal is None and rejection == "INSUFFICIENT_DATA" else ("FRESH" if bars else "INSUFFICIENT_DATA"),
             regime="UNKNOWN",
+            strategy_version="v1",
         ))
     return tuple(results)
 
