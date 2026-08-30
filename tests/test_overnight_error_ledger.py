@@ -2,7 +2,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 
-from scripts.create_overnight_error_ledger import build_error_ledger
+from scripts.create_overnight_error_ledger import build_error_ledger, write_error_ledger
 
 
 def test_error_ledger_preserves_exception_and_unknown_repair_metadata(tmp_path):
@@ -24,3 +24,16 @@ def test_error_ledger_preserves_exception_and_unknown_repair_metadata(tmp_path):
     assert error["root_cause"] == "bad data"
     assert error["repair"] == "UNKNOWN"
     assert report["safety"]["real_money_orders"] == 0
+
+
+def test_write_error_ledger_uses_explicit_audit_path(tmp_path):
+    audit = tmp_path / "custom-audit.db"
+    with sqlite3.connect(audit) as connection:
+        connection.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, event_type TEXT, message TEXT, data_json TEXT, created_at TEXT)")
+        connection.execute(
+            "INSERT INTO audit_events VALUES (1, 'runtime_job', 'failed', ?, '2026-08-30T00:00:00+00:00')",
+            (json.dumps({"job": "custom", "ok": False}),),
+        )
+    output = tmp_path / "errors.json"
+    write_error_ledger(audit_path=str(audit), output=str(output))
+    assert len(json.loads(output.read_text())["errors"]) == 1

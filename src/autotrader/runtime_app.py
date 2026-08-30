@@ -79,7 +79,7 @@ class OvernightErrorLedgerJob:
         try:
             from scripts.create_overnight_error_ledger import write_error_ledger
 
-            path = write_error_ledger()
+            path = write_error_ledger(audit_path=self.audit_db)
             return JobResult(True, "Overnight error ledger written", {"path": str(path), "updated_at": now.isoformat()})
         except Exception as exc:
             return JobResult(True, "Overnight error ledger unavailable", {"state": "DEGRADED", "error": f"{type(exc).__name__}: {exc}", "updated_at": now.isoformat()})
