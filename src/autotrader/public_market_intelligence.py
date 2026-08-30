@@ -73,6 +73,14 @@ class PublicIntelligenceStore:
                     ON observations(source, source_time);
                 CREATE INDEX IF NOT EXISTS idx_public_observation_symbol_time
                     ON observations(symbol, source_time);
+                CREATE TABLE IF NOT EXISTS market_bars (
+                    pillar TEXT NOT NULL, provider TEXT NOT NULL, symbol TEXT NOT NULL,
+                    source_time TEXT NOT NULL, open REAL NOT NULL, high REAL NOT NULL,
+                    low REAL NOT NULL, close REAL NOT NULL, volume REAL,
+                    market_session TEXT, observed_at TEXT NOT NULL, source TEXT NOT NULL,
+                    PRIMARY KEY(provider, symbol, source_time)
+                );
+                CREATE INDEX IF NOT EXISTS idx_market_bars_symbol_time ON market_bars(symbol, source_time);
                 CREATE TABLE IF NOT EXISTS source_health (
                     source TEXT PRIMARY KEY,
                     state TEXT NOT NULL,
@@ -655,6 +663,11 @@ async def stream_coinbase_and_bluesky(
                         )
                     ]
                 )
+                source_time = str(message.get("time") or _utc_now())
+                price = float(message["price"]) if message.get("price") is not None else None
+                if price is not None and product:
+                    with store._connect() as connection:
+                        connection.execute("INSERT OR IGNORE INTO market_bars(pillar,provider,symbol,source_time,open,high,low,close,volume,market_session,observed_at,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", ("Crypto", "Coinbase", product, source_time, price, price, price, price, float(message["last_size"]) if message.get("last_size") else None, "24/7", _utc_now(), "coinbase_ticker"))
                 counts["coinbase"] += 1
                 if max_events is not None and sum(counts.values()) >= max_events:
                     stop.set()
