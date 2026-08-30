@@ -151,6 +151,8 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
         pillar_rows = [row for row in shadows if row["pillar"] == pillar]
         pillar_completed = [row for row in pillar_rows if row["result"] in {"WIN", "LOSS", "FLAT"}]
         pillar_pnl = [float(row["hypothetical_pnl"] or 0.0) for row in pillar_completed]
+        pillar_positive = sum(value for value in pillar_pnl if value > 0)
+        pillar_negative = abs(sum(value for value in pillar_pnl if value < 0))
         shadow_by_pillar[pillar] = {
             "entries": len(pillar_rows),
             "completed": len(pillar_completed),
@@ -158,6 +160,7 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
             "losses": sum(row["result"] == "LOSS" for row in pillar_completed),
             "hypothetical_pnl": sum(pillar_pnl) if pillar_pnl else "UNKNOWN",
             "hypothetical_expectancy": sum(pillar_pnl) / len(pillar_pnl) if pillar_pnl else "UNKNOWN",
+            "profit_factor": pillar_positive / pillar_negative if pillar_negative else ("UNKNOWN" if not pillar_positive else "INF"),
         }
     shadow_by_strategy = {}
     for strategy_id in sorted({row["strategy_id"] for row in shadows}):
@@ -165,6 +168,8 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
         strategy_completed = [row for row in strategy_rows if row["result"] in {"WIN", "LOSS", "FLAT"}]
         strategy_pnl = [float(row["hypothetical_pnl"] or 0.0) for row in strategy_completed]
         strategy_expectancy = sum(strategy_pnl) / len(strategy_pnl) if strategy_pnl else None
+        strategy_positive = sum(value for value in strategy_pnl if value > 0)
+        strategy_negative = abs(sum(value for value in strategy_pnl if value < 0))
         shadow_by_strategy[strategy_id] = {
             "entries": len(strategy_rows),
             "completed": len(strategy_completed),
@@ -172,6 +177,7 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
             "losses": sum(row["result"] == "LOSS" for row in strategy_completed),
             "hypothetical_pnl": sum(strategy_pnl) if strategy_pnl else "UNKNOWN",
             "hypothetical_expectancy": strategy_expectancy if strategy_expectancy is not None else "UNKNOWN",
+            "profit_factor": strategy_positive / strategy_negative if strategy_negative else ("UNKNOWN" if not strategy_positive else "INF"),
             "evidence_classification": _evidence_classification(len(strategy_completed), strategy_expectancy),
             "governance_status": "EXPERIMENTAL",
         }
