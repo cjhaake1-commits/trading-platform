@@ -2,16 +2,59 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.request import Request, urlopen
 
 from .intelligence_learning import map_market_outcome
 
 FAMILIES = ("SOCIAL", "CORPORATE", "FILING", "OPTIONS", "SHORT", "MACRO", "CROSS_PILLAR")
 HORIZONS = ("30M", "4H", "1D", "5D", "20D")
+
+
+def backfill_due_history(research_db: str | Path, public_db: str | Path, *, limit: int = 10) -> dict[str, int]:
+    """Bounded, research-only provider backfill for due supported jobs."""
+    from .research_market_history import ResearchMarketHistory
+    now = datetime.now(UTC)
+    with sqlite3.connect(str(research_db)) as conn:
+        conn.row_factory = sqlite3.Row
+        jobs = conn.execute("SELECT * FROM intelligence_outcome_jobs WHERE status='PENDING' ORDER BY due_at LIMIT ?", (limit,)).fetchall()
+    store = ResearchMarketHistory(public_db)
+    grouped: dict[str, tuple[str, str]] = {}
+    for job in jobs:
+        if job["symbol"] not in grouped:
+            grouped[str(job["symbol"])] = (str(job["due_at"]), str(job["due_at"]))
+    inserted = 0
+    for symbol, (_start_hint, _end_hint) in grouped.items():
+        start = (now.replace(hour=0, minute=0, second=0, microsecond=0)).isoformat().replace("+00:00", "Z")
+        end_url = now.isoformat().replace("+00:00", "Z")
+        try:
+            if "/" in symbol and symbol.count("/") == 1 and symbol.upper() in {"EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"}:
+                token = os.getenv("OANDA_PRACTICE_TOKEN", "")
+                base = os.getenv("OANDA_PRACTICE_BASE_URL", "https://api-fxpractice.oanda.com").rstrip("/")
+                instrument = symbol.replace("/", "_")
+                query = urllib.parse.urlencode({"granularity": "M5", "from": start, "to": end_url, "price": "M"})
+                req = Request(f"{base}/v3/instruments/{instrument}/candles?{query}", headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+                with urlopen(req, timeout=15) as response:
+                    payload = json.load(response)
+                bars = [{"symbol": symbol, "source_time": row.get("time"), "open": row.get("mid", {}).get("o"), "high": row.get("mid", {}).get("h"), "low": row.get("mid", {}).get("l"), "close": row.get("mid", {}).get("c"), "volume": row.get("volume")} for row in payload.get("candles", []) if row.get("complete")]
+                inserted += store.append(bars, provider="OANDA", source="oanda_practice_candles", pillar="Forex")
+            else:
+                alpaca = {"APCA-API-KEY-ID": os.getenv("ALPACA_PAPER_API_KEY", ""), "APCA-API-SECRET-KEY": os.getenv("ALPACA_PAPER_SECRET_KEY", ""), "Accept": "application/json"}
+                endpoint = "https://data.alpaca.markets/v1beta3/crypto/us/bars" if ("/" in symbol or "-USD" in symbol) else "https://data.alpaca.markets/v2/stocks/bars"
+                query = urllib.parse.urlencode({"symbols": symbol, "timeframe": "5Min", "start": start, "end": end_url, "limit": 1000, "feed": "iex"})
+                with urlopen(Request(f"{endpoint}?{query}", headers=alpaca), timeout=15) as response:
+                    payload = json.load(response)
+                rows = (payload.get("bars") or {}).get(symbol, [])
+                inserted += store.append([dict(row, symbol=symbol) for row in rows], provider="Alpaca", source="alpaca_historical_rest", pillar="Crypto" if ("/" in symbol or "-USD" in symbol) else "US Stocks / ETFs")
+        except Exception:
+            continue
+    return {"jobs_considered": len(jobs), "symbols_considered": len(grouped), "bars_inserted": inserted}
 
 
 def _ensure(conn: sqlite3.Connection) -> None:

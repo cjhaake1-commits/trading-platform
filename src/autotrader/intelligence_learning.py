@@ -134,15 +134,25 @@ class IntelligenceLearningTree:
             resolved = 0
             for job in jobs:
                 meta = json.loads(str(job["metadata_json"] or "{}"))
+                observed_at = meta.get("observed_at")
+                if not observed_at and ":" in str(job["observation_id"]):
+                    candidate = str(job["observation_id"]).rsplit(":", 1)[-1]
+                    try:
+                        datetime.fromisoformat(candidate)
+                        observed_at = candidate
+                    except ValueError:
+                        observed_at = None
                 entry = meta.get("entry_price")
-                if entry in (None, 0):
-                    continue
                 bars = []
                 try:
-                    bars = [dict(row) for row in public.execute("SELECT * FROM market_bars WHERE symbol=? AND source_time>? AND source_time<=? ORDER BY source_time", (job["symbol"], meta.get("observed_at", ""), job["due_at"]))]
+                    bars = [dict(row) for row in public.execute("SELECT * FROM market_bars WHERE (symbol=? OR replace(symbol,'/','-')=replace(?,'/','-')) AND source_time>? AND source_time<=? ORDER BY source_time", (job["symbol"], job["symbol"], observed_at or "", job["due_at"]))]
                 except sqlite3.OperationalError:
                     pass
                 if not bars:
+                    continue
+                if entry in (None, 0):
+                    entry = bars[0].get("open") or bars[0].get("close")
+                if entry in (None, 0):
                     continue
                 from .learning_runtime import resolve_ohlc_job
                 if resolve_ohlc_job(self, observation_id=str(job["observation_id"]), horizon=str(job["horizon"]), entry_price=float(entry), bars=bars, direction=str(meta.get("direction", "BUY")), transaction_cost=float(meta.get("transaction_cost", 0.0))):

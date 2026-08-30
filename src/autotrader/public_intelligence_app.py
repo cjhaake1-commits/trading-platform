@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from .derived_intelligence import DerivedIntelligenceEngine
 from .intelligence_orchestrator import IntelligenceOrchestrator
+from .learning_runtime import backfill_due_history
 from .public_market_intelligence import (
     PublicIntelligenceCollector,
     PublicIntelligenceStore,
@@ -45,6 +46,7 @@ def main() -> None:
     async def maintenance() -> None:
         research = ResearchStore(os.getenv("GLOBAL_RESEARCH_DB", "var/autotrader/research.db"))
         intelligence = IntelligenceOrchestrator(research)
+        backfill_due_history(research.path, args.db, limit=int(os.getenv("HISTORY_BACKFILL_MAX_JOBS_PER_CYCLE", "10")))
         result = intelligence.run_once()
         result["sec"] = SecResearchScheduler(intelligence.learning).run_batch()
         research.put_report(datetime.now(UTC).date(), {"intelligence": result, "research_only": True,
@@ -53,6 +55,7 @@ def main() -> None:
     try:
         research = ResearchStore(os.getenv("GLOBAL_RESEARCH_DB", "var/autotrader/research.db"))
         intelligence = IntelligenceOrchestrator(research)
+        backfill_due_history(research.path, args.db, limit=int(os.getenv("HISTORY_BACKFILL_MAX_JOBS_PER_CYCLE", "10")))
         intelligence_result = intelligence.run_once()
         sec_result = SecResearchScheduler(intelligence.learning).run_batch()
         research.put_report(datetime.now(UTC).date(), {"intelligence": intelligence_result,
