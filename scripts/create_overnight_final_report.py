@@ -19,7 +19,11 @@ def build_report() -> str:
     forward = _read("var/reports/overnight-forward-campaign.json")
     progress = _read("var/reports/overnight-progress.json")
     daily = _read("var/reports/daily-learning-2026-08-30.json")
-    master_checklist_available = Path("var/reports/master-70-item-checklist.json").exists()
+    checklist = _read("var/reports/master-70-item-checklist.json")
+    checklist_items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
+    master_checklist_available = bool(checklist_items) and all(
+        isinstance(item, dict) and item.get("status") == "PASS" for item in checklist_items
+    )
     safety = forward.get("safety", {})
     runtime = forward.get("runtime_evidence", {})
     verified = (
@@ -38,7 +42,7 @@ def build_report() -> str:
     for name, values in (forward.get("providers") or {}).items():
         if isinstance(values, dict):
             lines.append(f"- {name}: cycles={values.get('historical_cycle_count', 'UNKNOWN')}, health={values.get('activity_health', 'UNKNOWN')}, state={values.get('state', 'UNKNOWN')}")
-    checklist_line = "- Master 70-item checklist: AVAILABLE" if master_checklist_available else "- Master 70-item checklist: NOT VERIFIED (authoritative master checklist is not present in the repository)."
+    checklist_line = "- Master 70-item checklist: VERIFIED" if master_checklist_available else "- Master 70-item checklist: NOT VERIFIED (a non-empty all-pass authoritative checklist is not present)."
     strategy_evidence = daily.get("strategy_evidence", "UNKNOWN")
     queue = _read("var/reports/research-queue.json")
     bottlenecks = {name: values.get("top_bottlenecks", {}) for name, values in (daily.get("activity") or {}).items() if isinstance(values, dict)}
