@@ -92,7 +92,12 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         components = {"worker": bool(selected), "data": bool(selected), "cycle": bool(cycles), "universe": bool(selected), "decisions": bool(selected), "execution": True, "management": True, "learning": bool(selected)}
         counts[engine] = {"observations": len(selected), "cycles": cycles, "signals": signals, "latest": max((row[2] for row in selected), default="UNKNOWN"), "activity_health": round(sum(components.values()) * 100 / len(components)) if selected else "UNKNOWN", "activity_health_components": components}
     for engine in ("Stocks", "Crypto"):
-        counts[engine]["cycles"] = "UNKNOWN"
+        # The autonomous worker owns one shared scheduler cycle, but its
+        # current result is Crypto-backed in this campaign (Crypto lifecycle
+        # management/observations are present while US Stocks is closed).
+        # Attribute that observed cycle to Crypto only; never manufacture
+        # Stocks activity from a shared worker heartbeat.
+        counts[engine]["cycles"] = shared_cycles if engine == "Crypto" and shared_cycles else "UNKNOWN"
         counts[engine]["shared_stocks_crypto_cycles"] = shared_cycles
         counts[engine]["activity_health_components"]["cycle"] = bool(shared_cycles)
         if counts[engine].get("observations"):

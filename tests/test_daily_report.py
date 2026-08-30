@@ -110,7 +110,7 @@ def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
     )
     checkpoint = build_checkpoint(str(tmp_path / "experiment.db"), datetime(2026, 8, 30, 1, tzinfo=UTC))
     assert checkpoint["engines"]["Stocks"]["cycles"] == "UNKNOWN"
-    assert checkpoint["engines"]["Crypto"]["cycles"] == "UNKNOWN"
+    assert checkpoint["engines"]["Crypto"]["cycles"] == 1
     assert checkpoint["engines"]["Crypto"]["shared_stocks_crypto_cycles"] == 1
     assert checkpoint["engines"]["Crypto"]["activity_health_components"]["cycle"] is True
     assert checkpoint["engines"]["Crypto"]["activity_health"] == "UNKNOWN"
@@ -158,7 +158,7 @@ def test_forward_checkpoint_reports_runtime_successes_separately(tmp_path):
         connection.execute("INSERT INTO audit_events VALUES (1, 'runtime_job', 'ok', '{\"job\":\"autonomous-paper-trading\",\"ok\":true}', '2026-08-30T00:00:00+00:00')")
         connection.execute("INSERT INTO audit_events VALUES (2, 'runtime_heartbeat', 'beat', '{}', '2026-08-30T00:01:00+00:00')")
     checkpoint = build_checkpoint(str(tmp_path / "experiment.db"), datetime(2026, 8, 30, 1, tzinfo=UTC), str(audit))
-    assert checkpoint["engines"]["Crypto"]["cycles"] == "UNKNOWN"
+    assert checkpoint["engines"]["Crypto"]["cycles"] == 1
     assert checkpoint["runtime_evidence"]["successful_autonomous_cycles"] == 1
     assert checkpoint["runtime_evidence"]["consecutive_successful_autonomous_cycles"] == 1
     assert checkpoint["runtime_evidence"]["failed_runtime_jobs"] == 0
