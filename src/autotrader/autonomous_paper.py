@@ -1454,6 +1454,9 @@ class AutonomousPaperTradingJob:
         for symbol, position in portfolio.positions.items():
             if position.asset_class is not AssetClass.CRYPTO:
                 continue
+            original = ledger.latest_unresolved_entry_manifest_for_symbol(symbol, broker="alpaca-crypto-paper") if ledger else None
+            original_metadata = original.get("metadata") if isinstance(original, dict) else {}
+            experiment_id = str((original_metadata or {}).get("experiment_id") or f"POSITION-{symbol.replace('/', '')}")
             # Alpaca can retain an untradeable fractional remainder after a
             # fill/exit.  Repeatedly routing it through the guarded exit
             # coordinator creates an endless duplicate-exit loop.  Preserve
@@ -1487,7 +1490,7 @@ class AutonomousPaperTradingJob:
                     strategy="position_management", timeframe=self.config.interval,
                     lane="POSITION_MANAGEMENT",
                     decision=row["decision"], entry_price=position.average_price,
-                    edge=None, features={"reason": row["reason"], "capital": dust_notional},
+                    edge=None, features={"reason": row["reason"], "capital": dust_notional}, experiment_id=experiment_id,
                 )
                 continue
             instrument, bars = history_by_symbol.get(symbol.replace("/", "").upper(), (None, None))
@@ -1496,7 +1499,6 @@ class AutonomousPaperTradingJob:
                 instrument, bars, scanner=self.scanner, strategies=self.strategies, config=self.experiment
             ) if instrument and bars else None
             edge = signal.edge if signal else None
-            original = ledger.latest_unresolved_entry_manifest_for_symbol(symbol, broker="alpaca-crypto-paper") if ledger else None
             original_strategy = str(original.get("strategy_version") or "unknown") if original else "unknown"
             original_edge = (original.get("metadata") or {}).get("edge") if original else None
             thesis_valid = signal is not None
@@ -1538,7 +1540,7 @@ class AutonomousPaperTradingJob:
             self.experiment_ledger.record_decision(
                 pillar="alpaca_crypto", symbol=symbol, strategy=str(row["strategy"] or "position_management"),
                 timeframe=self.config.interval, lane=str(row["lane"]), decision=decision,
-                entry_price=position.average_price, edge=edge,
+                entry_price=position.average_price, edge=edge, experiment_id=experiment_id,
                 features={"reason": reason, "score": row["score"], "momentum_pct": row["momentum_pct"]},
             )
             if decision in {"EXIT_SIGNAL_INVALIDATED", "EXIT_EDGE_GONE"}:

@@ -37,3 +37,29 @@ def test_crypto_dust_is_a_durable_no_trade_observation(tmp_path):
     decisions, exits = job._manage_crypto_positions(portfolio, {})
     assert exits == []
     assert decisions[0]["decision"] == "DUST_POSITION_BELOW_PROVIDER_MINIMUM"
+
+
+def test_position_management_reuses_entry_experiment_parent(tmp_path):
+    job = AutonomousPaperTradingJob(
+        AutonomousPaperConfig(ledger_path=str(tmp_path / "portfolio.db"), idempotency_path=str(tmp_path / "idempotency.db"))
+    )
+    job.experiment = PaperExperimentConfig(enabled=False)
+    recorded = []
+    job.experiment_ledger = type("Ledger", (), {
+        "record_decision": lambda self, **kwargs: recorded.append(kwargs),
+    })()
+    portfolio_ledger = type("PortfolioLedger", (), {
+        "latest_unresolved_entry_manifest_for_symbol": lambda self, symbol, broker: {
+            "strategy_version": "crypto.momentum.v1",
+            "metadata": {"experiment_id": "EXP-ENTRY-1"},
+        },
+    })()
+    portfolio = PortfolioState(
+        1000.0, 500.0,
+        positions={"SOL/USD": Position("SOL/USD", AssetClass.CRYPTO, 1.0, 100.0, 95.0)},
+    )
+    instrument = Instrument("SOL/USD", AssetClass.CRYPTO)
+    bar = MarketBar("SOL/USD", AssetClass.CRYPTO, datetime(2026, 8, 24), 100, 101, 99, 100, 1)
+    job.scanner.score_instrument = lambda instrument, bars: ScanCandidate(instrument, 8.0, 100.0, -0.5, 1.0, None, 95.0, ("current momentum",))
+    job._manage_crypto_positions(portfolio, {instrument: [bar]}, portfolio_ledger)
+    assert recorded and recorded[0]["experiment_id"] == "EXP-ENTRY-1"
