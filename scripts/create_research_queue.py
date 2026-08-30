@@ -24,18 +24,23 @@ def build_queue(daily_path: str = "var/reports/daily-learning-2026-08-30.json") 
     for engine, values in activity.items():
         if not isinstance(values, dict):
             continue
-        bottlenecks = values.get("top_bottlenecks") or {}
-        for reason, count in bottlenecks.items():
-            if not reason:
+        structured = values.get("bottlenecks") if isinstance(values.get("bottlenecks"), list) else []
+        bottlenecks = structured or [
+            {"reason": reason, "count": count, "classification": "EVIDENCE_REQUIRED"}
+            for reason, count in (values.get("top_bottlenecks") or {}).items()
+        ]
+        for bottleneck in bottlenecks:
+            if not isinstance(bottleneck, dict) or not bottleneck.get("reason"):
                 continue
+            reason, count = bottleneck["reason"], bottleneck.get("count", "UNKNOWN")
             items.append({
                 "question": f"Is {reason} an appropriate gate for {engine}?",
                 "scope": engine,
                 "stage": "FUNNEL",
                 "priority": "HIGH" if isinstance(count, int) and count >= 10 else "MEDIUM",
                 "observed_count": count,
-                "classification": "EVIDENCE_REQUIRED",
-                "recommended_measurement": "Compare accepted and near-threshold forward populations before changing any gate.",
+                "classification": bottleneck.get("classification", "UNKNOWN"),
+                "recommended_measurement": bottleneck.get("recommended_action", "Compare accepted and near-threshold forward populations before changing any gate."),
             })
 
     for name, values in strategy.items():

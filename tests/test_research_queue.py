@@ -19,3 +19,11 @@ def test_research_queue_preserves_insufficient_evidence(tmp_path):
     source = tmp_path / "missing.json"
     report = build_queue(str(source))
     assert report["items"][0]["classification"] == "INSUFFICIENT_EVIDENCE"
+
+
+def test_research_queue_preserves_structured_bottleneck_evidence(tmp_path):
+    source = tmp_path / "daily.json"
+    source.write_text('{"activity":{"Crypto":{"bottlenecks":[{"reason":"NO_EDGE","count":12,"classification":"OPTIMIZABLE","recommended_action":"Measure forward outcomes."}]}}}')
+    item = build_queue(str(source))["items"][0]
+    assert item["classification"] == "OPTIMIZABLE"
+    assert item["recommended_measurement"] == "Measure forward outcomes."
