@@ -10,6 +10,20 @@ from pathlib import Path
 ENGINES = ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps")
 
 
+def _provider_health(payload: dict[str, object]) -> tuple[int | str, dict[str, bool]]:
+    """Score only provider-backed activity; learning remains outside this score."""
+    funnel = payload.get("funnel") if isinstance(payload.get("funnel"), dict) else {}
+    components = {
+        "worker": bool(payload.get("observed_at")),
+        "data": bool(funnel.get("data_valid")),
+        "cycle": bool(payload.get("cycle_count")),
+        "universe": bool(payload.get("markets", payload.get("instruments"))),
+        "decisions": bool(funnel),
+        "execution": True,
+    }
+    return (round(sum(components.values()) * 100 / len(components)) if any(components.values()) else "UNKNOWN", components)
+
+
 def _audit_payload(raw: str) -> dict[str, object]:
     try:
         payload = json.loads(raw)
@@ -74,9 +88,14 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         path = Path("var/kalshi") / filename
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            providers[name] = {"latest_observed_at": payload.get("observed_at", "UNKNOWN"), "state": payload.get("state", "UNKNOWN"), "scanned": payload.get("markets", payload.get("instruments", "UNKNOWN")), "orders": payload.get("orders", "UNKNOWN"), "fills": payload.get("fills", "UNKNOWN"), "historical_cycle_count": payload.get("cycle_count", "UNKNOWN")}
+            providers[name] = {"latest_observed_at": payload.get("observed_at", "UNKNOWN"), "state": payload.get("state", "UNKNOWN"), "scanned": payload.get("markets", payload.get("instruments", "UNKNOWN")), "orders": payload.get("orders", "UNKNOWN"), "fills": payload.get("fills", "UNKNOWN"), "historical_cycle_count": payload.get("cycle_count", "UNKNOWN"), "funnel": payload.get("funnel", {})}
         except (OSError, json.JSONDecodeError):
             providers[name] = {"latest_observed_at": "UNKNOWN", "state": "UNKNOWN", "scanned": "UNKNOWN", "orders": "UNKNOWN", "fills": "UNKNOWN", "historical_cycle_count": "UNKNOWN"}
+    for _name, provider in providers.items():
+        if isinstance(provider, dict):
+            health, components = _provider_health({"observed_at": provider.get("latest_observed_at"), "cycle_count": provider.get("historical_cycle_count"), "markets": provider.get("scanned"), "funnel": provider.get("funnel", {})})
+            provider["activity_health"] = health
+            provider["activity_health_components"] = components
     return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "runtime_evidence": runtime_evidence, "providers": providers, "shadow": {"entries": len(shadows), "exits": sum(row[0] is not None for row in shadows), "completed_pnl": sum(float(row[1] or 0) for row in shadows if row[0] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar, and a latest provider snapshot is never counted as historical campaign evidence."}
 
 

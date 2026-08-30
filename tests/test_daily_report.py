@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 from autotrader.daily_report import write_report
 from autotrader.paper_experiment import PaperExperimentLedger
-from scripts.create_forward_campaign_checkpoint import build_checkpoint
+from scripts.create_forward_campaign_checkpoint import _provider_health, build_checkpoint
 
 
 def test_daily_report_is_dated_and_paper_only(tmp_path, monkeypatch):
@@ -99,6 +99,13 @@ def test_forward_checkpoint_keeps_provider_history_unknown_when_only_snapshot_ex
     checkpoint = build_checkpoint(str(tmp_path / "missing.db"), datetime(2026, 8, 30, 1, tzinfo=UTC))
     assert checkpoint["providers"]["Kalshi Predictions"]["scanned"] == 100
     assert checkpoint["providers"]["Kalshi Predictions"]["historical_cycle_count"] == "UNKNOWN"
+
+
+def test_provider_health_uses_only_observed_components():
+    health, components = _provider_health({"observed_at": "now", "cycle_count": 3, "markets": 10, "funnel": {"data_valid": 10}})
+    assert health == 100
+    assert components["worker"] is True
+    assert components["cycle"] is True
 
 
 def test_forward_checkpoint_reports_runtime_successes_separately(tmp_path):
