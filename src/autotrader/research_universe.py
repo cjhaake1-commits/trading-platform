@@ -5,6 +5,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from urllib.request import Request, urlopen
 
 
 @dataclass(frozen=True)
@@ -52,3 +53,17 @@ class ResearchUniverse:
                  "membership_observed_at": item.membership_observed_at or self.generated_at,
                  "official_feed": item.official_feed, "policy": self.policy,
                  "provenance": "configured_research_universe"} for item in self.securities]
+
+    @classmethod
+    def from_sec_tickers(cls, *, user_agent: str, timeout: float = 12.0) -> "ResearchUniverse":
+        request = Request("https://www.sec.gov/files/company_tickers.json", headers={"User-Agent": user_agent, "Accept": "application/json"})
+        with urlopen(request, timeout=timeout) as response:  # noqa: S310
+            payload = json.load(response)
+        rows = payload.values() if isinstance(payload, dict) else payload
+        dedup: dict[str, Security] = {}
+        for row in rows:
+            if isinstance(row, dict) and row.get("ticker") and row.get("cik_str"):
+                symbol = str(row["ticker"]).upper().strip()
+                if symbol.isalnum():
+                    dedup.setdefault(symbol, Security(symbol, str(row["cik_str"]).zfill(10), row.get("title"), None, ("SEC_PUBLIC_ISSUERS",)))
+        return cls(tuple(dedup.values()), policy="SEC_PUBLIC_ISSUERS")
