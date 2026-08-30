@@ -387,6 +387,7 @@ def main() -> None:
         heartbeat_seconds=args.heartbeat,
         snapshot_path=Path(args.status),
         autonomous_enabled=autonomous_enabled,
+        experiment_path=Path("var/autotrader/paper_experiment.db"),
     )
     jobs = [HeartbeatJob(), FoundationAuditJob(ledger_path=args.ledger)]
     if args.autonomous_paper:

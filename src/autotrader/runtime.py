@@ -12,6 +12,7 @@ from typing import Protocol
 
 from .audit import SQLiteAuditStore
 from .models import AuditEvent
+from .paper_experiment import PaperExperimentLedger
 
 
 class RunMode(StrEnum):
@@ -53,6 +54,7 @@ class RuntimeConfig:
     max_consecutive_job_failures: int = 3
     snapshot_path: Path | None = None
     autonomous_enabled: bool = False
+    experiment_path: Path | None = None
 
 
 class AutonomousRuntime:
@@ -78,6 +80,7 @@ class AutonomousRuntime:
         self._started_at = self._now_factory()
         self._last_heartbeat_at: datetime | None = None
         self._last_heartbeat_audit_monotonic = 0.0
+        self._experiment_ledger = PaperExperimentLedger(self.config.experiment_path) if self.config.experiment_path else None
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -122,6 +125,27 @@ class AutonomousRuntime:
             state.last_finished_at = self._now_factory()
             state.last_duration_ms = duration_ms
             state.next_due_monotonic = finished + job.cadence_seconds
+
+            if self._experiment_ledger is not None:
+                data = result.data
+                rejection = data.get("rejection") or data.get("reason") or data.get("final_bottleneck")
+                self._experiment_ledger.record_activity(
+                    pillar=_pillar_for_job(job.name),
+                    engine=job.name,
+                    provider=_provider_for_job(job.name),
+                    market=str(data.get("candidate") or data.get("symbol") or job.name),
+                    strategy=str(data.get("strategy") or data.get("mode") or "cycle"),
+                    strategy_version=str(data.get("strategy_version") or "runtime-v1"),
+                    model_version="runtime-v1",
+                    features={"job_result": data, "duration_ms": duration_ms},
+                    candidate_status="CYCLE_COMPLETE",
+                    qualification_result="QUALIFIED" if data.get("qualified") else "NO_TRADE",
+                    rejection_reason=str(rejection) if rejection else None,
+                    risk_decision=str(data.get("risk_approved")) if "risk_approved" in data else None,
+                    order_id=str(data.get("order_id")) if data.get("order_id") else None,
+                    provider_order_id=str(data.get("broker_order_id")) if data.get("broker_order_id") else None,
+                    learning_update="cycle_persisted",
+                )
 
             if result.ok:
                 state.consecutive_failures = 0
@@ -274,3 +298,25 @@ class AutonomousRuntime:
         temporary = path.with_suffix(path.suffix + ".tmp")
         temporary.write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
         temporary.replace(path)
+
+
+def _pillar_for_job(name: str) -> str:
+    mapping = {
+        "autonomous-paper-trading": "Stocks/Crypto",
+        "oanda-fx-paper-trading": "Forex",
+        "alpaca-metals-paper-trading": "Metals",
+        "saxo-international-paper-trading": "International",
+        "kalshi-predictions": "Kalshi Predictions",
+        "kalshi-perps": "Kalshi Perps",
+    }
+    return mapping.get(name, name)
+
+
+def _provider_for_job(name: str) -> str:
+    if name == "oanda-fx-paper-trading":
+        return "OANDA Practice"
+    if name == "saxo-international-paper-trading":
+        return "Saxo SIM"
+    if name.startswith("kalshi"):
+        return "Kalshi Demo"
+    return "Alpaca Paper"
