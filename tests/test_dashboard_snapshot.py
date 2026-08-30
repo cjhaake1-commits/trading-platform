@@ -439,3 +439,7 @@ def test_dashboard_renders_learning_baseline_and_status(monkeypatch):
     assert "challenger_20260820010101" in html
     assert "adaptive" in html
     assert "minimum_candidate_score" in html
+    assert "AUTONOMOUS TRADING LAB" in html
+    assert "Strategy leaderboard" in html
+    assert "Provider health" in html
+    assert "UNKNOWN" in html
