@@ -8,6 +8,11 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+try:
+    from scripts.verify_paper_safety import verify
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from verify_paper_safety import verify
+
 
 def _json(path: str) -> dict[str, object]:
     try:
@@ -43,7 +48,7 @@ def build_progress() -> dict[str, object]:
         "report_id": "OVERNIGHT_PROGRESS",
         "generated_at": datetime.now(UTC).isoformat(),
         "git_sha": sha,
-        "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"},
+        "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper", "verifier": verify()},
         "runtime": {"healthy": status.get("healthy", "UNKNOWN"), "heartbeat": status.get("last_heartbeat_at", "UNKNOWN"), "execution_state": status.get("execution_state", "UNKNOWN")},
         "activity": activity,
         "shadow": shadows,

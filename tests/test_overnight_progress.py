@@ -14,6 +14,8 @@ def test_progress_checkpoint_is_paper_only_and_preserves_unknowns(tmp_path, monk
     report = build_progress()
     assert report["safety"]["live_trading_enabled"] is False
     assert report["safety"]["real_money_orders"] == 0
+    assert report["safety"]["verifier"]["safe"] is False
+    assert "missing_or_invalid" in report["safety"]["verifier"]["violations"][0]
     assert report["activity"]["events"] == 1
     assert report["shadow"]["invalid_directions"] == 0
     assert report["runtime"]["healthy"] == "UNKNOWN"
