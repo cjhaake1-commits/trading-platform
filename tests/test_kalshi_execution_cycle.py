@@ -77,3 +77,15 @@ def test_perps_risk_approved_candidate_reaches_capital_and_order_boundary():
     payload = _perps_order_payload(market, result)
     assert payload["side"] == "bid"
     assert payload["count"] == "1.00"
+
+
+def test_candidate_telemetry_is_append_only_and_research_only(tmp_path, monkeypatch):
+    from scripts.kalshi_execution_cycle import _write_candidate_telemetry
+
+    monkeypatch.setenv("KALSHI_EXECUTION_STATUS_DIR", str(tmp_path))
+    rows = [{"ticker": "KXTEST", "qualification": "REJECTED", "estimated_edge": "UNKNOWN"}]
+    _write_candidate_telemetry("predictions", rows)
+    _write_candidate_telemetry("predictions", rows)
+    path = tmp_path / "candidate-telemetry-predictions.jsonl"
+    assert len(path.read_text().splitlines()) == 2
+    assert path.exists()
