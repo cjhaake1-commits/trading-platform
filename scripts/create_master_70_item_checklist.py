@@ -100,6 +100,14 @@ def _status(item_id: str, safety: dict[str, object], runtime: dict[str, object],
     # separate runtime observation for behavior that is already covered by
     # the shared strategy/risk/persistence primitives.
     source_markers = {
+        "D": ("src/autotrader/strategy_registry.py", "minimum_sample_size"),
+        "F": ("src/autotrader/multi_strategy.py", "TIED_COMPARABLE_CONFIDENCE"),
+        "J": ("src/autotrader/paper_experiment.py", "no broker or P&L side effects"),
+        "1": ("src/autotrader/paper_experiment.py", "experiment_id = str(observation.get"),
+        "2": ("src/autotrader/paper_experiment.py", "event_id = \"EVENT-\""),
+        "3": ("src/autotrader/paper_experiment.py", "experiment_id"),
+        "4": ("src/autotrader/paper_experiment.py", "record_shadow_trade"),
+        "5": ("src/autotrader/autonomous_paper.py", "experiment_id=experiment_id"),
         **{str(number): ("src/autotrader/strategies.py", marker) for number, marker in {
             6: "def momentum", 7: "def breakout", 8: "def mean_reversion", 9: "def trend_following",
         }.items()},
