@@ -60,6 +60,23 @@ def test_daily_report_keeps_runtime_provider_metrics_explicitly_proxied(tmp_path
     assert data["provider_performance"]["OANDA"]["p95_latency_ms_job_proxy"] == 12.0
 
 
+def test_daily_report_scorecard_uses_completed_shadow_outcomes_only(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    ledger.record_shadow_trade(
+        shadow_id="S1", experiment_id="E1", pillar="Crypto", strategy_id="test", market="BTC/USD",
+        direction="BUY", hypothetical_entry=100, entry_at="2026-08-30T00:00:00+00:00", entry_reason="test",
+    )
+    with __import__("sqlite3").connect(tmp_path / "experiment.db") as connection:
+        connection.execute("UPDATE shadow_trades SET hypothetical_pnl=5, result='WIN', exit_at='2026-08-30T00:10:00+00:00', mfe=7, mae=-1 WHERE shadow_id='S1'")
+    report = __import__("autotrader.daily_report", fromlist=["write_report"]).write_report(
+        datetime(2026, 8, 30, 1, tzinfo=UTC), str(tmp_path / "experiment.db")
+    )
+    data = __import__("json").loads(report[0].read_text())
+    assert data["shadow_scorecard"]["completed_experiments"] == 1
+    assert data["shadow_scorecard"]["win_rate"] == 1.0
+    assert data["shadow_scorecard"]["average_holding_seconds"] == 600.0
+
+
 def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
     ledger = PaperExperimentLedger(tmp_path / "experiment.db")
     ledger.record_activity(
