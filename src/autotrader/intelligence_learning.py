@@ -69,7 +69,7 @@ class IntelligenceLearningTree:
                 hypothesis_id TEXT PRIMARY KEY, name TEXT NOT NULL, version TEXT NOT NULL,
                 status TEXT NOT NULL, sample_count INTEGER NOT NULL DEFAULT 0,
                 forward_count INTEGER NOT NULL DEFAULT 0, expectancy REAL,
-                max_drawdown REAL, reason TEXT, last_observation TEXT, last_resolution TEXT, updated_at TEXT NOT NULL
+                max_drawdown REAL, median_return REAL, win_rate REAL, average_mfe REAL, average_mae REAL, cost_adjusted_expectancy REAL, regime_coverage TEXT, market_coverage TEXT, reason TEXT, last_observation TEXT, last_resolution TEXT, updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS intelligence_checkpoints (
                 source TEXT PRIMARY KEY, last_attempt TEXT NOT NULL, last_success TEXT,
@@ -87,7 +87,7 @@ class IntelligenceLearningTree:
             );
             CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_due ON intelligence_outcome_jobs(status, due_at);
             """)
-            for column in ("last_observation TEXT", "last_resolution TEXT"):
+            for column in ("last_observation TEXT", "last_resolution TEXT", "median_return REAL", "win_rate REAL", "average_mfe REAL", "average_mae REAL", "cost_adjusted_expectancy REAL", "regime_coverage TEXT", "market_coverage TEXT"):
                 try:
                     conn.execute(f"ALTER TABLE intelligence_hypotheses ADD COLUMN {column}")
                 except sqlite3.OperationalError:
@@ -180,10 +180,11 @@ class IntelligenceLearningTree:
 
     def update_hypothesis_statistics(self) -> int:
         with self._connect() as conn:
-            rows = conn.execute("SELECT observation_id, AVG(return_pct) expectancy, COUNT(*) n, MAX(drawdown) dd FROM intelligence_outcome_jobs WHERE status='RESOLVED' GROUP BY observation_id").fetchall()
+            rows = conn.execute("SELECT observation_id, AVG(return_pct) expectancy, COUNT(*) n, MAX(drawdown) dd, AVG(mfe) mfe, AVG(mae) mae FROM intelligence_outcome_jobs WHERE status='RESOLVED' GROUP BY observation_id").fetchall()
             updated = 0
             for row in rows:
-                updated += conn.execute("UPDATE intelligence_hypotheses SET sample_count=?,forward_count=?,expectancy=?,max_drawdown=?,last_observation=COALESCE(last_observation,?),last_resolution=? WHERE reason LIKE ?", (row['n'], row['n'], row['expectancy'], row['dd'], row['observation_id'], datetime.now(UTC).isoformat(), f"%observation={row['observation_id']}%")).rowcount
+                values = [float(x[0]) for x in conn.execute("SELECT return_pct FROM intelligence_outcome_jobs WHERE observation_id=? AND status='RESOLVED' AND return_pct IS NOT NULL", (row['observation_id'],))]
+                updated += conn.execute("UPDATE intelligence_hypotheses SET sample_count=?,forward_count=?,expectancy=?,median_return=?,win_rate=?,average_mfe=?,average_mae=?,max_drawdown=?,cost_adjusted_expectancy=?,last_observation=COALESCE(last_observation,?),last_resolution=? WHERE reason LIKE ?", (row['n'], row['n'], row['expectancy'], sorted(values)[len(values)//2] if values else None, sum(x > 0 for x in values)/len(values) if values else None, row['mfe'], row['mae'], row['dd'], row['expectancy'], row['observation_id'], datetime.now(UTC).isoformat(), f"%observation={row['observation_id']}%")).rowcount
         return updated
 
     def checkpoint(self, source: str, *, status: str, records: int = 0, error: str | None = None) -> None:

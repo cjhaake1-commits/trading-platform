@@ -212,7 +212,19 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
         "Kalshi Perps": "var/kalshi/execution-perps.json",
     }.items()}
     provider_performance.update(_provider_metrics())
-    report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "activity": activity, "strategy_evidence": strategy_evidence, "actual_results": _read("var/autotrader/learning/performance_stats.json"), "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "shadow_scorecard": shadow_scorecard, "shadow_by_pillar": shadow_by_pillar, "shadow_by_strategy": shadow_by_strategy, "provider_performance": provider_performance, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero", "strategy evidence is descriptive and does not imply governance promotion"]}
+    intelligence_db = Path("var/autotrader/research.db")
+    sections = {name: [] for name in ("LEARNING TREE GROWTH", "SEC ACCESS", "SEC BOOTSTRAP", "NEW SEC FILINGS", "CORPORATE FEATURES", "FILING DELTAS", "SOCIAL INTELLIGENCE", "INFLUENCER ATTRIBUTION", "FUSION", "FORWARD EVIDENCE", "HYPOTHESES", "PROMOTIONS", "DEMOTIONS", "REJECTIONS", "FEATURE ABLATION", "CROSS-PILLAR RELATIONSHIPS", "SOURCE HEALTH", "PAPER PERFORMANCE", "SHADOW PERFORMANCE", "COUNTERFACTUAL PERFORMANCE")}
+    try:
+        with sqlite3.connect(intelligence_db) as ic:
+            for table, section in (("research_records", "LEARNING TREE GROWTH"), ("sec_filings", "NEW SEC FILINGS"), ("sec_facts", "CORPORATE FEATURES"), ("filing_deltas", "FILING DELTAS"), ("intelligence_outcome_jobs", "FORWARD EVIDENCE"), ("intelligence_hypotheses", "HYPOTHESES"), ("intelligence_attribution", "FEATURE ABLATION"), ("cross_pillar_observations", "CROSS-PILLAR RELATIONSHIPS")):
+                try:
+                    sections[section] = [{"count": ic.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]}]
+                except sqlite3.Error:
+                    sections[section] = [{"count": 0}]
+    except sqlite3.Error:
+        pass
+    sections["PAPER PERFORMANCE"] = [_read("var/autotrader/learning/performance_stats.json")]
+    report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "activity": activity, "strategy_evidence": strategy_evidence, "actual_results": _read("var/autotrader/learning/performance_stats.json"), "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "shadow_scorecard": shadow_scorecard, "shadow_by_pillar": shadow_by_pillar, "shadow_by_strategy": shadow_by_strategy, "provider_performance": provider_performance, "sections": sections, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero", "strategy evidence is descriptive and does not imply governance promotion"]}
     directory = Path("var/reports")
     directory.mkdir(parents=True, exist_ok=True)
     json_path = directory / f"daily-learning-{report['date']}.json"
