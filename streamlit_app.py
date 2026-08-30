@@ -3559,7 +3559,9 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
             "Shadow Losses": shadow.get("losses", "UNKNOWN"),
             "Shadow Expectancy": shadow.get("expectancy", "UNKNOWN"),
             "Shadow P&L": shadow.get("pnl", "UNKNOWN"),
-            "Evidence": "INSUFFICIENT_EVIDENCE" if not isinstance(observations, int) or observations < definition.get("minimum_sample_size", 30) else "EARLY_SIGNAL",
+            "Sample classification": "INSUFFICIENT_EVIDENCE" if not isinstance(observations, int) or observations < definition.get("minimum_sample_size", 30) else "EARLY_SIGNAL",
+            "Best regime": "UNKNOWN",
+            "Worst regime": "UNKNOWN",
         })
     st.dataframe(leaderboard or [{"Strategy": "UNKNOWN"}], use_container_width=True, hide_index=True)
 
