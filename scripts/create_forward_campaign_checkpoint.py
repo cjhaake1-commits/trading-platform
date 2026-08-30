@@ -69,15 +69,19 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
                 "risk_decision, available_capital, market "
                 "FROM activity_observations WHERE occurred_at >= ?", (cutoff,)
             ).fetchall()
-            shadows = connection.execute("SELECT pillar, exit_at, hypothetical_pnl FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
+            shadows = connection.execute("SELECT pillar, exit_at, hypothetical_pnl, result FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
     except sqlite3.OperationalError:
         # A first-run or unavailable ledger is valid evidence of no observed
         # campaign data; the report must remain writable and explicit.
         rows, shadows = [], []
     shadow_by_engine = {}
-    for pillar, exit_at, _pnl in shadows:
-        shadow_by_engine.setdefault(str(pillar), {"entries": 0, "exits": 0})["entries"] += 1
-        shadow_by_engine[str(pillar)]["exits"] += exit_at is not None
+    for pillar, exit_at, pnl, result in shadows:
+        bucket = shadow_by_engine.setdefault(str(pillar), {"entries": 0, "exits": 0, "completed": 0, "pnl": []})
+        bucket["entries"] += 1
+        bucket["exits"] += exit_at is not None
+        if result in {"WIN", "LOSS", "FLAT"}:
+            bucket["completed"] += 1
+            bucket["pnl"].append(float(pnl or 0.0))
     runtime_evidence = {"autonomous_cycles": "UNKNOWN", "successful_autonomous_cycles": "UNKNOWN", "failed_runtime_jobs": "UNKNOWN", "latest_heartbeat": "UNKNOWN"}
     try:
         with sqlite3.connect(audit_path) as connection:
@@ -155,6 +159,8 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
             "risk_approved": risk_approved, "capital_approved": capital_approved,
             "shadow_entries": shadow_by_engine.get(engine, {}).get("entries", "UNKNOWN"),
             "shadow_exits": shadow_by_engine.get(engine, {}).get("exits", "UNKNOWN"),
+            "shadow_completed": shadow_by_engine.get(engine, {}).get("completed", "UNKNOWN"),
+            "shadow_expectancy": (sum(shadow_by_engine[engine]["pnl"]) / len(shadow_by_engine[engine]["pnl"]) if shadow_by_engine.get(engine, {}).get("pnl") else "UNKNOWN"),
             "learning_observations": learning_observations,
             "latest": max((row[2] for row in selected), default="UNKNOWN"),
             "activity_health": round(sum(components.values()) * 100 / len(components)) if selected else "UNKNOWN", "activity_health_components": components
@@ -195,7 +201,7 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
                 "activity_health": provider.get("activity_health", "UNKNOWN"),
                 "activity_health_components": provider.get("activity_health_components", {}),
             })
-    return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "runtime_evidence": runtime_evidence, "providers": providers, "shadow": {"entries": len(shadows), "exits": sum(row[1] is not None for row in shadows), "completed_pnl": sum(float(row[2] or 0) for row in shadows if row[1] is not None)}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar, and a latest provider snapshot is never counted as historical campaign evidence."}
+    return {"report_id": "OVERNIGHT_FORWARD_CAMPAIGN", "generated_at": current.isoformat(), "window": "24h", "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"}, "engines": counts, "runtime_evidence": runtime_evidence, "providers": providers, "shadow": {"entries": len(shadows), "exits": sum(row[1] is not None for row in shadows), "completed_pnl": sum(float(row[2] or 0) for row in shadows if row[1] is not None and row[3] in {"WIN", "LOSS", "FLAT"})}, "evidence_policy": "UNKNOWN is retained when the authoritative source has no value; shared Stocks/Crypto cycle records are not assigned to either pillar, and a latest provider snapshot is never counted as historical campaign evidence."}
 
 
 def write_checkpoint(output: str = "var/reports/overnight-forward-campaign.json") -> Path:
