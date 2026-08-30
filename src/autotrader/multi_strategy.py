@@ -43,10 +43,12 @@ class ConfluenceDecision:
     long_votes: int
     short_votes: int
     hold_votes: int
+    insufficient_data_count: int
     agreement_ratio: float
     weighted_confidence: float
     dispersion: float
-    expected_value: float
+    aggregate_edge_proxy: float | None
+    expected_value: float | None
     strategy_votes: tuple[dict[str, object], ...]
     conflict_state: str = "NONE"
 
@@ -96,6 +98,8 @@ def aggregate_confluence(evaluations: tuple[StrategyEvaluation, ...]) -> Conflue
         raise ValueError("at least one strategy evaluation is required")
     votes = Counter(item.direction for item in evaluations)
     directional = [item for item in evaluations if item.direction in {"BUY", "SELL"}]
+    insufficient_data_count = sum(item.data_quality == "INSUFFICIENT_DATA" for item in evaluations)
+    edge_proxies = [item.edge_proxy for item in evaluations if item.edge_proxy is not None]
     direction = "HOLD"
     conflict_state = "NONE"
     if directional:
@@ -114,9 +118,11 @@ def aggregate_confluence(evaluations: tuple[StrategyEvaluation, ...]) -> Conflue
         long_votes=votes["BUY"],
         short_votes=votes["SELL"],
         hold_votes=votes["HOLD"],
+        insufficient_data_count=insufficient_data_count,
         agreement_ratio=(max(votes["BUY"], votes["SELL"]) / len(evaluations)) if direction == "CONFLICT" else (votes[direction] / len(evaluations) if direction != "HOLD" else votes["HOLD"] / len(evaluations)),
         weighted_confidence=0.0 if direction == "CONFLICT" else weighted,
         dispersion=pvariance(weights) if len(weights) > 1 else 0.0,
+        aggregate_edge_proxy=(sum(edge_proxies) / len(edge_proxies)) if edge_proxies else None,
         expected_value=None,
         strategy_votes=tuple({"strategy_id": item.strategy_id, "direction": item.direction, "confidence": item.confidence} for item in evaluations),
         conflict_state=conflict_state,

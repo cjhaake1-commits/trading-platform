@@ -54,3 +54,13 @@ def test_strategy_methods_are_not_aliases_and_relative_strength_is_explicitly_un
     assert all(item.edge_proxy is not None and item.ev_proxy is not None for item in evaluations)
     assert next(item for item in evaluations if item.strategy_id.endswith("relative_strength")).data_quality == "INSUFFICIENT_DATA"
     assert all(item.data_quality == "FRESH" for item in evaluations if not item.strategy_id.endswith("relative_strength"))
+
+
+def test_confluence_persists_insufficient_data_and_edge_proxy_aggregates():
+    evaluations = (
+        StrategyEvaluation("a", "BTC/USD", "15m", "BUY", 80, 0.8, None, None, {}, True, True, edge_proxy=0.4, data_quality="FRESH"),
+        StrategyEvaluation("b", "BTC/USD", "15m", "HOLD", 0, 0.0, None, None, {}, True, False, rejection_reason="INSUFFICIENT_DATA", edge_proxy=0.0, data_quality="INSUFFICIENT_DATA"),
+    )
+    decision = aggregate_confluence(evaluations)
+    assert decision.insufficient_data_count == 1
+    assert decision.aggregate_edge_proxy == 0.2
