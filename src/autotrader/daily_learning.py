@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from scripts.create_daily_learning_report import write_report
+
 from .crypto_challenger_v2 import analyze as analyze_challenger_v2
 from .crypto_strategy_discovery import discover as discover_crypto_strategies
 from .experiment_state import load_experiment_baseline_start
@@ -132,6 +134,14 @@ class DailyLearningJob:
         existing.append(record)
         serialized = "\n".join(json.dumps(item, sort_keys=True, default=str) for item in existing)
         output.write_text(serialized + "\n", encoding="utf-8")
+        daily_report = {"status": "UNKNOWN"}
+        try:
+            json_path, markdown_path = write_report(now)
+            daily_report = {"status": "WRITTEN", "json": str(json_path), "markdown": str(markdown_path)}
+        except Exception as exc:
+            # Learning remains durable even if report materialization is
+            # temporarily unavailable; expose the exact failure to runtime.
+            daily_report = {"status": "FAILED", "error": f"{type(exc).__name__}: {exc}"}
         return JobResult(
             True,
             "Daily paper-trading learning updated",
@@ -153,5 +163,6 @@ class DailyLearningJob:
                     "promotion_state": discovery["promotion_state"],
                     "strategy_count": discovery["strategy_count"],
                 },
+                "daily_report": daily_report,
             },
         )
