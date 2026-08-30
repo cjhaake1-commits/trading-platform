@@ -45,7 +45,7 @@ ITEMS = [
 ]
 
 
-def _status(item_id: str, safety: dict[str, object], runtime: dict[str, object], progress: dict[str, object]) -> tuple[str, str]:
+def _status(item_id: str, safety: dict[str, object], runtime: dict[str, object], progress: dict[str, object], validation: dict[str, object] | None = None) -> tuple[str, str]:
     engines = runtime.get("engines", {}) if isinstance(runtime.get("engines"), dict) else {}
     crypto = engines.get("Crypto", {}) if isinstance(engines.get("Crypto"), dict) else {}
     telemetry = progress.get("kalshi_candidate_telemetry_rows", {}) if isinstance(progress.get("kalshi_candidate_telemetry_rows"), dict) else {}
@@ -87,6 +87,14 @@ def _status(item_id: str, safety: dict[str, object], runtime: dict[str, object],
         return ("PASS", "Crypto campaign exceeds the required ten cycles") if isinstance(crypto.get("cycles"), int) and crypto["cycles"] >= 10 else ("UNKNOWN", "Crypto campaign-cycle evidence is unavailable")
     if item_id in {"AB", "AC"}:
         return ("PASS", "current progress checkpoint") if progress.get("runtime", {}).get("streamlit_http") == 200 else ("UNKNOWN", "HTTP evidence is not in checkpoint")
+    if item_id in {"V", "W", "X", "Y"}:
+        command = {"V": "full_tests", "W": "ruff", "X": "compile", "Y": "diff_check"}[item_id]
+        result = (validation or {}).get("validation", {}).get(command, {})
+        return ("PASS", f"validation evidence: {command}") if result.get("ok") is True else ("UNKNOWN", "validation evidence is unavailable")
+    if item_id == "Z":
+        if validation and validation.get("git_sha") == validation.get("github_sha") == validation.get("deployed_sha"):
+            return ("PASS", "validation evidence reconciles VM, GitHub, and deployed SHA")
+        return ("UNKNOWN", "deployment reconciliation evidence is unavailable")
     # These requirements are implementation-backed invariants.  Keep the
     # checklist evidence tied to the source of truth instead of requiring a
     # separate runtime observation for behavior that is already covered by
@@ -141,8 +149,9 @@ def build_checklist() -> dict[str, object]:
             return {}
     forward = read("var/reports/overnight-forward-campaign.json")
     progress = read("var/reports/overnight-progress.json")
+    validation = read("var/reports/validation-evidence.json")
     safety = forward.get("safety", {}) if isinstance(forward.get("safety"), dict) else {}
-    items = [{"id": item_id, "requirement": text, "status": _status(item_id, safety, forward, progress)[0], "basis": _status(item_id, safety, forward, progress)[1]} for item_id, text in ITEMS]
+    items = [{"id": item_id, "requirement": text, "status": _status(item_id, safety, forward, progress, validation)[0], "basis": _status(item_id, safety, forward, progress, validation)[1]} for item_id, text in ITEMS]
     return {"report_id": "MASTER_70_ITEM_ACCEPTANCE", "generated_at": datetime.now(UTC).isoformat(), "items": items, "all_pass": all(item["status"] == "PASS" for item in items)}
 
 
