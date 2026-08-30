@@ -3397,6 +3397,21 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         values = engines.get(name) if isinstance(engines.get(name), dict) else {}
         rows.append({"Engine": name, "Cycles": values.get("cycles", "UNKNOWN"), "Observations": values.get("observations", "UNKNOWN"), "Signals": values.get("signals", "UNKNOWN"), "Latest": values.get("latest", "UNKNOWN")})
     st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.markdown("### Provider cycle health")
+    providers = report.get("providers") if isinstance(report.get("providers"), dict) else {}
+    provider_rows = []
+    for name in ("Kalshi Predictions", "Kalshi Perps"):
+        values = providers.get(name) if isinstance(providers.get(name), dict) else {}
+        provider_rows.append({
+            "Provider": name,
+            "State": values.get("state", "UNKNOWN"),
+            "Latest Observation": values.get("latest_observed_at", "UNKNOWN"),
+            "Markets/Instruments": values.get("scanned", "UNKNOWN"),
+            "Orders": values.get("orders", "UNKNOWN"),
+            "Fills": values.get("fills", "UNKNOWN"),
+            "Historical Campaign Cycles": values.get("historical_cycle_count", "UNKNOWN"),
+        })
+    st.dataframe(provider_rows, use_container_width=True, hide_index=True)
     shadow = report.get("shadow") if isinstance(report.get("shadow"), dict) else {}
     cols = st.columns(4)
     for col, label, key in zip(cols, ("Shadow Entries", "Shadow Exits", "Completed Shadow P&L", "Daily Observations"), ("entries", "exits", "completed_pnl", "observations"), strict=True):
