@@ -60,14 +60,25 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
             for later_row, later_data in payloads
             if later_row[0] == "runtime_job" and later_data.get("job") == data.get("job") and later_data.get("ok") is True
         )]
+        ordered_autonomous = sorted(
+            ((row, data) for row, data in payloads if data.get("job") == "autonomous-paper-trading"),
+            key=lambda item: (item[0][3], item[0][0]),
+        )
+        consecutive_successes = 0
+        for _row, data in reversed(ordered_autonomous):
+            if data.get("ok") is not True:
+                break
+            consecutive_successes += 1
         runtime_evidence = {
             "autonomous_cycles": len(autonomous),
             "successful_autonomous_cycles": len(successful),
+            "consecutive_successful_autonomous_cycles": consecutive_successes,
             "failed_runtime_jobs": len(failed),
             "resolved_runtime_failures": len(resolved_failed),
             "unresolved_runtime_failures": max(len(failed) - len(resolved_failed), 0),
             "malformed_audit_events": sum(not data and row[2] not in ("{}", "null") for row, data in payloads),
             "latest_heartbeat": max(heartbeats, default="UNKNOWN"),
+            "window_start": cutoff,
         }
     except (OSError, sqlite3.Error):
         pass

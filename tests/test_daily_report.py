@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import UTC, datetime
 
@@ -145,9 +146,22 @@ def test_forward_checkpoint_reports_runtime_successes_separately(tmp_path):
     checkpoint = build_checkpoint(str(tmp_path / "experiment.db"), datetime(2026, 8, 30, 1, tzinfo=UTC), str(audit))
     assert checkpoint["engines"]["Crypto"]["cycles"] == "UNKNOWN"
     assert checkpoint["runtime_evidence"]["successful_autonomous_cycles"] == 1
+    assert checkpoint["runtime_evidence"]["consecutive_successful_autonomous_cycles"] == 1
     assert checkpoint["runtime_evidence"]["failed_runtime_jobs"] == 0
     assert checkpoint["runtime_evidence"]["resolved_runtime_failures"] == 0
     assert checkpoint["runtime_evidence"]["unresolved_runtime_failures"] == 0
+
+
+def test_forward_checkpoint_counts_only_trailing_autonomous_successes(tmp_path):
+    audit = tmp_path / "audit.db"
+    with sqlite3.connect(audit) as connection:
+        connection.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, event_type TEXT, message TEXT, data_json TEXT, created_at TEXT)")
+        for event_id, ok, minute in ((1, True, "00:00"), (2, False, "00:01"), (3, True, "00:02"), (4, True, "00:03")):
+            connection.execute("INSERT INTO audit_events VALUES (?, 'runtime_job', 'cycle', ?, ?)", (event_id, json.dumps({"job": "autonomous-paper-trading", "ok": ok}), f"2026-08-30T{minute}:00+00:00"))
+    checkpoint = build_checkpoint(str(tmp_path / "missing.db"), datetime(2026, 8, 30, 1, tzinfo=UTC), str(audit))
+    assert checkpoint["runtime_evidence"]["autonomous_cycles"] == 4
+    assert checkpoint["runtime_evidence"]["successful_autonomous_cycles"] == 3
+    assert checkpoint["runtime_evidence"]["consecutive_successful_autonomous_cycles"] == 2
 
 
 def test_forward_checkpoint_separates_recovered_runtime_failures(tmp_path):
