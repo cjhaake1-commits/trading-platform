@@ -118,7 +118,11 @@ class AutonomousRuntime:
             try:
                 result = job.run(now)
             except Exception as exc:
-                result = JobResult(False, "Job raised an exception", {"error": str(exc)})
+                result = JobResult(
+                    False,
+                    "Job raised an exception",
+                    {"error": str(exc), "exception_type": type(exc).__name__, "exception_phase": "job.run"},
+                )
 
             finished = self._monotonic()
             duration_ms = max((finished - started) * 1000.0, 0.0)
