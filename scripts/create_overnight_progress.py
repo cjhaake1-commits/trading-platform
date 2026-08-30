@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import subprocess
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,6 +22,15 @@ def _json(path: str) -> dict[str, object]:
         return value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _streamlit_http_status() -> int | str:
+    """Record dashboard reachability without failing the progress job."""
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8501", timeout=3) as response:
+            return int(response.status)
+    except (OSError, urllib.error.URLError):
+        return "UNKNOWN"
 
 
 def build_progress() -> dict[str, object]:
@@ -49,7 +60,7 @@ def build_progress() -> dict[str, object]:
         "generated_at": datetime.now(UTC).isoformat(),
         "git_sha": sha,
         "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper", "verifier": verify()},
-        "runtime": {"healthy": status.get("healthy", "UNKNOWN"), "heartbeat": status.get("last_heartbeat_at", "UNKNOWN"), "execution_state": status.get("execution_state", "UNKNOWN")},
+        "runtime": {"healthy": status.get("healthy", "UNKNOWN"), "heartbeat": status.get("last_heartbeat_at", "UNKNOWN"), "execution_state": status.get("execution_state", "UNKNOWN"), "streamlit_http": _streamlit_http_status()},
         "activity": activity,
         "shadow": shadows,
         "kalshi_candidate_telemetry_rows": telemetry,
