@@ -93,6 +93,8 @@ def test_daily_report_scorecard_uses_completed_shadow_outcomes_only(tmp_path):
     assert data["shadow_scorecard"]["completed_experiments"] == 1
     assert data["shadow_scorecard"]["win_rate"] == 1.0
     assert data["shadow_scorecard"]["average_holding_seconds"] == 600.0
+    assert data["shadow_by_pillar"]["Crypto"]["entries"] == 1
+    assert data["shadow_by_pillar"]["Crypto"]["completed"] == 1
 
 
 def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
