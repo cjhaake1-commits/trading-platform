@@ -4,10 +4,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from .corporate_features import derive_features
-from .intelligence_fusion import IntelligenceFusionEngine
+from .intelligence_fusion import CorporateFeatureSnapshot, IntelligenceFusionEngine, MarketConfirmationSnapshot
 from .intelligence_persistence import IntelligencePersistence
 from .research_universe import ResearchUniverse
 from .sec_edgar import normalize_filing
+from .social_market_intelligence import SocialMarketSnapshot
 
 
 class IntelligenceOrchestrator:
@@ -31,7 +32,12 @@ class IntelligenceOrchestrator:
         observed = (now or datetime.now(UTC)).astimezone(UTC).isoformat()
         for security in self.universe.records():
             symbol = str(security["symbol"])
-            fusion = self.fusion.fuse(symbol)
+            social = SocialMarketSnapshot(symbol=symbol, observed_at=datetime.fromisoformat(observed),
+                                          mention_count=0, unique_authors=0, platforms=0, sentiment=0.0,
+                                          attention_score=0.0, velocity_score=0.0, influencer_score=0.0,
+                                          cross_platform_score=0.0, manipulation_risk=0.0, research_signal=0.0)
+            fusion = self.fusion.fuse(social, CorporateFeatureSnapshot(symbol=symbol, observed_at=datetime.fromisoformat(observed)),
+                                      MarketConfirmationSnapshot(symbol=symbol, observed_at=datetime.fromisoformat(observed)))
             self.persistence.observation({"research_id": f"fusion:{symbol}:{observed}", "lane": "intelligence_fusion",
                 "source": "INTELLIGENCE_FUSION", "source_type": "DERIVED", "as_of_date": observed,
                 "retrieved_at": observed, "freshness": "FRESH", "instrument": symbol,

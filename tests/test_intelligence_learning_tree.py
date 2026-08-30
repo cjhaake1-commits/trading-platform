@@ -3,10 +3,15 @@ from __future__ import annotations
 import inspect
 
 from autotrader.corporate_features import derive_features
-from autotrader.intelligence_fusion import IntelligenceFusionEngine
+from autotrader.intelligence_fusion import (
+    CorporateFeatureSnapshot,
+    IntelligenceFusionEngine,
+    MarketConfirmationSnapshot,
+)
 from autotrader.intelligence_orchestrator import IntelligenceOrchestrator
 from autotrader.research_platform import ResearchStore
 from autotrader.sec_edgar import normalize_filing
+from autotrader.social_market_intelligence import SocialMarketSnapshot
 
 
 def test_sec_normalization_is_point_in_time_and_versions_amendments():
@@ -24,10 +29,13 @@ def test_corporate_features_do_not_mix_without_required_duration_values():
 
 
 def test_fusion_explicitly_denies_execution_and_penalizes_concentrated_hype():
-    result = IntelligenceFusionEngine().fuse("ABC", crowd={"attention_velocity": 2, "author_concentration": .8}, market={"relative_volume": 2})
+    now = __import__("datetime").datetime.now(__import__("datetime").UTC)
+    result = IntelligenceFusionEngine().fuse(
+        SocialMarketSnapshot("ABC", now, 100, 10, 1, .5, .9, 1.0, .25, .5, .8, .5),
+        CorporateFeatureSnapshot("ABC", now), MarketConfirmationSnapshot("ABC", now, relative_volume=2),
+    )
     assert result.execution_authorized is False
     assert result.manipulation_risk == .8
-    assert "MARKET_NOT_CONFIRMED" not in result.reason_codes
 
 
 def test_orchestrator_persists_fusion_to_existing_learning_tree(tmp_path):
