@@ -30,6 +30,17 @@ def _read_status(engine: str) -> dict[str, object]:
         return {}
 
 
+def _write_candidate_telemetry(engine: str, rows: list[dict[str, object]]) -> None:
+    """Append research-only candidate decisions; never participates in execution."""
+    if not rows:
+        return
+    path = Path(os.getenv("KALSHI_EXECUTION_STATUS_DIR", "var/kalshi")) / f"candidate-telemetry-{engine}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
+
+
 def _prediction_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
     data_valid = [m for m in markets if m.get("yes_bid_dollars") is not None and m.get("yes_ask_dollars") is not None]
     liquid = [m for m in data_valid if float(m.get("yes_bid_size_fp") or 0) > 0 and float(m.get("yes_ask_size_fp") or 0) > 0]
@@ -230,6 +241,17 @@ def cycle() -> dict[str, object]:
             markets = client.markets(limit="100")
             rows = markets.get("markets", [])
             funnel = _prediction_funnel(rows)
+            result["candidate_telemetry"] = [{
+                "observed_at": result["observed_at"], "engine": engine,
+                "ticker": market.get("ticker"), "event": market.get("event_ticker") or market.get("event"),
+                "yes_bid": market.get("yes_bid_dollars"), "yes_ask": market.get("yes_ask_dollars"),
+                "no_bid": market.get("no_bid_dollars"), "no_ask": market.get("no_ask_dollars"),
+                "yes_bid_size": market.get("yes_bid_size_fp"), "yes_ask_size": market.get("yes_ask_size_fp"),
+                "no_bid_size": market.get("no_bid_size_fp"), "no_ask_size": market.get("no_ask_size_fp"),
+                "volume": market.get("volume"), "open_interest": market.get("open_interest"),
+                "qualification": "REJECTED", "rejection": "INSUFFICIENT_SPREAD_OR_LIQUIDITY",
+                "estimated_probability": "UNKNOWN", "probability_edge": "UNKNOWN",
+            } for market in rows]
             result.update({"state": "SCANNING", "markets": len(rows), "funnel": funnel,
                            "last_rejection_reason": "NO_POSITIVE_EDGE" if funnel["spread_valid"] else "INSUFFICIENT_SPREAD_OR_LIQUIDITY"})
         elif engine == "reconciliation":
@@ -323,6 +345,16 @@ def cycle() -> dict[str, object]:
                 result["top_candidates"],
                 key=lambda x: float(x.get("net_edge", 0.0)), reverse=True,
             )[:10]
+            result["candidate_telemetry"] = [{
+                "observed_at": result["observed_at"], "engine": engine, "ticker": candidate.get("ticker"),
+                "strategy": "PERPS_BASELINE", "signal_strength": candidate.get("gross_edge"),
+                "confidence": 1.0, "edge_proxy": candidate.get("net_edge"), "ev_proxy": candidate.get("net_edge"),
+                "existing_exposure": candidate.get("capital_required"), "provider_minimum": candidate.get("provider_minimum_valid"),
+                "risk_decision": candidate.get("risk_approved"), "capital_availability": candidate.get("capital_available"),
+                "qualification": "QUALIFIED" if candidate.get("qualified") else "REJECTED",
+                "rejection": candidate.get("risk_rejection") or candidate.get("capital_rejection") or candidate.get("order_rejection"),
+                "estimated_edge": "UNKNOWN", "expected_value": "UNKNOWN",
+            } for candidate in result.get("top_candidates", [])]
             rejection = "NO_POSITIVE_EDGE"
             if funnel.get("positive_edge", 0) and funnel.get("risk_approved", 0) == 0:
                 rejection = "RISK_REJECTED"
@@ -343,6 +375,7 @@ def cycle() -> dict[str, object]:
     except Exception as exc:
         result.update({"state": "API_DEGRADED", "error": type(exc).__name__})
         result["last_rejection_reason"] = "API_DEGRADED"
+    _write_candidate_telemetry(engine, result.pop("candidate_telemetry", []))
     _write_status(engine, result)
     return result
 
