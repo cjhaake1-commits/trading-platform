@@ -78,13 +78,25 @@ def _provider_metrics() -> dict[str, object]:
                     entries.append((data, created_at))
             durations = sorted(float(data["duration_ms"]) for data, _ in entries if data.get("duration_ms") is not None)
             successes = [created_at for data, created_at in entries if data.get("ok") is True]
+            retry_values = [
+                int(data[key])
+                for data, _ in entries
+                for key in ("broker_retries", "retries")
+                if isinstance(data.get(key), (int, float))
+            ]
+            timeout_values = [
+                int(data[key])
+                for data, _ in entries
+                for key in ("broker_timeouts", "timeouts")
+                if isinstance(data.get(key), (int, float))
+            ]
             result[provider] = {
                 "status": "CONNECTED" if successes else ("DEGRADED" if entries else "UNKNOWN"),
                 "requests_job_proxy": len(entries) if entries else "UNKNOWN",
                 "successes": len(successes) if entries else "UNKNOWN",
                 "failures": sum(data.get("ok") is False for data, _ in entries) if entries else "UNKNOWN",
-                "timeouts": "UNKNOWN",
-                "retries": "UNKNOWN",
+                "timeouts": sum(timeout_values) if timeout_values else "UNKNOWN",
+                "retries": sum(retry_values) if retry_values else "UNKNOWN",
                 "measurement_scope": "runtime_job_proxy",
                 "last_success": max(successes, default="UNKNOWN"),
                 "p50_latency_ms_job_proxy": durations[(len(durations) - 1) // 2] if durations else "UNKNOWN",

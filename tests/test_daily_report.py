@@ -92,6 +92,20 @@ def test_daily_report_keeps_runtime_provider_metrics_explicitly_proxied(tmp_path
     assert data["provider_performance"]["OANDA"]["measurement_scope"] == "runtime_job_proxy"
 
 
+def test_daily_report_aggregates_observed_provider_retries_and_timeouts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    PaperExperimentLedger(tmp_path / "experiment.db")
+    (tmp_path / "var/autotrader").mkdir(parents=True)
+    with sqlite3.connect(tmp_path / "var/autotrader/audit.db") as connection:
+        connection.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, event_type TEXT, message TEXT, data_json TEXT, created_at TEXT)")
+        connection.execute("INSERT INTO audit_events VALUES (1, 'runtime_job', 'ok', '{\"job\":\"autonomous-paper-trading\",\"ok\":true,\"duration_ms\":12,\"broker_retries\":2,\"broker_timeouts\":1}', '2026-08-30T00:00:00+00:00')")
+        connection.execute("INSERT INTO audit_events VALUES (2, 'runtime_job', 'ok', '{\"job\":\"autonomous-paper-trading\",\"ok\":true,\"duration_ms\":14,\"broker_retries\":1}', '2026-08-30T00:01:00+00:00')")
+    report = write_report(datetime(2026, 8, 30, 1, tzinfo=UTC), str(tmp_path / "experiment.db"))
+    metrics = json.loads(report[0].read_text())["provider_performance"]["Alpaca"]
+    assert metrics["retries"] == 3
+    assert metrics["timeouts"] == 1
+
+
 def test_forward_checkpoint_exposes_closed_stocks_readiness():
     evidence = _stocks_session_evidence(datetime(2026, 8, 30, 12, tzinfo=UTC))
     assert evidence["status"] == "SESSION_BLOCKED"
