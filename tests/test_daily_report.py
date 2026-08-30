@@ -19,6 +19,17 @@ def test_daily_report_is_dated_and_paper_only(tmp_path, monkeypatch):
     assert '"real_money_orders": 0' in json_path.read_text()
 
 
+def test_daily_report_includes_provider_performance_snapshots(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "var/kalshi").mkdir(parents=True)
+    (tmp_path / "var/kalshi/execution-predictions.json").write_text('{"state":"SCANNING","markets":7}')
+    PaperExperimentLedger(tmp_path / "experiment.db")
+    json_path, _ = write_report(datetime(2026, 8, 30, 1, tzinfo=UTC), str(tmp_path / "experiment.db"))
+    report = __import__("json").loads(json_path.read_text())
+    assert report["provider_performance"]["Kalshi Predictions"]["markets"] == 7
+    assert report["provider_performance"]["Kalshi Perps"] == "UNKNOWN"
+
+
 def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
     ledger = PaperExperimentLedger(tmp_path / "experiment.db")
     ledger.record_activity(
