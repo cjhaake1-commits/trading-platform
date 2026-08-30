@@ -271,6 +271,28 @@ class PaperExperimentLedger:
             )
         return experiment_id
 
+    def backfill_activity_observations(self) -> int:
+        """Make pre-V1 decision rows visible in the unified funnel once."""
+        inserted = 0
+        with sqlite3.connect(self.path) as connection:
+            rows = connection.execute(
+                "SELECT id,occurred_at,pillar,symbol,strategy,timeframe,decision,entry_price,features_json FROM experiment_decisions"
+            ).fetchall()
+            for row in rows:
+                before = connection.total_changes
+                connection.execute(
+                    """INSERT OR IGNORE INTO activity_observations
+                    (experiment_id,occurred_at,pillar,engine,market,strategy,timeframe,features_json,
+                     candidate_status,qualification_result,rejection_reason,risk_decision,entry_price)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        f"EXP-LEGACY-{row[0]}", row[1], row[2], row[2], row[3], row[4], row[5], row[8] or "{}",
+                        "DECISION", row[6], row[6], row[6], row[7],
+                    ),
+                )
+                inserted += connection.total_changes - before
+        return inserted
+
     def record_outcome(self, decision_id: int, outcome: dict[str, object]) -> None:
         with sqlite3.connect(self.path) as connection:
             connection.execute(
