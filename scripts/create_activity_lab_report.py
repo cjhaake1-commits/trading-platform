@@ -30,6 +30,12 @@ PILLAR_ALIASES = {
     "Kalshi Perps": {"Kalshi Perps", "kalshi_perps"},
 }
 
+FUNNEL_STAGES = (
+    "UNIVERSE", "DATA_VALID", "LIQUID", "SPREAD_VALID", "CANDIDATES", "SIGNALS",
+    "POSITIVE_EDGE_OR_PROXY", "RISK_APPROVED", "CAPITAL_APPROVED", "QUALIFIED",
+    "ACTUAL", "SHADOW", "ORDERS", "FILLS", "EXITS", "LEARNING",
+)
+
 
 def _ledger_summary(path: Path) -> dict[str, dict[str, object]]:
     ledger = PaperExperimentLedger(path)
@@ -38,18 +44,31 @@ def _ledger_summary(path: Path) -> dict[str, dict[str, object]]:
         return {pillar: {"observations": 0, "top_rejections": []} for pillar in PILLARS}
     with sqlite3.connect(path) as connection:
         rows = connection.execute(
-            "SELECT pillar, candidate_status, rejection_reason FROM activity_observations"
+            "SELECT pillar, candidate_status, rejection_reason, estimated_edge, expected_value, order_id, fill_id FROM activity_observations"
         ).fetchall()
     result: dict[str, dict[str, object]] = {}
     for pillar in PILLARS:
         selected = [row for row in rows if row[0] in PILLAR_ALIASES[pillar]]
         rejections = Counter(row[2] for row in selected if row[2])
+        funnel = {stage: "UNKNOWN" for stage in FUNNEL_STAGES}
+        if selected:
+            funnel.update({
+                "CANDIDATES": sum(row[1] in {"CANDIDATE", "SIGNAL", "QUALIFIED", "DECISION"} for row in selected),
+                "SIGNALS": sum(row[1] == "SIGNAL" for row in selected),
+                "POSITIVE_EDGE_OR_PROXY": sum(row[3] is not None or row[4] is not None for row in selected),
+                "QUALIFIED": sum(row[1] == "QUALIFIED" for row in selected),
+                "ACTUAL": sum(row[5] is not None for row in selected),
+                "ORDERS": sum(row[5] is not None for row in selected),
+                "FILLS": sum(row[6] is not None for row in selected),
+                "LEARNING": len(selected),
+            })
         result[pillar] = {
             "observations": len(selected),
             "candidate": sum(row[1] in {"CANDIDATE", "SIGNAL", "QUALIFIED", "DECISION"} for row in selected),
             "qualified": sum(row[1] == "QUALIFIED" for row in selected),
             "rejected": sum(row[1] == "REJECTED" or row[2] is not None for row in selected),
             "top_rejections": [{"reason": reason, "count": count} for reason, count in rejections.most_common(3)],
+            "funnel": funnel,
         }
     return result
 

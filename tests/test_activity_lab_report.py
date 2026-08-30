@@ -1,0 +1,18 @@
+from autotrader.paper_experiment import PaperExperimentLedger
+from scripts.create_activity_lab_report import _ledger_summary
+
+
+def test_activity_report_exposes_full_funnel_without_inventing_provider_stages(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    ledger.record_activity(
+        experiment_id="E1", pillar="Crypto", engine="crypto", provider="paper", market="BTC/USD",
+        strategy="MOMENTUM", strategy_version="v1", model_version="v1", features={},
+        candidate_status="SIGNAL", qualification_result="NO_TRADE", estimated_edge=None,
+        expected_value=None,
+    )
+    summary = _ledger_summary(tmp_path / "experiment.db")
+    funnel = summary["Crypto"]["funnel"]
+    assert set(funnel) == {"UNIVERSE", "DATA_VALID", "LIQUID", "SPREAD_VALID", "CANDIDATES", "SIGNALS", "POSITIVE_EDGE_OR_PROXY", "RISK_APPROVED", "CAPITAL_APPROVED", "QUALIFIED", "ACTUAL", "SHADOW", "ORDERS", "FILLS", "EXITS", "LEARNING"}
+    assert funnel["CANDIDATES"] == 1
+    assert funnel["SIGNALS"] == 1
+    assert funnel["LIQUID"] == "UNKNOWN"
