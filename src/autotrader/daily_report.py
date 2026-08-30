@@ -116,6 +116,21 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
     json_path.write_text(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     lines = [f"# Daily Learning — {report['date']}", "", f"Generated: {report['generated_at']}", "", "## Safety", "", "- LIVE_TRADING_ENABLED: false", "- Real-money orders: 0", "", "## Engine activity", ""]
     lines.extend(f"- {name}: {value['observations']} observations, {value['signals']} signals, {value['qualified']} qualified" for name, value in activity.items())
-    lines.extend(["", "## Shadow results", "", f"- Entries: {len(shadows)}", f"- Completed: {len(completed)}", f"- P&L: {report['shadow_results']['pnl']}", ""])
+    lines.extend(["", "## Actual paper results", ""])
+    actual = report["actual_results"]
+    if isinstance(actual, dict):
+        for key in ("completed_trades", "wins", "losses", "win_rate", "expectancy", "profit_factor", "cumulative_realized_pnl"):
+            lines.append(f"- {key}: {actual.get(key, 'UNKNOWN')}")
+    else:
+        lines.append("- UNKNOWN")
+    lines.extend(["", "## Shadow results", "", f"- Entries: {len(shadows)}", f"- Completed: {len(completed)}", f"- P&L: {report['shadow_results']['pnl']}"])
+    for key in ("wins", "losses", "win_rate", "hypothetical_expectancy", "profit_factor", "average_mfe", "average_mae", "average_holding_seconds"):
+        lines.append(f"- {key}: {shadow_scorecard.get(key, 'UNKNOWN')}")
+    lines.extend(["", "## Provider performance", ""])
+    for provider, metrics in provider_performance.items():
+        lines.append(f"- {provider}: {json.dumps(metrics, sort_keys=True, default=str)}")
+    lines.extend(["", "## Evidence limitations", ""])
+    lines.extend(f"- {limitation}" for limitation in report["evidence_limitations"])
+    lines.append("")
     md_path.write_text("\n".join(lines), encoding="utf-8")
     return json_path, md_path
