@@ -123,7 +123,7 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         # only rows belonging to this engine are counted, and shadow lifecycle
         # rows remain UNKNOWN because the shadow table has no pillar key.
         strategy_evaluations = sum(bool(row[3]) for row in selected)
-        candidates = sum(row[1] == "CANDIDATE" for row in selected)
+        candidates = sum(row[1] in {"CANDIDATE", "SIGNAL", "QUALIFIED", "DECISION"} for row in selected)
         qualified = sum(
             row[1] == "QUALIFIED"
             for row in selected
