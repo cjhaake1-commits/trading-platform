@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError
@@ -19,7 +20,23 @@ from autotrader.risk_stack import LayeredRiskStack
 def _write_status(engine: str, result: dict[str, object]) -> None:
     path = Path(os.getenv("KALSHI_EXECUTION_STATUS_DIR", "var/kalshi")) / f"execution-{engine}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
+    # Readers (dashboard/checkpoint workers) may inspect this snapshot while
+    # the provider loop is running.  Replace atomically so they never observe
+    # an empty or partially-written JSON document.
+    payload = json.dumps(result, sort_keys=True) + "\n"
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+    except Exception:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def _read_status(engine: str) -> dict[str, object]:

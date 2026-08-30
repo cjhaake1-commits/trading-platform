@@ -97,3 +97,13 @@ def test_execution_cycle_count_increments_from_existing_status(tmp_path, monkeyp
     monkeypatch.setenv("KALSHI_EXECUTION_STATUS_DIR", str(tmp_path))
     _write_status("predictions", {"cycle_count": 9})
     assert _read_status("predictions")["cycle_count"] == 9
+
+
+def test_status_snapshot_replacement_leaves_complete_json_and_no_temp_files(tmp_path, monkeypatch):
+    from scripts.kalshi_execution_cycle import _read_status, _write_status
+
+    monkeypatch.setenv("KALSHI_EXECUTION_STATUS_DIR", str(tmp_path))
+    _write_status("predictions", {"cycle_count": 1, "state": "SCANNING"})
+    _write_status("predictions", {"cycle_count": 2, "state": "HOLD_CASH"})
+    assert _read_status("predictions") == {"cycle_count": 2, "state": "HOLD_CASH"}
+    assert list(tmp_path.glob(".*execution-predictions.json.*")) == []
