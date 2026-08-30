@@ -37,5 +37,5 @@ def test_shadow_attribution_expands_new_contributing_strategies(tmp_path):
     assert report["by_dimension"]["strategy"]["crypto.momentum"]["completed"] == 1
     assert report["by_dimension"]["strategy_version"]["v1"]["completed"] == 1
     assert report["by_dimension"]["timeframe"]["15m"]["completed"] == 1
-    assert report["by_dimension"]["confidence_bucket"][">=0.70"]["completed"] == 1
+    assert report["by_dimension"]["confidence_bucket"]["0.70-0.84"]["completed"] == 1
     assert report["by_dimension"]["confluence_bucket"]["AGREEMENT_2"]["completed"] == 1
