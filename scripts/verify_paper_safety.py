@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
@@ -17,6 +18,11 @@ def _read(path: Path) -> dict[str, object]:
 def verify(paths: tuple[str, ...] = ("var/autotrader/status.json", "var/kalshi/execution-predictions.json", "var/kalshi/execution-perps.json")) -> dict[str, object]:
     violations: list[str] = []
     checked: list[str] = []
+    for name in ("LIVE_TRADING_ENABLED", "KALSHI_LIVE_TRADING_ENABLED"):
+        if os.getenv(name, "false").strip().lower() in {"1", "true", "yes", "on"}:
+            violations.append(f"live_environment_variable:{name}")
+    if os.getenv("ALPACA_ENV", "paper").strip().lower() in {"live", "production"}:
+        violations.append("live_environment_variable:ALPACA_ENV")
     for raw_path in paths:
         path = Path(raw_path)
         payload = _read(path)

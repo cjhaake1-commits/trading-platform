@@ -18,6 +18,14 @@ def test_paper_safety_accepts_paper_and_demo_snapshots(tmp_path):
     assert result["safe"] is True
 
 
+def test_paper_safety_rejects_live_environment_flags(monkeypatch, tmp_path):
+    path = tmp_path / "safe.json"
+    path.write_text('{"live_trading_enabled": false}')
+    monkeypatch.setenv("KALSHI_LIVE_TRADING_ENABLED", "true")
+    result = verify((str(path),))
+    assert result["safe"] is False
+
+
 @pytest.mark.parametrize("payload", [
     {"live_trading_enabled": True},
     {"environment": "live"},
