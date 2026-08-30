@@ -10,6 +10,14 @@ from pathlib import Path
 ENGINES = ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps")
 
 
+def _audit_payload(raw: str) -> dict[str, object]:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: datetime | None = None, audit_path: str = "var/autotrader/audit.db") -> dict[str, object]:
     current = (now or datetime.now(UTC)).astimezone(UTC)
     cutoff = (current - timedelta(hours=24)).isoformat()
@@ -28,17 +36,19 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
                 "SELECT event_type, message, data_json, created_at FROM audit_events WHERE created_at >= ? ORDER BY id",
                 (cutoff,),
             ).fetchall()
-        autonomous = [row for row in runtime_rows if json.loads(row[2]).get("job") == "autonomous-paper-trading"]
-        successful = [row for row in autonomous if json.loads(row[2]).get("ok") is True]
-        failed = [row for row in runtime_rows if row[0] == "runtime_job" and json.loads(row[2]).get("ok") is False]
+        payloads = [(row, _audit_payload(row[2])) for row in runtime_rows]
+        autonomous = [row for row, data in payloads if data.get("job") == "autonomous-paper-trading"]
+        successful = [row for row, data in payloads if data.get("job") == "autonomous-paper-trading" and data.get("ok") is True]
+        failed = [row for row, data in payloads if row[0] == "runtime_job" and data.get("ok") is False]
         heartbeats = [row[3] for row in runtime_rows if row[0] == "runtime_heartbeat"]
         runtime_evidence = {
             "autonomous_cycles": len(autonomous),
             "successful_autonomous_cycles": len(successful),
             "failed_runtime_jobs": len(failed),
+            "malformed_audit_events": sum(not data and row[2] not in ("{}", "null") for row, data in payloads),
             "latest_heartbeat": max(heartbeats, default="UNKNOWN"),
         }
-    except (OSError, sqlite3.Error, json.JSONDecodeError):
+    except (OSError, sqlite3.Error):
         pass
     shared_cycles = sum(row[1] == "CYCLE_COMPLETE" and row[0] == "Stocks/Crypto" for row in rows)
     counts = {}

@@ -58,3 +58,12 @@ def test_forward_checkpoint_reports_runtime_successes_separately(tmp_path):
     assert checkpoint["engines"]["Crypto"]["cycles"] == "UNKNOWN"
     assert checkpoint["runtime_evidence"]["successful_autonomous_cycles"] == 1
     assert checkpoint["runtime_evidence"]["failed_runtime_jobs"] == 0
+
+
+def test_forward_checkpoint_survives_malformed_legacy_audit_data(tmp_path):
+    audit = tmp_path / "audit.db"
+    with __import__("sqlite3").connect(audit) as connection:
+        connection.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, event_type TEXT, message TEXT, data_json TEXT, created_at TEXT)")
+        connection.execute("INSERT INTO audit_events VALUES (1, 'runtime_job', 'legacy', 'not-json', '2026-08-30T00:00:00+00:00')")
+    checkpoint = build_checkpoint(str(tmp_path / "missing.db"), datetime(2026, 8, 30, 1, tzinfo=UTC), str(audit))
+    assert checkpoint["runtime_evidence"]["malformed_audit_events"] == 1

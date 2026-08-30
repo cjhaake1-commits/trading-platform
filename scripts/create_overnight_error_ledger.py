@@ -20,11 +20,19 @@ def build_error_ledger(audit_path: str = "var/autotrader/audit.db", *, now: date
     except (OSError, sqlite3.Error):
         rows = []
     errors = []
+    malformed = 0
     for event_type, message, data_json, created_at in rows:
         try:
             data = json.loads(data_json)
         except json.JSONDecodeError:
-            data = {}
+            malformed += 1
+            errors.append({
+                "timestamp": created_at, "component": "autonomous-runtime", "engine": "UNKNOWN",
+                "exception_type": "MalformedAuditData", "message": message,
+                "root_cause": "audit data_json could not be decoded", "repair": "UNKNOWN",
+                "regression_test": "UNKNOWN", "commit": "UNKNOWN", "resolved": False,
+            })
+            continue
         if event_type != "runtime_job" or data.get("ok") is not False:
             continue
         errors.append({
@@ -45,6 +53,7 @@ def build_error_ledger(audit_path: str = "var/autotrader/audit.db", *, now: date
         "window_hours": hours,
         "safety": {"live_trading_enabled": False, "real_money_orders": 0, "mode": "paper"},
         "errors": errors,
+        "malformed_audit_events": malformed,
         "evidence_policy": "Only failed runtime jobs in the authoritative audit store are included; missing repair metadata remains UNKNOWN.",
     }
 
