@@ -45,6 +45,7 @@ class ConfluenceDecision:
     dispersion: float
     expected_value: float
     strategy_votes: tuple[dict[str, object], ...]
+    conflict_state: str = "NONE"
 
 
 def evaluate_strategies(
@@ -88,14 +89,15 @@ def aggregate_confluence(evaluations: tuple[StrategyEvaluation, ...]) -> Conflue
     votes = Counter(item.direction for item in evaluations)
     directional = [item for item in evaluations if item.direction in {"BUY", "SELL"}]
     direction = "HOLD"
+    conflict_state = "NONE"
     if directional:
-        direction = max(
-            ("BUY", "SELL"),
-            key=lambda side: (
-                votes[side],
-                mean([item.confidence for item in directional if item.direction == side] or [0.0]),
-            ),
-        )
+        buy_confidence = mean([item.confidence for item in directional if item.direction == "BUY"] or [0.0])
+        sell_confidence = mean([item.confidence for item in directional if item.direction == "SELL"] or [0.0])
+        if votes["BUY"] == votes["SELL"] and abs(buy_confidence - sell_confidence) <= 0.10:
+            direction = "CONFLICT"
+            conflict_state = "TIED_COMPARABLE_CONFIDENCE"
+        else:
+            direction = "BUY" if (votes["BUY"], buy_confidence) > (votes["SELL"], sell_confidence) else "SELL"
     weights = [item.confidence for item in evaluations]
     weighted = sum(item.confidence * (1 if item.direction == direction else 0) for item in evaluations) / max(sum(weights), 1e-12)
     return ConfluenceDecision(
@@ -104,11 +106,12 @@ def aggregate_confluence(evaluations: tuple[StrategyEvaluation, ...]) -> Conflue
         long_votes=votes["BUY"],
         short_votes=votes["SELL"],
         hold_votes=votes["HOLD"],
-        agreement_ratio=votes[direction] / len(evaluations) if direction != "HOLD" else votes["HOLD"] / len(evaluations),
-        weighted_confidence=weighted,
+        agreement_ratio=(max(votes["BUY"], votes["SELL"]) / len(evaluations)) if direction == "CONFLICT" else (votes[direction] / len(evaluations) if direction != "HOLD" else votes["HOLD"] / len(evaluations)),
+        weighted_confidence=0.0 if direction == "CONFLICT" else weighted,
         dispersion=pvariance(weights) if len(weights) > 1 else 0.0,
         expected_value=mean(item.expected_value for item in evaluations),
         strategy_votes=tuple({"strategy_id": item.strategy_id, "direction": item.direction, "confidence": item.confidence} for item in evaluations),
+        conflict_state=conflict_state,
     )
 
 

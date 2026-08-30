@@ -24,6 +24,16 @@ def test_confluence_preserves_disagreement():
     assert decision.dispersion >= 0.0
 
 
+def test_comparable_tied_directional_votes_are_explicit_conflict():
+    evaluations = tuple(
+        StrategyEvaluation(f"s{i}", "BTC/USD", "15m", direction, 1.0, 0.5, 0.01, 0.005, {}, True, True)
+        for i, direction in enumerate(("BUY", "SELL", "HOLD"))
+    )
+    decision = aggregate_confluence(evaluations)
+    assert decision.direction == "CONFLICT"
+    assert decision.conflict_state == "TIED_COMPARABLE_CONFIDENCE"
+
+
 def test_confluence_handles_hold_only_evaluations():
     evaluations = tuple(
         StrategyEvaluation("crypto.test", "BTC/USD", "15m", "HOLD", 0.0, 0.0, 0.0, 0.0, {}, True, False, "no signal")
