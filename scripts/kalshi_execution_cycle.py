@@ -226,9 +226,16 @@ def _valid_perps_quote(market: dict[str, object]) -> bool:
 def cycle() -> dict[str, object]:
     engine = os.getenv("KALSHI_ENGINE", "predictions").lower()
     config = KalshiConfig.from_env()
+    prior_status = _read_status(engine)
+    prior_cycles = prior_status.get("cycle_count", 0)
+    try:
+        cycle_count = int(prior_cycles) + 1
+    except (TypeError, ValueError):
+        cycle_count = 1
     result: dict[str, object] = {"engine": engine, "observed_at": datetime.now(UTC).isoformat(),
                                  "orders": 0, "fills": 0, "decision": "HOLD_CASH",
-                                 "execution_enabled": config.demo_trading_enabled, "broker_control": config.broker_control}
+                                 "execution_enabled": config.demo_trading_enabled, "broker_control": config.broker_control,
+                                 "cycle_count": cycle_count}
     if (config.environment != "demo" or not config.demo_trading_enabled
             or config.paper_capital <= 0):
         result["decision"] = "FAIL_CLOSED"

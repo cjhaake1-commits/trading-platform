@@ -89,3 +89,11 @@ def test_candidate_telemetry_is_append_only_and_research_only(tmp_path, monkeypa
     path = tmp_path / "candidate-telemetry-predictions.jsonl"
     assert len(path.read_text().splitlines()) == 2
     assert path.exists()
+
+
+def test_execution_cycle_count_increments_from_existing_status(tmp_path, monkeypatch):
+    from scripts.kalshi_execution_cycle import _read_status, _write_status
+
+    monkeypatch.setenv("KALSHI_EXECUTION_STATUS_DIR", str(tmp_path))
+    _write_status("predictions", {"cycle_count": 9})
+    assert _read_status("predictions")["cycle_count"] == 9
