@@ -220,7 +220,7 @@ class PaperExperimentLedger:
                 ),
             )
             connection.execute(
-                """INSERT INTO activity_observations
+                """INSERT OR IGNORE INTO activity_observations
                 (experiment_id,occurred_at,pillar,engine,market,strategy,timeframe,features_json,
                  candidate_status,qualification_result,rejection_reason,risk_decision,entry_price)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",

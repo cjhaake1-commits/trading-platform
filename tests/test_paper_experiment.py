@@ -194,6 +194,21 @@ def test_shadow_trade_is_provider_free_and_separate(tmp_path):
         assert connection.execute("SELECT COUNT(*) FROM activity_observations").fetchone()[0] == 0
 
 
+def test_candidate_and_signal_can_share_one_economic_experiment_id(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    kwargs = dict(
+        pillar="alpaca_crypto", symbol="BTC/USD", strategy="momentum", timeframe="15m",
+        lane="OBSERVATION", entry_price=100.0, edge=None, features={"score": 1.0}, experiment_id="EXP-ONE",
+    )
+    ledger.record_decision(**kwargs, decision="candidate")
+    ledger.record_decision(**kwargs, decision="signal")
+    import sqlite3
+
+    with sqlite3.connect(tmp_path / "experiment.db") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM activity_observations").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM experiment_decisions").fetchone()[0] == 2
+
+
 def test_experimental_crypto_position_cap_is_bounded_to_twenty_percent():
     config = PaperExperimentConfig(enabled=True)
     assert experimental_position_quantity_cap(pillar_capital=1000.0, entry_price=100.0, config=config) * 100.0 == 200.0
