@@ -63,7 +63,11 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
     cutoff = (current - timedelta(hours=24)).isoformat()
     try:
         with sqlite3.connect(db_path) as connection:
-            rows = connection.execute("SELECT pillar, candidate_status, occurred_at FROM activity_observations WHERE occurred_at >= ?", (cutoff,)).fetchall()
+            rows = connection.execute(
+                "SELECT pillar, candidate_status, occurred_at, strategy, estimated_edge, raw_score, "
+                "order_id, provider_order_id, fill_id, entry_price, exit_price, exit_reason, learning_update "
+                "FROM activity_observations WHERE occurred_at >= ?", (cutoff,)
+            ).fetchall()
             shadows = connection.execute("SELECT exit_at, hypothetical_pnl FROM shadow_trades WHERE entry_at >= ?", (cutoff,)).fetchall()
     except sqlite3.OperationalError:
         # A first-run or unavailable ledger is valid evidence of no observed
@@ -115,8 +119,34 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         selected = [row for row in rows if row[0] in aliases]
         cycles = sum(row[1] == "CYCLE_COMPLETE" for row in selected)
         signals = sum(row[1] == "SIGNAL" for row in selected)
+        # These are ledger-derived funnel measures.  Keep attribution strict:
+        # only rows belonging to this engine are counted, and shadow lifecycle
+        # rows remain UNKNOWN because the shadow table has no pillar key.
+        strategy_evaluations = sum(bool(row[3]) for row in selected)
+        candidates = sum(row[1] == "CANDIDATE" for row in selected)
+        qualified = sum(
+            row[1] == "QUALIFIED"
+            for row in selected
+        )
+        positive_edge_or_proxy = sum(
+            (row[4] is not None) or (row[5] is not None)
+            for row in selected
+        )
+        actual_orders = sum(bool(row[6] or row[7] or row[8]) for row in selected)
+        fills = sum(bool(row[8]) for row in selected)
+        actual_exits = sum(row[10] is not None and row[11] is not None for row in selected)
+        learning_observations = sum(bool(row[12]) for row in selected)
         components = {"worker": bool(selected), "data": bool(selected), "cycle": bool(cycles), "universe": bool(selected), "decisions": bool(selected), "execution": True, "management": True, "learning": bool(selected)}
-        counts[engine] = {"observations": len(selected), "cycles": cycles, "signals": signals, "latest": max((row[2] for row in selected), default="UNKNOWN"), "activity_health": round(sum(components.values()) * 100 / len(components)) if selected else "UNKNOWN", "activity_health_components": components}
+        counts[engine] = {
+            "observations": len(selected), "cycles": cycles, "signals": signals,
+            "strategy_evaluations": strategy_evaluations, "candidates": candidates,
+            "positive_edge_or_proxy": positive_edge_or_proxy, "qualified": qualified,
+            "actual_orders": actual_orders, "fills": fills, "actual_exits": actual_exits,
+            "shadow_entries": "UNKNOWN", "shadow_exits": "UNKNOWN",
+            "learning_observations": learning_observations,
+            "latest": max((row[2] for row in selected), default="UNKNOWN"),
+            "activity_health": round(sum(components.values()) * 100 / len(components)) if selected else "UNKNOWN", "activity_health_components": components
+        }
     for engine in ("Stocks", "Crypto"):
         # The autonomous worker owns one shared scheduler cycle, but its
         # current result is Crypto-backed in this campaign (Crypto lifecycle

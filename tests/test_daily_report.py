@@ -136,6 +136,28 @@ def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
     assert checkpoint["engines"]["Crypto"]["activity_health"] == "UNKNOWN"
 
 
+def test_forward_checkpoint_exports_ledger_funnel_counts(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    ledger.record_activity(
+        experiment_id="E2", pillar="Crypto", engine="crypto", provider="paper",
+        market="BTC/USD", strategy="momentum", strategy_version="v1", model_version="v1",
+        timeframe="15m", features={"roc": 0.02}, candidate_status="CANDIDATE",
+        qualification_result="QUALIFIED", raw_score=82, estimated_edge=None,
+        order_id="O1", fill_id="F1", entry_price=100, exit_price=101,
+        exit_reason="TARGET", learning_update="WIN",
+    )
+    checkpoint = build_checkpoint(str(tmp_path / "experiment.db"), datetime(2026, 8, 30, 1, tzinfo=UTC))
+    crypto = checkpoint["engines"]["Crypto"]
+    assert crypto["strategy_evaluations"] == 1
+    assert crypto["candidates"] == 1
+    assert crypto["positive_edge_or_proxy"] == 1
+    assert crypto["qualified"] == 0
+    assert crypto["actual_orders"] == 1
+    assert crypto["fills"] == 1
+    assert crypto["actual_exits"] == 1
+    assert crypto["shadow_entries"] == "UNKNOWN"
+
+
 def test_forward_checkpoint_keeps_provider_history_unknown_when_only_snapshot_exists(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "var/kalshi").mkdir(parents=True)
