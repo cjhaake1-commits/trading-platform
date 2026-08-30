@@ -30,3 +30,12 @@ def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
     assert checkpoint["engines"]["Stocks"]["cycles"] == "UNKNOWN"
     assert checkpoint["engines"]["Crypto"]["cycles"] == "UNKNOWN"
     assert checkpoint["engines"]["Crypto"]["shared_stocks_crypto_cycles"] == 1
+
+
+def test_forward_checkpoint_keeps_provider_history_unknown_when_only_snapshot_exists(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "var/kalshi").mkdir(parents=True)
+    (tmp_path / "var/kalshi/execution-predictions.json").write_text('{"observed_at":"now","markets":100}')
+    checkpoint = build_checkpoint(str(tmp_path / "missing.db"), datetime(2026, 8, 30, 1, tzinfo=UTC))
+    assert checkpoint["providers"]["Kalshi Predictions"]["scanned"] == 100
+    assert checkpoint["providers"]["Kalshi Predictions"]["historical_cycle_count"] == "UNKNOWN"
