@@ -149,6 +149,7 @@ def test_forward_checkpoint_exports_ledger_funnel_counts(tmp_path):
     checkpoint = build_checkpoint(str(tmp_path / "experiment.db"), datetime(2026, 8, 30, 1, tzinfo=UTC))
     crypto = checkpoint["engines"]["Crypto"]
     assert crypto["strategy_evaluations"] == 1
+    assert crypto["markets_scanned"] == 1
     assert crypto["candidates"] == 1
     assert crypto["positive_edge_or_proxy"] == 1
     assert crypto["qualified"] == 0
