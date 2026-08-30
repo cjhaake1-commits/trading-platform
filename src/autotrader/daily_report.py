@@ -24,9 +24,18 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
     end = datetime.combine(current.date(), time.max, tzinfo=UTC).isoformat()
     with sqlite3.connect(db_path) as connection:
         connection.row_factory = sqlite3.Row
-        rows = connection.execute("SELECT pillar, candidate_status, rejection_reason, market_regime FROM activity_observations WHERE occurred_at BETWEEN ? AND ?", (start, end)).fetchall()
+        rows = connection.execute("SELECT pillar, strategy, candidate_status, rejection_reason, market_regime FROM activity_observations WHERE occurred_at BETWEEN ? AND ?", (start, end)).fetchall()
         shadows = connection.execute("SELECT result, hypothetical_pnl, exit_reason FROM shadow_trades WHERE entry_at BETWEEN ? AND ?", (start, end)).fetchall()
     activity = {}
+    strategy_evidence = {}
+    for row in rows:
+        strategy = row["strategy"] or "UNKNOWN"
+        item = strategy_evidence.setdefault(strategy, {"observations": 0, "signals": 0, "qualified": 0, "regimes": {}})
+        item["observations"] += 1
+        item["signals"] += row["candidate_status"] == "SIGNAL"
+        item["qualified"] += row["candidate_status"] == "QUALIFIED"
+        regime = row["market_regime"] or "UNKNOWN"
+        item["regimes"][regime] = item["regimes"].get(regime, 0) + 1
     for engine in ENGINES:
         selected = [row for row in rows if row["pillar"] in ALIASES[engine]]
         activity[engine] = {"observations": len(selected), "cycle_complete": sum(row["candidate_status"] == "CYCLE_COMPLETE" for row in selected), "candidates": sum(row["candidate_status"] in {"CANDIDATE", "SIGNAL", "QUALIFIED", "DECISION"} for row in selected), "signals": sum(row["candidate_status"] == "SIGNAL" for row in selected), "qualified": sum(row["candidate_status"] == "QUALIFIED" for row in selected), "top_bottlenecks": dict(Counter(row["rejection_reason"] for row in selected if row["rejection_reason"]).most_common(3)), "regimes": dict(Counter(row["market_regime"] for row in selected if row["market_regime"]))}
@@ -35,7 +44,7 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
         "Kalshi Predictions": "var/kalshi/execution-predictions.json",
         "Kalshi Perps": "var/kalshi/execution-perps.json",
     }.items()}
-    report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "activity": activity, "actual_results": _read("var/autotrader/learning/performance_stats.json"), "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "provider_performance": provider_performance, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero"]}
+    report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "activity": activity, "strategy_evidence": strategy_evidence, "actual_results": _read("var/autotrader/learning/performance_stats.json"), "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "provider_performance": provider_performance, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero", "strategy evidence is descriptive and does not imply governance promotion"]}
     directory = Path("var/reports")
     directory.mkdir(parents=True, exist_ok=True)
     json_path = directory / f"daily-learning-{report['date']}.json"

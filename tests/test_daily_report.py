@@ -30,6 +30,21 @@ def test_daily_report_includes_provider_performance_snapshots(tmp_path, monkeypa
     assert report["provider_performance"]["Kalshi Perps"] == "UNKNOWN"
 
 
+def test_daily_report_contains_descriptive_strategy_evidence(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    ledger.record_activity(
+        experiment_id="E1", pillar="Crypto", engine="crypto", provider="paper", market="BTC/USD",
+        strategy="MOMENTUM", strategy_version="v1", model_version="v1", features={},
+        candidate_status="SIGNAL", qualification_result="NO_TRADE", market_regime="TRENDING",
+    )
+    report = __import__("autotrader.daily_report", fromlist=["write_report"]).write_report(
+        datetime(2026, 8, 30, 1, tzinfo=UTC), str(tmp_path / "experiment.db")
+    )
+    data = __import__("json").loads(report[0].read_text())
+    assert data["strategy_evidence"]["MOMENTUM"]["signals"] == 1
+    assert "does not imply governance promotion" in data["evidence_limitations"][-1]
+
+
 def test_forward_checkpoint_does_not_misattributed_shared_cycles(tmp_path):
     ledger = PaperExperimentLedger(tmp_path / "experiment.db")
     ledger.record_activity(
