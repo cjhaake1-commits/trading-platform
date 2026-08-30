@@ -3527,6 +3527,7 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         if isinstance(item, dict) and item.get("strategy_id")
     }
     shadow_scorecards = {}
+    shadow_regimes = {}
     experiment_db = Path("var/autotrader/paper_experiment.db")
     if experiment_db.exists():
         try:
@@ -3536,6 +3537,12 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
                     "FROM shadow_trades WHERE exit_at IS NOT NULL GROUP BY strategy_id"
                 ):
                     shadow_scorecards[strategy_id] = {"completed": completed, "wins": wins or 0, "losses": losses or 0, "pnl": pnl or 0.0, "expectancy": (pnl or 0.0) / completed if completed else "UNKNOWN"}
+                for strategy_id, regime, completed, pnl in connection.execute(
+                    "SELECT strategy_id, regime, COUNT(*), SUM(hypothetical_pnl) FROM shadow_trades "
+                    "WHERE exit_at IS NOT NULL AND regime IS NOT NULL GROUP BY strategy_id, regime"
+                ):
+                    if completed:
+                        shadow_regimes.setdefault(strategy_id, {})[regime] = (pnl or 0.0) / completed
         except sqlite3.Error:
             shadow_scorecards = {}
     leaderboard = []
@@ -3545,6 +3552,9 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         definition = definitions.get(scorecard.get("strategy_id"), {})
         observations = scorecard.get("observations", 0)
         shadow = shadow_scorecards.get(scorecard.get("strategy_id"), {})
+        regimes = shadow_regimes.get(scorecard.get("strategy_id"), {})
+        best_regime = max(regimes, key=regimes.get) if regimes else "UNKNOWN"
+        worst_regime = min(regimes, key=regimes.get) if regimes else "UNKNOWN"
         leaderboard.append({
             "Strategy": scorecard.get("strategy_id", "UNKNOWN"),
             "Pillar": definition.get("pillar", "UNKNOWN"),
@@ -3560,8 +3570,8 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
             "Shadow Expectancy": shadow.get("expectancy", "UNKNOWN"),
             "Shadow P&L": shadow.get("pnl", "UNKNOWN"),
             "Sample classification": "INSUFFICIENT_EVIDENCE" if not isinstance(observations, int) or observations < definition.get("minimum_sample_size", 30) else "EARLY_SIGNAL",
-            "Best regime": "UNKNOWN",
-            "Worst regime": "UNKNOWN",
+            "Best regime": best_regime,
+            "Worst regime": worst_regime,
         })
     st.dataframe(leaderboard or [{"Strategy": "UNKNOWN"}], use_container_width=True, hide_index=True)
 
