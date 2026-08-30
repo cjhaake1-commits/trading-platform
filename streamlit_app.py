@@ -3448,6 +3448,27 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
             "p50 latency ms (job proxy)": "UNKNOWN", "p95 latency ms (job proxy)": "UNKNOWN",
         })
     st.dataframe(provider_rows, use_container_width=True, hide_index=True)
+    st.markdown("### Kalshi candidate telemetry")
+    telemetry_rows = []
+    for family in ("predictions", "perps"):
+        telemetry_path = Path("var/kalshi") / f"candidate-telemetry-{family}.jsonl"
+        records = []
+        if telemetry_path.exists():
+            try:
+                records = [json.loads(line) for line in telemetry_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            except (OSError, json.JSONDecodeError):
+                records = []
+        latest = records[-1] if records and isinstance(records[-1], dict) else {}
+        telemetry_rows.append({
+            "Engine": f"Kalshi {family.title()}",
+            "Candidate records": len(records) if records else "UNKNOWN",
+            "Latest observation": latest.get("observed_at", "UNKNOWN"),
+            "Qualified": latest.get("qualification", "UNKNOWN"),
+            "Rejection": latest.get("rejection", "UNKNOWN"),
+            "Calibrated edge": latest.get("estimated_edge", "UNKNOWN"),
+            "Calibrated EV": latest.get("expected_value", "UNKNOWN"),
+        })
+    st.dataframe(telemetry_rows, use_container_width=True, hide_index=True)
     shadow = report.get("shadow") if isinstance(report.get("shadow"), dict) else {}
     cols = st.columns(4)
     for col, label, key in zip(cols, ("Shadow Entries", "Shadow Exits", "Completed Shadow P&L", "Daily Observations"), ("entries", "exits", "completed_pnl", "observations"), strict=True):

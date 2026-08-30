@@ -155,3 +155,10 @@ def test_provider_health_uses_lab_utc_cutoff_not_sqlite_wall_clock():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     assert "timedelta(hours=24)" in source
     assert "datetime('now', '-24 hours')" not in source
+
+
+def test_dashboard_exposes_kalshi_candidate_telemetry():
+    source = Path("streamlit_app.py").read_text(encoding="utf-8")
+    assert "Kalshi candidate telemetry" in source
+    assert "candidate-telemetry-{family}.jsonl" in source
+    assert '"Calibrated edge"' in source
