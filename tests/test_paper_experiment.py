@@ -227,8 +227,17 @@ def test_candidate_and_signal_can_share_one_economic_experiment_id(tmp_path):
     import sqlite3
 
     with sqlite3.connect(tmp_path / "experiment.db") as connection:
-        assert connection.execute("SELECT COUNT(*) FROM activity_observations").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM activity_observations").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM experiment_decisions").fetchone()[0] == 2
+
+
+def test_strategy_events_share_parent_experiment_with_distinct_event_ids(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    ledger.record_activity(experiment_id="PARENT", pillar="Crypto", engine="crypto", provider="paper", market="BTC/USD", strategy="momentum", strategy_version="v1", model_version="v1", timeframe="15m", features={}, candidate_status="SIGNAL", qualification_result="SIGNAL")
+    ledger.record_activity(experiment_id="PARENT", pillar="Crypto", engine="crypto", provider="paper", market="BTC/USD", strategy="breakout", strategy_version="v1", model_version="v1", timeframe="15m", features={}, candidate_status="SIGNAL", qualification_result="SIGNAL")
+    import sqlite3
+    with sqlite3.connect(tmp_path / "experiment.db") as connection:
+        assert connection.execute("SELECT COUNT(*), COUNT(DISTINCT event_id), COUNT(DISTINCT experiment_id) FROM activity_observations").fetchone() == (2, 2, 1)
 
 
 def test_experimental_crypto_position_cap_is_bounded_to_twenty_percent():

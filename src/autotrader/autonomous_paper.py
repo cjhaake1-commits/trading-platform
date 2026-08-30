@@ -448,7 +448,7 @@ class AutonomousPaperTradingJob:
                     confluence = aggregate_confluence(strategy_evaluations)
                     for evaluation in strategy_evaluations:
                         self.experiment_ledger.record_activity(
-                            experiment_id=f"{experiment_id}-{evaluation.strategy_id}" if experiment_id else None,
+                            experiment_id=experiment_id,
                             pillar="Crypto", engine="crypto", provider="Alpaca Paper", market=instrument.symbol,
                             asset_class="crypto", strategy=evaluation.strategy_id, strategy_version="v1",
                             model_version="runtime-v1", timeframe=evaluation.timeframe,

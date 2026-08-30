@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -119,7 +120,8 @@ class PaperExperimentLedger:
             )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS activity_observations (
-                    experiment_id TEXT PRIMARY KEY,
+                    event_id TEXT PRIMARY KEY,
+                    experiment_id TEXT NOT NULL,
                     occurred_at TEXT NOT NULL,
                     pillar TEXT NOT NULL,
                     engine TEXT NOT NULL,
@@ -161,6 +163,27 @@ class PaperExperimentLedger:
                     learning_update TEXT
                 )"""
             )
+            columns = connection.execute("PRAGMA table_info(activity_observations)").fetchall()
+            if columns and next((row[1] for row in columns if row[5] == 1), None) == "experiment_id":
+                connection.execute("ALTER TABLE activity_observations RENAME TO activity_observations_legacy")
+                connection.execute("""CREATE TABLE activity_observations (
+                    event_id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL, occurred_at TEXT NOT NULL,
+                    pillar TEXT NOT NULL, engine TEXT NOT NULL, provider TEXT, market TEXT NOT NULL,
+                    asset_class TEXT, strategy TEXT NOT NULL, strategy_version TEXT, model_version TEXT,
+                    timeframe TEXT, market_regime TEXT, features_json TEXT NOT NULL, signal_direction TEXT,
+                    raw_score REAL, normalized_confidence REAL, estimated_edge REAL, expected_value REAL,
+                    candidate_status TEXT NOT NULL, qualification_result TEXT, rejection_reason TEXT,
+                    risk_decision TEXT, position_sizing_json TEXT, available_capital REAL, existing_exposure REAL,
+                    correlation_exposure REAL, order_id TEXT, provider_order_id TEXT, fill_id TEXT,
+                    entry_price REAL, exit_price REAL, quantity REAL, fees REAL, slippage REAL, realized_pnl REAL,
+                    unrealized_pnl REAL, holding_period_seconds REAL, exit_reason TEXT, result_classification TEXT,
+                    learning_update TEXT)""")
+                legacy_columns = [row[1] for row in columns]
+                select_columns = ",".join(legacy_columns)
+                connection.execute(
+                    f"INSERT INTO activity_observations (event_id,{select_columns}) SELECT 'LEGACY-' || rowid || '-' || substr(hex(randomblob(8)),1,16),{select_columns} FROM activity_observations_legacy"
+                )
+                connection.execute("DROP TABLE activity_observations_legacy")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS shadow_trades (
                     shadow_id TEXT PRIMARY KEY,
@@ -294,6 +317,8 @@ class PaperExperimentLedger:
             "result_classification": observation.get("result_classification"),
             "learning_update": observation.get("learning_update"),
         }
+        event_id = "EVENT-" + hashlib.sha256(f"{experiment_id}|{occurred_at}|{uuid.uuid4().hex}".encode()).hexdigest()[:24]
+        columns = {"event_id": event_id, **columns}
         names = ",".join(columns)
         placeholders = ",".join("?" for _ in columns)
         with sqlite3.connect(self.path) as connection:
