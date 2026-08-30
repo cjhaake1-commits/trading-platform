@@ -417,6 +417,13 @@ class AutonomousPaperTradingJob:
         strategy_portfolio = self._strategy_portfolio(portfolio, ledger)
         diagnostics, signals = [], []
         for instrument, bars in histories.items():
+            if instrument.asset_class is AssetClass.CRYPTO:
+                # Shadow settlement is provider-free and deliberately runs
+                # before current-position filtering so research positions are
+                # evaluated even when the instrument is currently held.
+                self.experiment_ledger.settle_shadow_trades(
+                    {instrument.symbol: bars}, now=now,
+                )
             if instrument.symbol in portfolio.positions:
                 continue
             if instrument.asset_class is AssetClass.CRYPTO and _crypto_execution_cooldown_active(instrument.symbol, now):
@@ -455,7 +462,12 @@ class AutonomousPaperTradingJob:
                         )
                     # Near-threshold, valid Crypto candidates become provider-free
                     # shadow entries; they never enter portfolio or broker state.
-                    if experiment_id and candidate.score >= minimum_score * 0.80 and candidate.score < minimum_score:
+                    if (
+                        experiment_id
+                        and confluence.direction in {"BUY", "SELL"}
+                        and candidate.score >= minimum_score * 0.80
+                        and candidate.score < minimum_score
+                    ):
                         shadow_id = f"SHADOW-{__import__('hashlib').sha256(experiment_id.encode()).hexdigest()[:24]}"
                         self.experiment_ledger.record_shadow_trade(
                             shadow_id=shadow_id, experiment_id=experiment_id, pillar="Crypto",

@@ -182,10 +182,16 @@ class PaperExperimentLedger:
                     mfe REAL,
                     mae REAL,
                     result TEXT,
+                    exit_reason TEXT,
                     regime TEXT,
                     CHECK (shadow_id <> '')
                 )"""
             )
+            # Forward-compatible schema repair for databases created before
+            # shadow exit attribution was introduced.
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(shadow_trades)")}
+            if "exit_reason" not in columns:
+                connection.execute("ALTER TABLE shadow_trades ADD COLUMN exit_reason TEXT")
 
     def record_decision(
         self,
@@ -335,6 +341,79 @@ class PaperExperimentLedger:
                  entry_reason, qualification_score, prevented_by_threshold, hypothetical_stop, hypothetical_target, regime),
             )
         return shadow_id
+
+    def settle_shadow_trades(
+        self,
+        bars_by_symbol: dict[str, list[object]],
+        *,
+        now: datetime | None = None,
+        time_stop_minutes: int = 60,
+    ) -> dict[str, int]:
+        """Settle open shadow trades using only bars available after entry.
+
+        This is research-only accounting: it never calls a broker and never
+        changes portfolio, capital, or realized P&L state.
+        """
+        if time_stop_minutes <= 0:
+            raise ValueError("time stop must be positive")
+        current = (now or datetime.now(UTC)).astimezone(UTC)
+        counts = {"closed": 0, "insufficient_data": 0, "open": 0}
+        with sqlite3.connect(self.path) as connection:
+            rows = connection.execute(
+                "SELECT shadow_id,market,direction,hypothetical_entry,entry_at,hypothetical_stop,hypothetical_target "
+                "FROM shadow_trades WHERE exit_at IS NULL"
+            ).fetchall()
+            for shadow_id, market, direction, entry, entry_at, stop, target in rows:
+                if direction not in {"BUY", "SELL"}:
+                    counts["insufficient_data"] += 1
+                    continue
+                opened = datetime.fromisoformat(str(entry_at).replace("Z", "+00:00")).astimezone(UTC)
+                bars = sorted(
+                    (bar for bar in bars_by_symbol.get(str(market), []) if getattr(bar, "timestamp", None)),
+                    key=lambda bar: bar.timestamp,
+                )
+                def bar_time(bar: object) -> datetime:
+                    timestamp = bar.timestamp
+                    return timestamp.replace(tzinfo=UTC) if timestamp.tzinfo is None else timestamp.astimezone(UTC)
+                forward = [bar for bar in bars if opened < bar_time(bar) <= current]
+                if not forward:
+                    counts["open"] += 1
+                    continue
+                exit_bar = None
+                reason = None
+                for bar in forward:
+                    if direction == "BUY":
+                        stop_hit = stop is not None and bar.low <= stop
+                        target_hit = target is not None and bar.high >= target
+                    else:
+                        stop_hit = stop is not None and bar.high >= stop
+                        target_hit = target is not None and bar.low <= target
+                    # Conservative same-bar ordering: stop wins when both
+                    # levels are touched because intrabar order is unknown.
+                    if stop_hit:
+                        exit_bar, reason = bar, "STOP_LOSS"
+                        break
+                    if target_hit:
+                        exit_bar, reason = bar, "TARGET"
+                        break
+                    if bar_time(bar) >= opened + timedelta(minutes=time_stop_minutes):
+                        exit_bar, reason = bar, "TIME_STOP"
+                        break
+                if exit_bar is None:
+                    counts["open"] += 1
+                    continue
+                prices = [float(bar.low if direction == "BUY" else bar.high) for bar in forward]
+                favorable = [float(bar.high if direction == "BUY" else bar.low) for bar in forward]
+                pnl = (float(exit_bar.close) - float(entry)) if direction == "BUY" else (float(entry) - float(exit_bar.close))
+                mfe = (max(favorable) - float(entry)) if direction == "BUY" else (float(entry) - min(favorable))
+                mae = (min(prices) - float(entry)) if direction == "BUY" else (float(entry) - max(prices))
+                result = "WIN" if pnl > 0 else ("LOSS" if pnl < 0 else "FLAT")
+                connection.execute(
+                    "UPDATE shadow_trades SET hypothetical_exit=?,exit_at=?,hypothetical_pnl=?,mfe=?,mae=?,result=?,exit_reason=? WHERE shadow_id=? AND exit_at IS NULL",
+                    (float(exit_bar.close), bar_time(exit_bar).isoformat(), pnl, mfe, mae, result, reason, shadow_id),
+                )
+                counts["closed"] += 1
+        return counts
 
     def record_outcome(self, decision_id: int, outcome: dict[str, object]) -> None:
         with sqlite3.connect(self.path) as connection:

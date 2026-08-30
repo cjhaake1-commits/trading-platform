@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from autotrader.models import AssetClass, Instrument, MarketBar, Side, TradeProposal
 from autotrader.paper_experiment import (
     PaperExperimentConfig,
@@ -192,6 +194,26 @@ def test_shadow_trade_is_provider_free_and_separate(tmp_path):
     with sqlite3.connect(tmp_path / "experiment.db") as connection:
         assert connection.execute("SELECT shadow_id, hypothetical_pnl FROM shadow_trades").fetchone() == (shadow_id, None)
         assert connection.execute("SELECT COUNT(*) FROM activity_observations").fetchone()[0] == 0
+
+
+def test_shadow_exit_settlement_uses_only_forward_bars_and_records_attribution(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    ledger.record_shadow_trade(
+        shadow_id="SHADOW-EXIT", experiment_id="EXP-EXIT", pillar="Crypto", strategy_id="crypto.confluence.v1",
+        market="BTC/USD", direction="BUY", hypothetical_entry=100.0,
+        entry_at="2026-01-01T00:00:00+00:00", entry_reason="test",
+        hypothetical_stop=98.0, hypothetical_target=103.0,
+    )
+    bars = [
+        SimpleNamespace(timestamp=__import__("datetime").datetime(2025, 12, 31, 23, 59), low=90.0, high=95.0, close=92.0),
+        SimpleNamespace(timestamp=__import__("datetime").datetime(2026, 1, 1, 0, 15), low=99.0, high=104.0, close=103.0),
+    ]
+    result = ledger.settle_shadow_trades({"BTC/USD": bars}, now=__import__("datetime").datetime(2026, 1, 1, 1, 0))
+    assert result == {"closed": 1, "insufficient_data": 0, "open": 0}
+    import sqlite3
+    with sqlite3.connect(tmp_path / "experiment.db") as connection:
+        row = connection.execute("SELECT hypothetical_exit, hypothetical_pnl, mfe, mae, result, exit_reason FROM shadow_trades").fetchone()
+    assert row == (103.0, 3.0, 4.0, -1.0, "WIN", "TARGET")
 
 
 def test_candidate_and_signal_can_share_one_economic_experiment_id(tmp_path):
