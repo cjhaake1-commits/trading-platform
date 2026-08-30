@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime
 
 from autotrader.daily_report import write_report
@@ -116,6 +117,20 @@ def test_forward_checkpoint_reports_runtime_successes_separately(tmp_path):
     assert checkpoint["engines"]["Crypto"]["cycles"] == "UNKNOWN"
     assert checkpoint["runtime_evidence"]["successful_autonomous_cycles"] == 1
     assert checkpoint["runtime_evidence"]["failed_runtime_jobs"] == 0
+    assert checkpoint["runtime_evidence"]["resolved_runtime_failures"] == 0
+    assert checkpoint["runtime_evidence"]["unresolved_runtime_failures"] == 0
+
+
+def test_forward_checkpoint_separates_recovered_runtime_failures(tmp_path):
+    audit = tmp_path / "audit.db"
+    with sqlite3.connect(audit) as connection:
+        connection.execute("CREATE TABLE audit_events (id INTEGER PRIMARY KEY, event_type TEXT, message TEXT, data_json TEXT, created_at TEXT)")
+        connection.execute("INSERT INTO audit_events VALUES (1, 'runtime_job', 'failed', '{\"job\":\"worker\",\"ok\":false}', '2026-08-30T00:00:00+00:00')")
+        connection.execute("INSERT INTO audit_events VALUES (2, 'runtime_job', 'success', '{\"job\":\"worker\",\"ok\":true}', '2026-08-30T00:01:00+00:00')")
+    checkpoint = build_checkpoint(str(tmp_path / "missing.db"), datetime(2026, 8, 30, 1, tzinfo=UTC), str(audit))
+    assert checkpoint["runtime_evidence"]["failed_runtime_jobs"] == 1
+    assert checkpoint["runtime_evidence"]["resolved_runtime_failures"] == 1
+    assert checkpoint["runtime_evidence"]["unresolved_runtime_failures"] == 0
 
 
 def test_forward_checkpoint_survives_malformed_legacy_audit_data(tmp_path):

@@ -41,10 +41,17 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
         successful = [row for row, data in payloads if data.get("job") == "autonomous-paper-trading" and data.get("ok") is True]
         failed = [row for row, data in payloads if row[0] == "runtime_job" and data.get("ok") is False]
         heartbeats = [row[3] for row in runtime_rows if row[0] == "runtime_heartbeat"]
+        resolved_failed = [row for row, data in payloads if row[0] == "runtime_job" and data.get("ok") is False and any(
+            later_row[3] > row[3]
+            for later_row, later_data in payloads
+            if later_row[0] == "runtime_job" and later_data.get("job") == data.get("job") and later_data.get("ok") is True
+        )]
         runtime_evidence = {
             "autonomous_cycles": len(autonomous),
             "successful_autonomous_cycles": len(successful),
             "failed_runtime_jobs": len(failed),
+            "resolved_runtime_failures": len(resolved_failed),
+            "unresolved_runtime_failures": max(len(failed) - len(resolved_failed), 0),
             "malformed_audit_events": sum(not data and row[2] not in ("{}", "null") for row, data in payloads),
             "latest_heartbeat": max(heartbeats, default="UNKNOWN"),
         }
