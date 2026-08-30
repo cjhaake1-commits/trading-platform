@@ -219,15 +219,17 @@ class MetalsPaperTradingJob:
         rows = []
         for instrument, bars in histories.items():
             candidate = self.scanner.score_instrument(instrument, bars) if bars else None
-            proposals = (
-                self.strategies.momentum(instrument, bars),
-                self.strategies.sma_cross(instrument, bars),
-                self.strategies.breakout(instrument, bars),
-                self.strategies.mean_reversion(instrument, bars),
-                self.strategies.trend_following(instrument, bars),
-                self.strategies.volatility_expansion(instrument, bars),
-            ) if len(bars) >= self.required_bars else (None,) * 6
-            votes = [proposal.source + ":" + proposal.side.value for proposal in proposals if proposal is not None]
+            proposal_set = {
+                "momentum": self.strategies.momentum(instrument, bars),
+                "trend": self.strategies.sma_cross(instrument, bars),
+                "breakout": self.strategies.breakout(instrument, bars),
+                "mean_reversion": self.strategies.mean_reversion(instrument, bars),
+                "trend_following": self.strategies.trend_following(instrument, bars),
+                "volatility_expansion": self.strategies.volatility_expansion(instrument, bars),
+            } if len(bars) >= self.required_bars else {name: None for name in ("momentum", "trend", "breakout", "mean_reversion", "trend_following", "volatility_expansion")}
+            evaluations = evaluate_proposals(instrument, bars, proposal_set, timeframe="1d", candidate_score=candidate.score if candidate else None)
+            confluence = aggregate_confluence(evaluations)
+            votes = [proposal.source + ":" + proposal.side.value for proposal in proposal_set.values() if proposal is not None]
             rows.append({
                 "symbol": instrument.symbol,
                 "bars_available": len(bars),
@@ -238,6 +240,8 @@ class MetalsPaperTradingJob:
                 "scanner_score": None if candidate is None else round(candidate.score, 6),
                 "strategy_evaluated": len(bars) >= self.required_bars,
                 "strategy_vote": ", ".join(votes) if votes else "NO_SIGNAL",
+                "strategy_evaluations": [evaluation.__dict__ for evaluation in evaluations],
+                "confluence": confluence.__dict__,
                 "risk_evaluated": False,
                 "capital_evaluated": False,
                 "qualified": False,
