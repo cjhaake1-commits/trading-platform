@@ -356,6 +356,8 @@ class PaperExperimentLedger:
                             prevented_by_threshold: str | None = None, hypothetical_stop: float | None = None,
                             hypothetical_target: float | None = None, regime: str | None = None) -> str:
         """Persist a research-only trade; this method has no broker or P&L side effects."""
+        if direction not in {"BUY", "SELL"}:
+            raise ValueError("shadow trades require a directional BUY or SELL hypothesis")
         with sqlite3.connect(self.path) as connection:
             connection.execute(
                 """INSERT OR IGNORE INTO shadow_trades

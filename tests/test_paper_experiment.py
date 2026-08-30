@@ -196,6 +196,21 @@ def test_shadow_trade_is_provider_free_and_separate(tmp_path):
         assert connection.execute("SELECT COUNT(*) FROM activity_observations").fetchone()[0] == 0
 
 
+def test_shadow_trade_rejects_hold_and_conflict_directions(tmp_path):
+    ledger = PaperExperimentLedger(tmp_path / "experiment.db")
+    for direction in ("HOLD", "CONFLICT"):
+        try:
+            ledger.record_shadow_trade(
+                shadow_id=f"{direction}-1", experiment_id="EXP-1", pillar="Crypto", strategy_id="test",
+                market="BTC/USD", direction=direction, hypothetical_entry=100.0,
+                entry_at="2026-01-01T00:00:00+00:00", entry_reason="test",
+            )
+        except ValueError as exc:
+            assert "directional" in str(exc)
+        else:
+            raise AssertionError("non-directional shadow hypothesis was persisted")
+
+
 def test_shadow_exit_settlement_uses_only_forward_bars_and_records_attribution(tmp_path):
     ledger = PaperExperimentLedger(tmp_path / "experiment.db")
     ledger.record_shadow_trade(
