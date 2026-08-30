@@ -168,7 +168,7 @@ def test_provider_health_labels_non_kalshi_metrics_as_job_proxy():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     assert '"Measurement scope": "runtime_job_proxy"' in source
     assert '"Timeouts": "UNKNOWN"' in source
-    assert '"Retries": "UNKNOWN"' in source
+    assert '"Retries": retries' in source
 
 
 def test_autonomous_lab_engine_table_contains_required_funnel_columns():

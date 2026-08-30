@@ -17,6 +17,7 @@ class KalshiTelemetry:
     successes: int = 0
     failures: int = 0
     timeouts: int = 0
+    retries: int = 0
     rate_limited: int = 0
     last_endpoint: str | None = None
     last_status: int | None = None
@@ -40,7 +41,7 @@ class KalshiTelemetry:
 
         return {
             "requests": self.requests, "successes": self.successes,
-            "failures": self.failures, "timeouts": self.timeouts,
+            "failures": self.failures, "timeouts": self.timeouts, "retries": self.retries,
             "rate_limited": self.rate_limited, "last_endpoint": self.last_endpoint,
             "last_status": self.last_status, "last_latency_ms": self.last_latency_ms,
             "p50_latency_ms": percentile(50), "p95_latency_ms": percentile(95),
@@ -81,6 +82,8 @@ class KalshiReadOnlyClient:
             headers.update(self.auth.sign("GET", __import__("urllib.parse", fromlist=["urlparse"]).urlparse(url).path))
         for attempt in range(self.max_retries + 1):
             started = time.monotonic()
+            if attempt:
+                self.telemetry.retries += 1
             self.telemetry.requests += 1
             self.telemetry.last_endpoint = endpoint
             try:

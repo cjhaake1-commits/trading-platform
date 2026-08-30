@@ -3479,13 +3479,14 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         requests = sum(int(v.get("requests", 0) or 0) for v in telemetry) if telemetry else "UNKNOWN"
         failures = sum(int(v.get("failures", 0) or 0) for v in telemetry) if telemetry else "UNKNOWN"
         timeouts = sum(int(v.get("timeouts", 0) or 0) for v in telemetry) if telemetry else "UNKNOWN"
+        retries = sum(int(v.get("retries", 0) or 0) for v in telemetry) if telemetry else "UNKNOWN"
         p50 = [float(v["p50_latency_ms"]) for v in telemetry if v.get("p50_latency_ms") is not None]
         p95 = [float(v["p95_latency_ms"]) for v in telemetry if v.get("p95_latency_ms") is not None]
         provider_rows.append({
             "Provider": name,
             "Status": "CONNECTED" if any(v.get("state") == "SCANNING" for v in (prediction, perps)) else "UNKNOWN",
             "Last successful call": max(timestamps, default="UNKNOWN"),
-            "Requests (latest cycle)": requests, "Failures": failures, "Timeouts": timeouts, "Retries": "UNKNOWN",
+            "Requests (latest cycle)": requests, "Failures": failures, "Timeouts": timeouts, "Retries": retries,
             "p50 latency ms (latest cycle)": min(p50) if p50 else "UNKNOWN",
             "p95 latency ms (latest cycle)": max(p95) if p95 else "UNKNOWN",
         })
