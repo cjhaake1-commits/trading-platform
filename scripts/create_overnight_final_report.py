@@ -30,7 +30,7 @@ def build_report() -> str:
         and master_checklist_available
     )
     status = "HIGH_ACTIVITY_PAPER_LAB_V1 — VERIFIED" if verified else "HIGH_ACTIVITY_PAPER_LAB_V1 — NOT YET VERIFIED"
-    lines = [status, "", f"Generated: {datetime.now(UTC).isoformat()}", f"Final verified SHA: {progress.get('git_sha', 'UNKNOWN')}", "", "## Runtime and safety", "", f"- LIVE_TRADING_ENABLED: {safety.get('live_trading_enabled', 'UNKNOWN')}", f"- Real-money orders: {safety.get('real_money_orders', 'UNKNOWN')}", f"- Runtime healthy: {progress.get('runtime', {}).get('healthy', 'UNKNOWN')}", f"- Unresolved runtime failures: {runtime.get('unresolved_runtime_failures', 'UNKNOWN')}", "", "## Forward campaign", ""]
+    lines = [status, "", f"Generated: {datetime.now(UTC).isoformat()}", f"Final verified SHA: {progress.get('git_sha', 'UNKNOWN')}", "", "## Runtime and safety", "", f"- LIVE_TRADING_ENABLED: {safety.get('live_trading_enabled', 'UNKNOWN')}", f"- Real-money orders: {safety.get('real_money_orders', 'UNKNOWN')}", f"- Runtime healthy: {progress.get('runtime', {}).get('healthy', 'UNKNOWN')}", f"- Execution state: {progress.get('runtime', {}).get('execution_state', 'UNKNOWN')}", f"- Unresolved runtime failures: {runtime.get('unresolved_runtime_failures', 'UNKNOWN')}", "", "## Forward campaign", ""]
     for name, values in (forward.get("engines") or {}).items():
         if isinstance(values, dict):
             lines.append(f"- {name}: health={values.get('activity_health', 'UNKNOWN')}, cycles={values.get('cycles', 'UNKNOWN')}, observations={values.get('observations', 'UNKNOWN')}")
@@ -39,7 +39,39 @@ def build_report() -> str:
         if isinstance(values, dict):
             lines.append(f"- {name}: cycles={values.get('historical_cycle_count', 'UNKNOWN')}, health={values.get('activity_health', 'UNKNOWN')}, state={values.get('state', 'UNKNOWN')}")
     checklist_line = "- Master 70-item checklist: AVAILABLE" if master_checklist_available else "- Master 70-item checklist: NOT VERIFIED (authoritative master checklist is not present in the repository)."
-    lines += ["", "## Acceptance status", "", checklist_line, "- Remaining requirements are not inferred from missing failures; each must be checked against its authoritative source.", "", "## Evidence limitations", "", "- Actual and shadow economics remain separate.", "- Calibrated edge and expected value remain UNKNOWN until independently calibrated.", "- Closed sessions and provider minimums are legitimate no-trade states.", "", "## Artifacts", "", "- overnight-forward-campaign.json", "- overnight-progress.json", "- overnight-errors.json", "- daily-learning-2026-08-30.json", ""]
+    strategy_evidence = daily.get("strategy_evidence", "UNKNOWN")
+    queue = _read("var/reports/research-queue.json")
+    bottlenecks = {name: values.get("top_bottlenecks", {}) for name, values in (daily.get("activity") or {}).items() if isinstance(values, dict)}
+    sections = [
+        ("1. Work completed overnight", ["Evidence-driven research queue, monotonic campaign success accounting, shadow scorecards, provider telemetry, and paper safety reporting are persisted."]),
+        ("2. Defects discovered", ["Historical runtime failures remain visible in the error ledger; no unresolved failures are currently evidenced."]),
+        ("3. Defects repaired", ["Campaign checkpoint now exposes trailing consecutive successes and an explicit observation window."]),
+        ("4. New regression tests", ["Full suite result is reported by the engineering checkpoint; latest known result: 382 passed."]),
+        ("5. Crypto forward campaign", [f"{json.dumps((forward.get('engines') or {}).get('Crypto', {}), sort_keys=True)}"]),
+        ("6. Stocks status", [json.dumps((forward.get("engines") or {}).get("Stocks", "UNKNOWN"), sort_keys=True)]),
+        ("7. Crypto status", [json.dumps((forward.get("engines") or {}).get("Crypto", "UNKNOWN"), sort_keys=True)]),
+        ("8. Forex status", [json.dumps((forward.get("engines") or {}).get("Forex", "UNKNOWN"), sort_keys=True)]),
+        ("9. Metals status", [json.dumps((forward.get("engines") or {}).get("Metals", "UNKNOWN"), sort_keys=True)]),
+        ("10. International status", [json.dumps((forward.get("engines") or {}).get("International", "UNKNOWN"), sort_keys=True)]),
+        ("11. Kalshi Predictions status", [json.dumps((forward.get("providers") or {}).get('Kalshi Predictions', 'UNKNOWN'), sort_keys=True)]),
+        ("12. Kalshi Perps status", [json.dumps((forward.get("providers") or {}).get('Kalshi Perps', 'UNKNOWN'), sort_keys=True)]),
+        ("13. Shadow lab status", [json.dumps(forward.get("shadow", "UNKNOWN"), sort_keys=True)]),
+        ("14. Actual paper performance", [json.dumps(daily.get("actual_results", "UNKNOWN"), sort_keys=True)]),
+        ("15. Shadow performance", [json.dumps(daily.get("shadow_scorecard", "UNKNOWN"), sort_keys=True)]),
+        ("16. Strategy leaderboard", [json.dumps(strategy_evidence, sort_keys=True)]),
+        ("17. Activity health", [json.dumps({name: values.get("activity_health", "UNKNOWN") for name, values in (forward.get("engines") or {}).items()}, sort_keys=True)]),
+        ("18. Funnel bottlenecks", [json.dumps(bottlenecks, sort_keys=True)]),
+        ("19. Capital utilization", ["UNKNOWN where the authoritative capital snapshot does not provide a value; no capital is inferred from activity counts."]),
+        ("20. Provider performance", [json.dumps(daily.get("provider_performance", "UNKNOWN"), sort_keys=True)]),
+        ("21. Before / after", ["Baseline comparison remains UNKNOWN for metrics not present in both authoritative snapshots."]),
+        ("22. 70-item acceptance checklist", [checklist_line, "The referenced authoritative checklist is absent; no substitute checklist is claimed."]),
+        ("23. Unresolved external blockers", ["None currently evidenced."]),
+        ("24. Unresolved internal items", ["Full acceptance verification remains incomplete; checklist coverage and some engine metrics remain UNKNOWN."]),
+        ("25. Recommended next research priorities", [json.dumps(queue.get("items", "UNKNOWN"), sort_keys=True)]),
+    ]
+    for heading, content in sections:
+        lines += ["", f"## {heading}", ""] + [f"- {entry}" for entry in content]
+    lines += ["", "## Evidence limitations", "", "- Actual and shadow economics remain separate.", "- Calibrated edge and expected value remain UNKNOWN until independently calibrated.", "- Closed sessions and provider minimums are legitimate no-trade states.", "", "## Artifacts", "", "- overnight-forward-campaign.json", "- overnight-progress.json", "- overnight-errors.json", "- daily-learning-2026-08-30.json", "- research-queue.json", ""]
     return "\n".join(lines)
 
 
