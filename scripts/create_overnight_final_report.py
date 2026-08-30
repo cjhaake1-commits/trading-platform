@@ -19,6 +19,7 @@ def build_report() -> str:
     forward = _read("var/reports/overnight-forward-campaign.json")
     progress = _read("var/reports/overnight-progress.json")
     daily = _read("var/reports/daily-learning-2026-08-30.json")
+    shadow_attribution = _read("var/reports/shadow-attribution-2026-08-30.json")
     checklist = _read("var/reports/master-70-item-checklist.json")
     checklist_items = checklist.get("items") if isinstance(checklist.get("items"), list) else []
     checklist_ids = [item.get("id") for item in checklist_items if isinstance(item, dict)]
@@ -64,7 +65,7 @@ def build_report() -> str:
         ("12. Kalshi Perps status", [json.dumps((forward.get("providers") or {}).get('Kalshi Perps', 'UNKNOWN'), sort_keys=True)]),
         ("13. Shadow lab status", [json.dumps(forward.get("shadow", "UNKNOWN"), sort_keys=True)]),
         ("14. Actual paper performance", [json.dumps(daily.get("actual_results", "UNKNOWN"), sort_keys=True)]),
-        ("15. Shadow performance", [json.dumps(daily.get("shadow_scorecard", "UNKNOWN"), sort_keys=True)]),
+        ("15. Shadow performance", [json.dumps(daily.get("shadow_scorecard", "UNKNOWN"), sort_keys=True), f"Attribution: {json.dumps(shadow_attribution.get('negative_expectancy_shape', 'UNKNOWN'))}; by dimension: {json.dumps(shadow_attribution.get('by_dimension', 'UNKNOWN'), sort_keys=True)}"]),
         ("16. Strategy leaderboard", [json.dumps(strategy_evidence, sort_keys=True)]),
         ("17. Activity health", [json.dumps({name: values.get("activity_health", "UNKNOWN") for name, values in (forward.get("engines") or {}).items()}, sort_keys=True)]),
         ("18. Funnel bottlenecks", [json.dumps(bottlenecks, sort_keys=True)]),
@@ -78,7 +79,7 @@ def build_report() -> str:
     ]
     for heading, content in sections:
         lines += ["", f"## {heading}", ""] + [f"- {entry}" for entry in content]
-    lines += ["", "## Evidence limitations", "", "- Actual and shadow economics remain separate.", "- Calibrated edge and expected value remain UNKNOWN until independently calibrated.", "- Closed sessions and provider minimums are legitimate no-trade states.", "", "## Artifacts", "", "- overnight-forward-campaign.json", "- overnight-progress.json", "- overnight-errors.json", "- daily-learning-2026-08-30.json", "- research-queue.json", ""]
+    lines += ["", "## Evidence limitations", "", "- Actual and shadow economics remain separate.", "- Calibrated edge and expected value remain UNKNOWN until independently calibrated.", "- Closed sessions and provider minimums are legitimate no-trade states.", "", "## Artifacts", "", "- overnight-forward-campaign.json", "- overnight-progress.json", "- overnight-errors.json", "- daily-learning-2026-08-30.json", "- shadow-attribution-2026-08-30.json", "- research-queue.json", ""]
     return "\n".join(lines)
 
 
