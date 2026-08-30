@@ -3397,19 +3397,54 @@ def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
         values = engines.get(name) if isinstance(engines.get(name), dict) else {}
         rows.append({"Engine": name, "Activity Health": values.get("activity_health", "UNKNOWN"), "Cycles": values.get("cycles", "UNKNOWN"), "Observations": values.get("observations", "UNKNOWN"), "Signals": values.get("signals", "UNKNOWN"), "Latest": values.get("latest", "UNKNOWN")})
     st.dataframe(rows, use_container_width=True, hide_index=True)
-    st.markdown("### Provider cycle health")
+    st.markdown("### Provider health")
     providers = report.get("providers") if isinstance(report.get("providers"), dict) else {}
     provider_rows = []
-    for name in ("Kalshi Predictions", "Kalshi Perps"):
-        values = providers.get(name) if isinstance(providers.get(name), dict) else {}
+    provider_jobs = {
+        "Alpaca": {"autonomous-paper-trading", "alpaca-metals-paper-trading", "crypto-market-data-archive"},
+        "OANDA": {"oanda-fx-paper-trading"},
+        "Saxo": {"saxo-international-paper-trading"},
+    }
+    runtime_metrics = {name: [] for name in provider_jobs}
+    try:
+        with sqlite3.connect("var/autotrader/audit.db") as connection:
+            audit_rows = connection.execute(
+                "SELECT data_json, created_at FROM audit_events "
+                "WHERE event_type = 'runtime_job' AND created_at >= datetime('now', '-24 hours')"
+            ).fetchall()
+        for raw, created_at in audit_rows:
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            for name, jobs in provider_jobs.items():
+                if data.get("job") in jobs:
+                    runtime_metrics[name].append((data, created_at))
+    except sqlite3.Error:
+        pass
+    for name, entries in runtime_metrics.items():
+        durations = sorted(float(data["duration_ms"]) for data, _ in entries if data.get("duration_ms") is not None)
+        failures = sum(data.get("ok") is False for data, _ in entries)
+        successes = [created_at for data, created_at in entries if data.get("ok") is True]
         provider_rows.append({
             "Provider": name,
-            "State": values.get("state", "UNKNOWN"),
-            "Latest Observation": values.get("latest_observed_at", "UNKNOWN"),
-            "Markets/Instruments": values.get("scanned", "UNKNOWN"),
-            "Orders": values.get("orders", "UNKNOWN"),
-            "Fills": values.get("fills", "UNKNOWN"),
-            "Historical Campaign Cycles": values.get("historical_cycle_count", "UNKNOWN"),
+            "Status": "CONNECTED" if successes else ("DEGRADED" if entries else "UNKNOWN"),
+            "Last successful call": max(successes, default="UNKNOWN"),
+            "Requests (job proxy)": len(entries) if entries else "UNKNOWN",
+            "Failures": failures if entries else "UNKNOWN",
+            "p50 latency ms (job proxy)": durations[(len(durations) - 1) // 2] if durations else "UNKNOWN",
+            "p95 latency ms (job proxy)": durations[max(0, (len(durations) * 95 + 99) // 100 - 1)] if durations else "UNKNOWN",
+        })
+    for name in ("Kalshi",):
+        prediction = providers.get("Kalshi Predictions") if isinstance(providers.get("Kalshi Predictions"), dict) else {}
+        perps = providers.get("Kalshi Perps") if isinstance(providers.get("Kalshi Perps"), dict) else {}
+        timestamps = [v.get("latest_observed_at") for v in (prediction, perps) if v.get("latest_observed_at") not in (None, "UNKNOWN")]
+        provider_rows.append({
+            "Provider": name,
+            "Status": "CONNECTED" if any(v.get("state") == "SCANNING" for v in (prediction, perps)) else "UNKNOWN",
+            "Last successful call": max(timestamps, default="UNKNOWN"),
+            "Requests (job proxy)": "UNKNOWN", "Failures": "UNKNOWN",
+            "p50 latency ms (job proxy)": "UNKNOWN", "p95 latency ms (job proxy)": "UNKNOWN",
         })
     st.dataframe(provider_rows, use_container_width=True, hide_index=True)
     shadow = report.get("shadow") if isinstance(report.get("shadow"), dict) else {}
