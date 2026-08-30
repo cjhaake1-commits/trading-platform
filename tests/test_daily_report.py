@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from autotrader.daily_report import _strategy_classification, write_report
 from autotrader.paper_experiment import PaperExperimentLedger
+from scripts.create_daily_learning_report import write_report as write_legacy_report
 from scripts.create_forward_campaign_checkpoint import _provider_health, build_checkpoint
 
 
@@ -50,6 +51,16 @@ def test_daily_report_classifies_legacy_and_infrastructure_strategies():
     assert _strategy_classification("crypto.momentum") == "CURRENT_MULTI_STRATEGY"
     assert _strategy_classification("autonomous:sma_cross") == "LEGACY_BASELINE"
     assert _strategy_classification("candidate_observation") == "INFRASTRUCTURE"
+
+
+def test_legacy_daily_report_entrypoint_preserves_authoritative_schema(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    PaperExperimentLedger(tmp_path / "var/autotrader/paper_experiment.db")
+    json_path, markdown_path = write_legacy_report(datetime(2026, 8, 30, 1, tzinfo=UTC))
+    report = __import__("json").loads(json_path.read_text())
+    assert "shadow_scorecard" in report
+    assert "strategy_evidence" in report
+    assert "## Actual paper results" in markdown_path.read_text()
 
 
 def test_daily_report_keeps_runtime_provider_metrics_explicitly_proxied(tmp_path, monkeypatch):
