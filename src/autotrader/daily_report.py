@@ -114,7 +114,10 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
     with sqlite3.connect(db_path) as connection:
         connection.row_factory = sqlite3.Row
         rows = connection.execute("SELECT pillar, strategy, candidate_status, rejection_reason, market_regime FROM activity_observations WHERE occurred_at BETWEEN ? AND ?", (start, end)).fetchall()
-        shadows = connection.execute("SELECT pillar, strategy_id, result, hypothetical_pnl, exit_reason, mfe, mae, entry_at, exit_at FROM shadow_trades WHERE entry_at BETWEEN ? AND ?", (start, end)).fetchall()
+        try:
+            shadows = connection.execute("SELECT pillar, strategy_id, contributing_strategies_json, result, hypothetical_pnl, exit_reason, mfe, mae, entry_at, exit_at FROM shadow_trades WHERE entry_at BETWEEN ? AND ?", (start, end)).fetchall()
+        except sqlite3.OperationalError:
+            shadows = connection.execute("SELECT pillar, strategy_id, NULL AS contributing_strategies_json, result, hypothetical_pnl, exit_reason, mfe, mae, entry_at, exit_at FROM shadow_trades WHERE entry_at BETWEEN ? AND ?", (start, end)).fetchall()
     activity = {}
     strategy_evidence = {}
     for row in rows:
@@ -175,8 +178,19 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
             "profit_factor": pillar_positive / pillar_negative if pillar_negative else ("UNKNOWN" if not pillar_positive else "INF"),
         }
     shadow_by_strategy = {}
-    for strategy_id in sorted({row["strategy_id"] for row in shadows}):
-        strategy_rows = [row for row in shadows if row["strategy_id"] == strategy_id]
+    strategy_rows_by_id = {}
+    for row in shadows:
+        strategy_ids = [row["strategy_id"]]
+        raw_provenance = row["contributing_strategies_json"]
+        if raw_provenance:
+            try:
+                strategy_ids = json.loads(raw_provenance) or strategy_ids
+            except (TypeError, json.JSONDecodeError):
+                pass
+        for strategy_id in strategy_ids:
+            strategy_rows_by_id.setdefault(str(strategy_id), []).append(row)
+    for strategy_id in sorted(strategy_rows_by_id):
+        strategy_rows = strategy_rows_by_id[strategy_id]
         strategy_completed = [row for row in strategy_rows if row["result"] in {"WIN", "LOSS", "FLAT"}]
         strategy_pnl = [float(row["hypothetical_pnl"] or 0.0) for row in strategy_completed]
         strategy_expectancy = sum(strategy_pnl) / len(strategy_pnl) if strategy_pnl else None
