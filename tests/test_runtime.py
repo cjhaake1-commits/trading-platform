@@ -39,6 +39,21 @@ def fixed_now() -> datetime:
     return datetime(2026, 8, 16, 12, 0, tzinfo=UTC)
 
 
+def test_runtime_persists_candidate_payloads_separately_from_cycle(tmp_path):
+    ledger_path = tmp_path / "experiments.db"
+    runtime = AutonomousRuntime(
+        [CountingJob(name="oanda-fx-paper-trading")],
+        SQLiteAuditStore(tmp_path / "audit.db"),
+        RuntimeConfig(experiment_path=ledger_path, heartbeat_audit_seconds=60.0),
+        now_factory=fixed_now,
+    )
+    runtime.jobs[0].run = lambda now: JobResult(True, "ok", {"fx_diagnostics": [{"symbol": "EUR_USD", "score": 0.7, "qualified": False, "reason": "spread"}]})
+    runtime.run_once()
+    with __import__("sqlite3").connect(ledger_path) as connection:
+        row = connection.execute("SELECT pillar,market,candidate_status,rejection_reason FROM activity_observations WHERE market='EUR_USD'").fetchone()
+    assert row == ("Forex", "EUR_USD", "CANDIDATE", "spread")
+
+
 def test_runtime_respects_job_cadence(tmp_path):
     clock = FakeClock()
     job = CountingJob()

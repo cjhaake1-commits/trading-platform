@@ -146,6 +146,7 @@ class AutonomousRuntime:
                     provider_order_id=str(data.get("broker_order_id")) if data.get("broker_order_id") else None,
                     learning_update="cycle_persisted",
                 )
+                _record_candidate_payloads(self._experiment_ledger, job.name, data)
 
             if result.ok:
                 state.consecutive_failures = 0
@@ -320,3 +321,41 @@ def _provider_for_job(name: str) -> str:
     if name.startswith("kalshi"):
         return "Kalshi Demo"
     return "Alpaca Paper"
+
+
+def _record_candidate_payloads(ledger: PaperExperimentLedger, job_name: str, data: dict[str, object]) -> None:
+    """Persist engine-produced candidate diagnostics at the shared runtime boundary."""
+    payloads: list[dict[str, object]] = []
+    for key in ("diagnostics", "fx_diagnostics", "ranked_candidates", "evaluations", "candidates"):
+        value = data.get(key)
+        if isinstance(value, list):
+            payloads.extend(item for item in value if isinstance(item, dict))
+    if not payloads:
+        return
+    pillar = _pillar_for_job(job_name)
+    provider = _provider_for_job(job_name)
+    for item in payloads:
+        market = str(item.get("symbol") or item.get("market") or item.get("ticker") or job_name)
+        rejection = item.get("rejection") or item.get("reason")
+        qualified = bool(item.get("qualified"))
+        ledger.record_activity(
+            pillar=pillar,
+            engine=job_name,
+            provider=provider,
+            market=market,
+            asset_class="forex" if pillar == "Forex" else "stock",
+            strategy_id=str(item.get("strategy") or "candidate_evaluation"),
+            strategy=str(item.get("strategy") or "candidate_evaluation"),
+            strategy_version="runtime-v1",
+            model_version="runtime-v1",
+            timeframe=str(item.get("timeframe") or "UNKNOWN"),
+            market_regime=str(item.get("regime") or "UNKNOWN"),
+            features=item,
+            raw_score=float(item["score"]) if isinstance(item.get("score"), (int, float)) else None,
+            normalized_confidence=float(item["confidence"]) if isinstance(item.get("confidence"), (int, float)) else None,
+            candidate_status="QUALIFIED" if qualified else "CANDIDATE",
+            qualification_result="QUALIFIED" if qualified else "REJECTED",
+            rejection_reason=str(rejection) if rejection else None,
+            risk_decision=str(item.get("risk_approved")) if "risk_approved" in item else None,
+            learning_update="candidate_persisted",
+        )
