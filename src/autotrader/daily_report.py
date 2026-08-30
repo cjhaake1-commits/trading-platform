@@ -74,7 +74,7 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
     with sqlite3.connect(db_path) as connection:
         connection.row_factory = sqlite3.Row
         rows = connection.execute("SELECT pillar, strategy, candidate_status, rejection_reason, market_regime FROM activity_observations WHERE occurred_at BETWEEN ? AND ?", (start, end)).fetchall()
-        shadows = connection.execute("SELECT pillar, result, hypothetical_pnl, exit_reason, mfe, mae, entry_at, exit_at FROM shadow_trades WHERE entry_at BETWEEN ? AND ?", (start, end)).fetchall()
+        shadows = connection.execute("SELECT pillar, strategy_id, result, hypothetical_pnl, exit_reason, mfe, mae, entry_at, exit_at FROM shadow_trades WHERE entry_at BETWEEN ? AND ?", (start, end)).fetchall()
     activity = {}
     strategy_evidence = {}
     for row in rows:
@@ -126,12 +126,25 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
             "hypothetical_pnl": sum(pillar_pnl) if pillar_pnl else "UNKNOWN",
             "hypothetical_expectancy": sum(pillar_pnl) / len(pillar_pnl) if pillar_pnl else "UNKNOWN",
         }
+    shadow_by_strategy = {}
+    for strategy_id in sorted({row["strategy_id"] for row in shadows}):
+        strategy_rows = [row for row in shadows if row["strategy_id"] == strategy_id]
+        strategy_completed = [row for row in strategy_rows if row["result"] in {"WIN", "LOSS", "FLAT"}]
+        strategy_pnl = [float(row["hypothetical_pnl"] or 0.0) for row in strategy_completed]
+        shadow_by_strategy[strategy_id] = {
+            "entries": len(strategy_rows),
+            "completed": len(strategy_completed),
+            "wins": sum(row["result"] == "WIN" for row in strategy_completed),
+            "losses": sum(row["result"] == "LOSS" for row in strategy_completed),
+            "hypothetical_pnl": sum(strategy_pnl) if strategy_pnl else "UNKNOWN",
+            "hypothetical_expectancy": sum(strategy_pnl) / len(strategy_pnl) if strategy_pnl else "UNKNOWN",
+        }
     provider_performance = {name: _read(path) for name, path in {
         "Kalshi Predictions": "var/kalshi/execution-predictions.json",
         "Kalshi Perps": "var/kalshi/execution-perps.json",
     }.items()}
     provider_performance.update(_provider_metrics())
-    report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "activity": activity, "strategy_evidence": strategy_evidence, "actual_results": _read("var/autotrader/learning/performance_stats.json"), "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "shadow_scorecard": shadow_scorecard, "shadow_by_pillar": shadow_by_pillar, "provider_performance": provider_performance, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero", "strategy evidence is descriptive and does not imply governance promotion"]}
+    report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "activity": activity, "strategy_evidence": strategy_evidence, "actual_results": _read("var/autotrader/learning/performance_stats.json"), "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "shadow_scorecard": shadow_scorecard, "shadow_by_pillar": shadow_by_pillar, "shadow_by_strategy": shadow_by_strategy, "provider_performance": provider_performance, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero", "strategy evidence is descriptive and does not imply governance promotion"]}
     directory = Path("var/reports")
     directory.mkdir(parents=True, exist_ok=True)
     json_path = directory / f"daily-learning-{report['date']}.json"
