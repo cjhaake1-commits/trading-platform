@@ -3,13 +3,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 
 from .derived_intelligence import DerivedIntelligenceEngine
+from .intelligence_orchestrator import IntelligenceOrchestrator
 from .public_market_intelligence import (
     PublicIntelligenceCollector,
     PublicIntelligenceStore,
     stream_coinbase_and_bluesky,
 )
+from .research_platform import ResearchStore
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +37,16 @@ def main() -> None:
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return
 
+    # The stream remains the existing public-data collector; this one bounded
+    # research tick adds durable corporate/fusion knowledge without any broker
+    # or order interface.  Failures are isolated so a source cannot kill it.
+    try:
+        research = ResearchStore(os.getenv("GLOBAL_RESEARCH_DB", "var/autotrader/research.db"))
+        intelligence = IntelligenceOrchestrator(research)
+        intelligence_result = intelligence.run_once()
+    except Exception as exc:  # pragma: no cover - defensive service boundary
+        intelligence_result = {"state": "DEGRADED", "error": f"{type(exc).__name__}: {exc}", "research_only": True}
+
     if args.derive:
         result = DerivedIntelligenceEngine(PublicIntelligenceStore(args.db)).run()
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
@@ -45,6 +58,7 @@ def main() -> None:
             max_events=args.events or None,
         )
     )
+    result["intelligence"] = intelligence_result
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
