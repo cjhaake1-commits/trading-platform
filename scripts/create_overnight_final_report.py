@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -40,7 +41,10 @@ def build_report() -> str:
         and master_checklist_available
     )
     status = "HIGH_ACTIVITY_PAPER_LAB_V1 — VERIFIED" if verified else "HIGH_ACTIVITY_PAPER_LAB_V1 — NOT YET VERIFIED"
-    verified_sha = validation.get("git_sha") or progress.get("git_sha", "UNKNOWN")
+    try:
+        verified_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        verified_sha = validation.get("git_sha") or progress.get("git_sha", "UNKNOWN")
     lines = [status, "", f"Generated: {datetime.now(UTC).isoformat()}", f"Final verified SHA: {verified_sha}", "", "## Runtime and safety", "", f"- LIVE_TRADING_ENABLED: {safety.get('live_trading_enabled', 'UNKNOWN')}", f"- Real-money orders: {safety.get('real_money_orders', 'UNKNOWN')}", f"- Runtime healthy: {progress.get('runtime', {}).get('healthy', 'UNKNOWN')}", f"- Execution state: {progress.get('runtime', {}).get('execution_state', 'UNKNOWN')}", f"- Unresolved runtime failures: {runtime.get('unresolved_runtime_failures', 'UNKNOWN')}", "", "## Forward campaign", ""]
     for name, values in (forward.get("engines") or {}).items():
         if isinstance(values, dict):
