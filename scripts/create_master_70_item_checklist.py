@@ -100,8 +100,7 @@ def build_checklist() -> dict[str, object]:
     forward = read("var/reports/overnight-forward-campaign.json")
     progress = read("var/reports/overnight-progress.json")
     safety = forward.get("safety", {}) if isinstance(forward.get("safety"), dict) else {}
-    runtime = forward.get("runtime_evidence", {}) if isinstance(forward.get("runtime_evidence"), dict) else {}
-    items = [{"id": item_id, "requirement": text, "status": _status(item_id, safety, runtime, progress)[0], "basis": _status(item_id, safety, runtime, progress)[1]} for item_id, text in ITEMS]
+    items = [{"id": item_id, "requirement": text, "status": _status(item_id, safety, forward, progress)[0], "basis": _status(item_id, safety, forward, progress)[1]} for item_id, text in ITEMS]
     return {"report_id": "MASTER_70_ITEM_ACCEPTANCE", "generated_at": datetime.now(UTC).isoformat(), "items": items, "all_pass": all(item["status"] == "PASS" for item in items)}
 
 
