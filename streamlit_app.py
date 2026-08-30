@@ -3381,6 +3381,32 @@ def _render_daily_reports_view(ctx: dict[str, object]) -> None:
     st.dataframe([payload], use_container_width=True, hide_index=True)
 
 
+def _render_autonomous_lab_view(ctx: dict[str, object]) -> None:
+    """Display the authoritative paper-lab evidence without inventing values."""
+    st.markdown("## AUTONOMOUS TRADING LAB")
+    report = _safe_json(Path("var/reports/overnight-forward-campaign.json"))
+    daily = _safe_json(Path(f"var/reports/daily-learning-{datetime.now(UTC).date().isoformat()}.json"))
+    safety = report.get("safety") if isinstance(report.get("safety"), dict) else {}
+    st.caption(
+        f"MODE: {safety.get('mode', 'UNKNOWN')} · LIVE_TRADING_ENABLED: {safety.get('live_trading_enabled', 'UNKNOWN')} · "
+        f"REAL-MONEY ORDERS: {safety.get('real_money_orders', 'UNKNOWN')} · EVIDENCE: {report.get('evidence_policy', 'UNKNOWN')}"
+    )
+    engines = report.get("engines") if isinstance(report.get("engines"), dict) else {}
+    rows = []
+    for name in ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps"):
+        values = engines.get(name) if isinstance(engines.get(name), dict) else {}
+        rows.append({"Engine": name, "Cycles": values.get("cycles", "UNKNOWN"), "Observations": values.get("observations", "UNKNOWN"), "Signals": values.get("signals", "UNKNOWN"), "Latest": values.get("latest", "UNKNOWN")})
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    shadow = report.get("shadow") if isinstance(report.get("shadow"), dict) else {}
+    cols = st.columns(4)
+    for col, label, key in zip(cols, ("Shadow Entries", "Shadow Exits", "Completed Shadow P&L", "Daily Observations"), ("entries", "exits", "completed_pnl", "observations"), strict=True):
+        value = shadow.get(key, daily.get("shadow_results", {}).get("entries", "UNKNOWN") if key == "observations" else "UNKNOWN")
+        col.metric(label, value)
+    st.markdown("### Evidence limitations")
+    limitations = daily.get("evidence_limitations", [])
+    st.write(limitations if limitations else ["UNKNOWN"])
+
+
 def render_dashboard() -> None:
     last_refreshed = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     st.session_state["dashboard_last_refreshed"] = last_refreshed
@@ -3425,6 +3451,7 @@ def render_dashboard() -> None:
         "Navigation",
         [
             "OVERVIEW",
+            "AUTONOMOUS LAB",
             "PILLARS",
             "POSITIONS",
             "TRADES",
@@ -3441,6 +3468,8 @@ def render_dashboard() -> None:
     _render_dashboard_shell(ctx, selected_view)
     if selected_view == "OVERVIEW":
         _render_overview(ctx)
+    elif selected_view == "AUTONOMOUS LAB":
+        _render_autonomous_lab_view(ctx)
     elif selected_view == "PILLARS":
         _render_pillars_view(ctx)
     elif selected_view == "POSITIONS":
