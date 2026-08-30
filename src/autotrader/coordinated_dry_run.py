@@ -77,7 +77,13 @@ class FivePillarDryRunner:
         for candidate in candidates:
             pillar_cap = PILLAR_ALLOCATIONS[candidate.pillar]
             pillar_deployed = deployed.get(candidate.pillar, 0.0)
-            context = RiskContext(gross_notional=gross, asset_class_notional=pillar_deployed, peak_equity=state.equity)
+            scoped_symbols = {
+                "alpaca_crypto": {symbol for symbol in state.positions if "/" in symbol or symbol.upper().endswith("USD")},
+                "oanda_fx": {symbol for symbol in state.positions if "/" in symbol and symbol.upper().replace("/", "")[:3] in {"EUR", "GBP", "AUD", "NZD", "USD", "CAD", "JPY"}},
+                "alpaca_metals": {symbol for symbol in state.positions if symbol.upper() in {"GLD", "IAU", "SGOL", "SLV", "SIVR", "GDX", "GDXJ", "SIL"}},
+            }
+            scoped = scoped_symbols.get(candidate.pillar, {symbol for symbol in state.positions if "/" not in symbol and not symbol.upper().endswith("USD")})
+            context = RiskContext(gross_notional=gross, asset_class_notional=pillar_deployed, peak_equity=state.equity, open_position_count=len(scoped))
             risk = self.risk.evaluate(
                 candidate.proposal,
                 state,
@@ -88,8 +94,6 @@ class FivePillarDryRunner:
             quantity = 0.0
             if candidate.proposal.stop_price <= 0:
                 status, reason = "rejected", "Explicit stop/invalidation level is required"
-            elif len(state.positions) >= RiskLimits().max_open_positions:
-                status, reason = "rejected", "Maximum open positions reached"
             elif pillar_deployed >= pillar_cap:
                 status, reason = "rejected", "Pillar allocation cap reached"
             elif not risk.approved:

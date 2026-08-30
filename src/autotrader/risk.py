@@ -38,6 +38,7 @@ class RiskContext:
     correlation_scale: float = 1.0
     liquidity_scale: float = 1.0
     health_scale: float = 1.0
+    open_position_count: int | None = None
 
     def effective_scale(self) -> float:
         values = (
@@ -94,7 +95,7 @@ class RiskEngine:
 
         if (
             proposal.intent is TradeIntent.ENTER
-            and len(portfolio.positions) >= self.limits.max_open_positions
+            and (context.open_position_count if context and context.open_position_count is not None else len(portfolio.positions)) >= self.limits.max_open_positions
         ):
             return RiskDecision(False, "Maximum open positions reached")
 
