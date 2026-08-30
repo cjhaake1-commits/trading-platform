@@ -197,19 +197,29 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
     ) or "<tr><td colspan='4'>No parameter updates yet</td></tr>"
 
     lab_engines = lab.get("engines") if isinstance(lab.get("engines"), dict) else {}
+    daily_activity = daily_learning.get("activity") if isinstance(daily_learning.get("activity"), dict) else {}
+    actual_results = daily_learning.get("actual_results") if isinstance(daily_learning.get("actual_results"), dict) else {}
     lab_rows = ""
     for name in ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps"):
         values = lab_engines.get(name) if isinstance(lab_engines.get(name), dict) else {}
+        activity_values = daily_activity.get(name) if isinstance(daily_activity.get(name), dict) else {}
+        bottlenecks = activity_values.get("top_bottlenecks") if isinstance(activity_values.get("top_bottlenecks"), dict) else {}
+        top_bottleneck = next(iter(bottlenecks), "UNKNOWN")
         cells = [
-            name, values.get("activity_health", "UNKNOWN"), values.get("latest", "UNKNOWN"),
+            name, (values.get("status") or ("OBSERVED" if values.get("latest", "UNKNOWN") != "UNKNOWN" else "UNKNOWN")), values.get("activity_health", "UNKNOWN"), values.get("latest", "UNKNOWN"),
             values.get("markets_scanned", "UNKNOWN"), values.get("strategy_evaluations", "UNKNOWN"),
             values.get("candidates", "UNKNOWN"), values.get("signals", "UNKNOWN"),
-            values.get("qualified", "UNKNOWN"), values.get("actual_orders", "UNKNOWN"),
-            values.get("shadow_entries", "UNKNOWN"), values.get("fills", "UNKNOWN"),
-            values.get("shadow_exits", "UNKNOWN"), values.get("shadow_expectancy", "UNKNOWN"),
+            values.get("positive_edge_or_proxy", "UNKNOWN"), values.get("qualified", "UNKNOWN"), values.get("actual_orders", "UNKNOWN"),
+            values.get("shadow_entries", "UNKNOWN"), values.get("fills", "UNKNOWN"), values.get("shadow_exits", "UNKNOWN"),
+            values.get("actual_exits", "UNKNOWN"), values.get("shadow_expectancy", "UNKNOWN"),
+            values.get("open_actual", "UNKNOWN"), values.get("open_shadow", "UNKNOWN"),
+            actual_results.get("expectancy", "UNKNOWN") if name == "Stocks" else "UNKNOWN",
+            actual_results.get("cumulative_realized_pnl", "UNKNOWN") if name == "Stocks" else "UNKNOWN",
+            values.get("capital_utilization", "UNKNOWN"), activity_values.get("observations", "UNKNOWN"), top_bottleneck,
+            (activity_values.get("regime") or "UNKNOWN"),
         ]
         lab_rows += "<tr>" + "".join(f"<td>{html.escape(str(cell))}</td>" for cell in cells) + "</tr>"
-    lab_rows = lab_rows or "<tr><td colspan='13'>UNKNOWN</td></tr>"
+    lab_rows = lab_rows or "<tr><td colspan='24'>UNKNOWN</td></tr>"
     strategy_rows = ""
     strategy_evidence = daily_learning.get("strategy_evidence") if isinstance(daily_learning.get("strategy_evidence"), dict) else {}
     for strategy, values in sorted(strategy_evidence.items()):
@@ -301,7 +311,7 @@ Guardrails: <code>hard limits immutable; cash/no-trade valid</code>
 </section>
 <section><h2>AUTONOMOUS TRADING LAB</h2>
 <div class='card meta'>Evidence source: <code>overnight-forward-campaign.json</code>. UNKNOWN means the authoritative source did not provide a value.</div>
-<table><thead><tr><th>Engine</th><th>Health</th><th>Last Cycle</th><th>Markets</th><th>Evaluations</th><th>Candidates</th><th>Signals</th><th>Qualified</th><th>Actual Orders</th><th>Shadow Trades</th><th>Fills</th><th>Shadow Exits</th><th>Shadow Expectancy</th></tr></thead><tbody>{lab_rows}</tbody></table>
+<table><thead><tr><th>Engine</th><th>Status</th><th>Health</th><th>Last Cycle</th><th>Markets</th><th>Evaluations</th><th>Candidates</th><th>Signals</th><th>Edge/Proxy</th><th>Qualified</th><th>Actual Orders</th><th>Shadow Trades</th><th>Fills</th><th>Shadow Exits</th><th>Actual Exits</th><th>Shadow Expectancy</th><th>Actual Expectancy</th><th>Realized P&amp;L</th><th>Capital Util.</th><th>Learning</th><th>Top Bottleneck</th><th>Regime</th></tr></thead><tbody>{lab_rows}</tbody></table>
 </section>
 <section><h2>Strategy leaderboard</h2>
 <table><thead><tr><th>Strategy</th><th>Evidence</th><th>Observations</th><th>Signals</th><th>Qualified</th></tr></thead><tbody>{strategy_rows}</tbody></table>
