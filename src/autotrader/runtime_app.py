@@ -86,6 +86,23 @@ class OvernightErrorLedgerJob:
 
 
 @dataclass
+class OvernightProgressJob:
+    """Refresh the durable evidence-only progress checkpoint."""
+
+    name: str = "overnight-progress"
+    cadence_seconds: float = 300.0
+
+    def run(self, now: datetime) -> JobResult:
+        try:
+            from scripts.create_overnight_progress import write_progress
+
+            path = write_progress()
+            return JobResult(True, "Overnight progress written", {"path": str(path), "updated_at": now.isoformat()})
+        except Exception as exc:
+            return JobResult(True, "Overnight progress unavailable", {"state": "DEGRADED", "error": f"{type(exc).__name__}: {exc}", "updated_at": now.isoformat()})
+
+
+@dataclass
 class FoundationAuditJob:
     """Persist truthful accounting/learning readiness without broker mutation."""
     ledger_path: str = "var/autotrader/portfolio.db"
@@ -428,6 +445,7 @@ def main() -> None:
     if args.autonomous_paper:
         jobs.append(ForwardCampaignCheckpointJob())
         jobs.append(OvernightErrorLedgerJob(audit_db=args.audit_db))
+        jobs.append(OvernightProgressJob())
         jobs.append(ActiveV2ReconciliationJob(ledger_path=args.ledger))
         jobs.append(CryptoLifecycleReconciliationJob(ledger_path=args.ledger))
         jobs.append(
