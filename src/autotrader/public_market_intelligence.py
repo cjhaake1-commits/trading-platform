@@ -577,6 +577,8 @@ async def stream_coinbase_and_bluesky(
     products: Iterable[str] | None = None,
     bluesky_collections: Iterable[str] | None = None,
     max_events: int | None = None,
+    maintenance: Any | None = None,
+    maintenance_seconds: float = 900.0,
 ) -> dict[str, int]:
     """Consume public high-rate market and social streams for research only."""
 
@@ -698,7 +700,20 @@ async def stream_coinbase_and_bluesky(
                     stop.set()
                     return
 
+    async def maintain() -> None:
+        if maintenance is None:
+            return
+        while not stop.is_set():
+            try:
+                await maintenance()
+            except Exception:
+                # Source maintenance is isolated from the market/social streams.
+                pass
+            await asyncio.sleep(max(5.0, maintenance_seconds))
+
     tasks = [asyncio.create_task(coinbase()), asyncio.create_task(bluesky())]
+    if maintenance is not None:
+        tasks.append(asyncio.create_task(maintain()))
     if max_events is None:
         await asyncio.gather(*tasks)
     else:

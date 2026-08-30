@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+from datetime import UTC, datetime
 
 from .derived_intelligence import DerivedIntelligenceEngine
 from .intelligence_orchestrator import IntelligenceOrchestrator
@@ -13,6 +14,7 @@ from .public_market_intelligence import (
     stream_coinbase_and_bluesky,
 )
 from .research_platform import ResearchStore
+from .sec_scheduler import SecResearchScheduler
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,10 +42,22 @@ def main() -> None:
     # The stream remains the existing public-data collector; this one bounded
     # research tick adds durable corporate/fusion knowledge without any broker
     # or order interface.  Failures are isolated so a source cannot kill it.
+    async def maintenance() -> None:
+        research = ResearchStore(os.getenv("GLOBAL_RESEARCH_DB", "var/autotrader/research.db"))
+        intelligence = IntelligenceOrchestrator(research)
+        result = intelligence.run_once()
+        result["sec"] = SecResearchScheduler(intelligence.learning).run_batch()
+        research.put_report(datetime.now(UTC).date(), {"intelligence": result, "research_only": True,
+                                                        "source": "public_intelligence_runtime"})
+
     try:
         research = ResearchStore(os.getenv("GLOBAL_RESEARCH_DB", "var/autotrader/research.db"))
         intelligence = IntelligenceOrchestrator(research)
         intelligence_result = intelligence.run_once()
+        sec_result = SecResearchScheduler(intelligence.learning).run_batch()
+        research.put_report(datetime.now(UTC).date(), {"intelligence": intelligence_result,
+                                                       "sec": sec_result, "research_only": True, "source": "public_intelligence_runtime"})
+        intelligence_result["sec"] = sec_result
     except Exception as exc:  # pragma: no cover - defensive service boundary
         intelligence_result = {"state": "DEGRADED", "error": f"{type(exc).__name__}: {exc}", "research_only": True}
 
@@ -56,6 +70,8 @@ def main() -> None:
         stream_coinbase_and_bluesky(
             store_path=args.db,
             max_events=args.events or None,
+            maintenance=maintenance,
+            maintenance_seconds=float(os.getenv("PUBLIC_INTELLIGENCE_MAINTENANCE_SECONDS", "900")),
         )
     )
     result["intelligence"] = intelligence_result

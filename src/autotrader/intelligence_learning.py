@@ -49,6 +49,11 @@ class IntelligenceLearningTree:
                 source TEXT PRIMARY KEY, last_attempt TEXT NOT NULL, last_success TEXT,
                 records INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, error TEXT
             );
+            CREATE TABLE IF NOT EXISTS intelligence_attribution (
+                hypothesis_id TEXT NOT NULL, feature_family TEXT NOT NULL, version TEXT NOT NULL,
+                classification TEXT NOT NULL, sample_count INTEGER NOT NULL, expectancy_delta REAL,
+                updated_at TEXT NOT NULL, PRIMARY KEY(hypothesis_id, feature_family, version)
+            );
             CREATE INDEX IF NOT EXISTS idx_intelligence_jobs_due ON intelligence_outcome_jobs(status, due_at);
             """)
 
@@ -108,6 +113,26 @@ class IntelligenceLearningTree:
             conn.execute("INSERT INTO intelligence_hypotheses(hypothesis_id,name,version,status,sample_count,forward_count,expectancy,max_drawdown,reason,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(hypothesis_id) DO UPDATE SET version=excluded.version,status=excluded.status,sample_count=excluded.sample_count,forward_count=excluded.forward_count,expectancy=excluded.expectancy,max_drawdown=excluded.max_drawdown,reason=excluded.reason,updated_at=excluded.updated_at",
                          (hypothesis_id, name, version, status, sample_count, forward_count, expectancy, max_drawdown, reason, datetime.now(UTC).isoformat()))
         return status, reason
+
+    def register_observation_hypotheses(self, *, observation_id: str, symbol: str,
+                                        signal_value: float = 0.0) -> int:
+        """Create research groupings from observed evidence; never creates orders."""
+        names = ("SOCIAL_ATTENTION_PLUS_VOLUME", "FILING_POSITIVE_DELTA_PLUS_MOMENTUM",
+                 "FUNDAMENTAL_ACCELERATION", "CROSS_PILLAR_CONFIRMATION")
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as conn:
+            conn.executemany("INSERT OR IGNORE INTO intelligence_hypotheses(hypothesis_id,name,version,status,reason,updated_at) VALUES(?,?,?,?,?,?)",
+                             [(f"{name}:v1", name, "v1", "DISCOVERED", f"observation={observation_id}; signal={signal_value}", now) for name in names])
+        return len(names)
+
+    def record_attribution(self, *, hypothesis_id: str, feature_family: str, sample_count: int,
+                           expectancy_delta: float | None, version: str = "v1") -> str:
+        classification = "INSUFFICIENT_EVIDENCE" if sample_count < 30 else (
+            "POSITIVE" if (expectancy_delta or 0) > 0 else "NEGATIVE" if (expectancy_delta or 0) < 0 else "NEUTRAL")
+        with self._connect() as conn:
+            conn.execute("INSERT OR REPLACE INTO intelligence_attribution VALUES(?,?,?,?,?,?,?)",
+                         (hypothesis_id, feature_family, version, classification, sample_count, expectancy_delta, datetime.now(UTC).isoformat()))
+        return classification
 
     def resolve(self, *, observation_id: str, horizon: str, return_pct: float,
                 mfe: float | None = None, mae: float | None = None,

@@ -33,3 +33,9 @@ def test_hypothesis_status_is_durable(tmp_path):
     assert status == "SHADOW_TESTING"
     with tree._connect() as conn:
         assert conn.execute("SELECT status FROM intelligence_hypotheses WHERE hypothesis_id='h1'").fetchone()[0] == status
+
+
+def test_observation_populates_hypotheses_and_small_sample_attribution(tmp_path):
+    tree = IntelligenceLearningTree(tmp_path / "research.db")
+    assert tree.register_observation_hypotheses(observation_id="o1", symbol="ABC") == 4
+    assert tree.record_attribution(hypothesis_id="h1", feature_family="social", sample_count=1, expectancy_delta=None) == "INSUFFICIENT_EVIDENCE"
