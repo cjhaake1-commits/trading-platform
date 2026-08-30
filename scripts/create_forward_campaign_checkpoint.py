@@ -94,6 +94,10 @@ def build_checkpoint(db_path: str = "var/autotrader/paper_experiment.db", now: d
     for engine in ("Stocks", "Crypto"):
         counts[engine]["cycles"] = "UNKNOWN"
         counts[engine]["shared_stocks_crypto_cycles"] = shared_cycles
+        counts[engine]["activity_health_components"]["cycle"] = bool(shared_cycles)
+        if counts[engine].get("observations"):
+            components = counts[engine]["activity_health_components"]
+            counts[engine]["activity_health"] = round(sum(components.values()) * 100 / len(components))
     providers = {}
     for name, filename in (("Kalshi Predictions", "execution-predictions.json"), ("Kalshi Perps", "execution-perps.json")):
         path = Path("var/kalshi") / filename
