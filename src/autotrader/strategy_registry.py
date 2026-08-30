@@ -141,6 +141,10 @@ class StrategyRegistry:
 def default_strategy_definitions() -> tuple[StrategyDefinition, ...]:
     pillars = ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps")
     strategies = ("MOMENTUM", "BREAKOUT", "MEAN_REVERSION", "TREND_FOLLOWING", "RELATIVE_STRENGTH")
+    extras = {
+        "Forex": ("SESSION_MOMENTUM",),
+        "Metals": ("VOLATILITY_EXPANSION",),
+    }
     return tuple(
         StrategyDefinition(
             strategy_id=f"{pillar.lower().replace(' ', '_')}.{strategy.lower()}",
@@ -153,7 +157,7 @@ def default_strategy_definitions() -> tuple[StrategyDefinition, ...]:
             capital_limit=1000.0,
         )
         for pillar in pillars
-        for strategy in strategies
+        for strategy in (*strategies, *extras.get(pillar, ()))
     )
 
 

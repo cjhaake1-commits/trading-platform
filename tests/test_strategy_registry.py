@@ -1,6 +1,6 @@
 import pytest
 
-from autotrader.strategy_registry import StrategyDefinition, StrategyRegistry
+from autotrader.strategy_registry import StrategyDefinition, StrategyRegistry, default_strategy_definitions
 
 
 def _definition() -> StrategyDefinition:
@@ -36,3 +36,9 @@ def test_registry_rejects_version_change_and_invalid_status(tmp_path):
         registry.register(_definition().__class__(**{**_definition().__dict__, "version": "v2"}))
     with pytest.raises(ValueError, match="invalid strategy status"):
         registry.register(_definition().__class__(**{**_definition().__dict__, "strategy_id": "x", "status": "LIVE"}))
+
+
+def test_default_registry_includes_distinct_implemented_session_strategies():
+    definitions = {item.strategy_id for item in default_strategy_definitions()}
+    assert "forex.session_momentum" in definitions
+    assert "metals.volatility_expansion" in definitions
