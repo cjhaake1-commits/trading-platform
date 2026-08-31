@@ -580,6 +580,20 @@ def main():
             unsafe_allow_html=True,
         )
 
+    # Provider truth for the two previously ambiguous pillars is shown
+    # separately from capital exposure: a closed/flat market is not an engine
+    # failure, and Kalshi read health is independent of its blocked mutation.
+    st.markdown('<div class="section">International & Kalshi Provider Truth</div>', unsafe_allow_html=True)
+    international_session = saxo_live.get("session_state") or saxo_live.get("market_status") or "UNKNOWN"
+    international_next = saxo_live.get("next_activation") or saxo_live.get("next_open") or "UNKNOWN"
+    kalshi_connection = kalshi.get("connection") or kalshi.get("provider_state") or "UNKNOWN"
+    kalshi_mutation = kalshi.get("provider_mutation") or kalshi.get("mutation_state") or "PROVIDER MUTATION BLOCKED — USER_NOT_FOUND"
+    st.markdown(
+        f"<div class='board-sub'>International: {international_session} · connected={saxo_live.get('connected', 'UNKNOWN')} · instruments={saxo_live.get('instruments_discovered', 'UNKNOWN')} · next activation={international_next}</div>"
+        f"<div class='board-sub'>Kalshi provider data: {kalshi_connection} · Predictions/Perps scanner: {kalshi.get('scanner', 'UNKNOWN')} · mutation: {kalshi_mutation}</div>",
+        unsafe_allow_html=True,
+    )
+
     hv = _load_high_velocity()
     lane_summary = _load_lane_summary()
     micro_candidates = len(hv.get("micro_candidates", [])) if isinstance(hv.get("micro_candidates"), list) else 0

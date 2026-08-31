@@ -89,3 +89,9 @@ def test_fresh_crypto_provider_state_overrides_stale_ledger_snapshot():
     assert crypto["equity"] == 102630.8
     assert crypto["positions"] == 1
     assert crypto["working_orders"] == 2
+
+
+def test_provider_truth_section_keeps_kalshi_mutation_separate():
+    source = Path("performance_board.py").read_text(encoding="utf-8")
+    assert "International & Kalshi Provider Truth" in source
+    assert "PROVIDER MUTATION BLOCKED — USER_NOT_FOUND" in source
