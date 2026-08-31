@@ -1,10 +1,10 @@
 {
-  "current_prompt": "PROMPT_06",
-  "completed": ["PROMPT_01", "PROMPT_02", "PROMPT_03", "PROMPT_04", "PROMPT_05"],
-  "failed_external": ["PROMPT_04: Kalshi demo trading gate is disabled in configured environment", "PROMPT_05: Kalshi Perps demo trading gate is disabled in configured environment"],
-  "issues_fixed": ["OANDA trade tag lookup missed filled trade; cleanup used provider trade identity", "Saxo precheck omitted ManualOrder"],
-  "issues_for_review": ["Kalshi Predictions and Perps provider-native writes require operator-enabled demo trading configuration"],
+  "current_prompt": "PROMPT_05R",
+  "completed": ["PROMPT_01", "PROMPT_02", "PROMPT_03", "PROMPT_04R", "PROMPT_04B"],
+  "failed_external": ["PROMPT_04B: Kalshi Demo mutation returned user_not_found", "PROMPT_05R: pending Perps capability verification"],
+  "issues_fixed": ["OANDA trade tag lookup missed filled trade; cleanup used provider trade identity", "Saxo precheck omitted ManualOrder", "Kalshi mutation request now exposes provider error body"],
+  "issues_for_review": ["Kalshi Demo account returns user_not_found for provider mutation despite successful authenticated reads"],
   "last_sha": "8d819d9ffaa5ca50738c64fcb017adcf4eb82b75",
   "tests": 447,
-  "updated_at": "2026-08-31T02:29:00+00:00"
+  "updated_at": "2026-08-31T02:35:00+00:00"
 }

@@ -176,8 +176,12 @@ class KalshiDemoExecutionClient(KalshiReadOnlyClient):
         headers.update(self.auth.sign(method, __import__("urllib.parse", fromlist=["urlparse"]).urlparse(url).path))
         request = Request(url, method=method.upper(), headers=headers,
                           data=None if payload is None else json.dumps(payload).encode("utf-8"))
-        with urlopen(request, timeout=self.timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")[:1000]
+            raise RuntimeError(f"Kalshi Demo mutation HTTP {exc.code}: {body}") from exc
 
     def create_order(self, payload: dict[str, Any], *, family: str = "predictions") -> dict[str, Any]:
         path = "portfolio/events/orders" if family == "predictions" else "orders"
