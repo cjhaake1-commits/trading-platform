@@ -146,9 +146,10 @@ def test_streamlit_dashboard_reads_normalized_ledger_authority():
     assert '"authoritative_accounting"' in source
 
 
-def test_streamlit_dashboard_defaults_auto_refresh_off():
+def test_streamlit_dashboard_defaults_to_read_only_auto_refresh():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
-    assert 'st.session_state.get("dashboard_auto_refresh", False)' in source
+    assert 'st.session_state.get("dashboard_auto_refresh", True)' in source
+    assert '"20 seconds"' in source
 
 
 def test_provider_health_uses_lab_utc_cutoff_not_sqlite_wall_clock():

@@ -1423,6 +1423,22 @@ def _build_dashboard_context() -> dict[str, object]:
             trades.append(trade)
     crypto_realized = sum(_float(row.get("realized_pnl")) for row in provider_trades if isinstance(row, dict))
     crypto_realized_today = _float(crypto_history.get("realized_today"))
+    # Keep the dashboard's persisted portfolio report on the same direct
+    # provider/runtime read used by the visible board.  This intentionally
+    # does not consult the stale published capital reconciliation file.
+    try:
+        import performance_board as board
+
+        board_pillars = board.build_pillars(
+            snapshot, runtime, live_pillar_status, _kalshi_status(), live_positions,
+            board._saxo_live_truth(), crypto_realized_today=crypto_realized_today,
+        )
+        board.write_authoritative_portfolio_snapshot(board_pillars)
+    except Exception:
+        # The dashboard must remain available if an optional report write has
+        # a transient provider/read failure; visible provider errors remain in
+        # the normal context below.
+        pass
     crypto_stats = dict(pillar_performance.get("Crypto") or {})
     if provider_trades:
         pnl_values = [_float(row.get("realized_pnl")) for row in provider_trades]
@@ -3632,16 +3648,16 @@ def render_dashboard() -> None:
         """,
         unsafe_allow_html=True,
     )
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=bool(st.session_state.get("dashboard_auto_refresh", False)))
+    auto_refresh = st.sidebar.toggle("Auto Refresh", value=bool(st.session_state.get("dashboard_auto_refresh", True)))
     st.session_state["dashboard_auto_refresh"] = auto_refresh
     refresh_interval = st.sidebar.radio(
         "Refresh Interval",
-        ["30 seconds", "60 seconds", "120 seconds"],
-        index=["30 seconds", "60 seconds", "120 seconds"].index(
-            str(st.session_state.get("dashboard_refresh_interval", "60 seconds"))
+        ["20 seconds", "30 seconds", "60 seconds", "120 seconds"],
+        index=["20 seconds", "30 seconds", "60 seconds", "120 seconds"].index(
+            str(st.session_state.get("dashboard_refresh_interval", "20 seconds"))
         )
         if str(st.session_state.get("dashboard_refresh_interval", "60 seconds"))
-        in {"30 seconds", "60 seconds", "120 seconds"}
+        in {"20 seconds", "30 seconds", "60 seconds", "120 seconds"}
         else 1,
         horizontal=False,
         key="dashboard_refresh_interval_widget",
@@ -3651,7 +3667,7 @@ def render_dashboard() -> None:
         fetch_live_broker_data.clear()
         st.rerun()
     if auto_refresh:
-        interval_seconds = {"30 seconds": 30, "60 seconds": 60, "120 seconds": 120}.get(refresh_interval, 60)
+        interval_seconds = {"20 seconds": 20, "30 seconds": 30, "60 seconds": 60, "120 seconds": 120}.get(refresh_interval, 20)
         st.markdown(f"<meta http-equiv='refresh' content='{interval_seconds}'>", unsafe_allow_html=True)
         st.sidebar.caption(f"Last refreshed: {last_refreshed}")
     else:
