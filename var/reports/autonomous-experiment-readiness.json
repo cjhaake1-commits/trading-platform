@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-08-31T23:48:02.385062+00:00",
+  "source": "current persistent runtime evidence",
+  "categories": {
+    "ACCOUNTING": {
+      "status": "PASS",
+      "evidence": "corrected economic snapshot"
+    },
+    "OBJECTIVE TELEMETRY": {
+      "status": "PASS",
+      "evidence": "corrected persistent baseline"
+    },
+    "STRATEGY HEALTH": {
+      "status": "PASS",
+      "evidence": "bounded production gates"
+    },
+    "LEARNING-DRIVEN RANKING": {
+      "status": "PASS",
+      "evidence": "learning-decision-influence.json"
+    },
+    "SCHEDULER FAILURE ISOLATION": {
+      "status": "PASS",
+      "evidence": "subsequent jobs completed after Stocks failure"
+    },
+    "MULTI-PILLAR UNATTENDED OPERATION": {
+      "status": "PASS",
+      "evidence": "scheduler status reached Stocks, Forex, Metals, International"
+    },
+    "KALSHI MUTATION": {
+      "status": "PARTIAL",
+      "evidence": "external HTTP 404 user_not_found"
+    }
+  }
+}
