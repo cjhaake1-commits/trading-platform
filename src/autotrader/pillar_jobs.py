@@ -19,6 +19,7 @@ from .paper_experiment import PaperExperimentConfig, PaperExperimentLedger, expe
 from .runtime import JobResult
 from .scanner import CandidateScanner
 from .strategies import BaselineStrategies
+from .strategy_health import load_persisted_health, rank_opportunities
 
 
 def _bars_from_saxo(samples, instrument: Instrument) -> list[MarketBar]:
@@ -155,6 +156,9 @@ class MetalsPaperTradingJob:
             return JobResult(True, "Metals experimental capital envelope reached", {"pillar": PILLAR_METALS, "candidate": candidate.instrument.symbol, "mode": mode, "rejection": "EXPERIMENTAL_CAPITAL_ENVELOPE", "deployed": deployed, "metals_diagnostics": readiness})
         if mode == "EXPERIMENTAL_PAPER":
             proposal = replace(proposal, requested_quantity=1.0)
+        governance = rank_opportunities([{"strategy": proposal.source, "strategy_version": "metals-baseline-v1" if mode == "BASELINE" else "metals-experimental-v1", "raw_score": candidate.score, "risk_approved": True}], load_persisted_health())[0]
+        if not governance["execution_eligible"]:
+            return JobResult(True, "Metals candidate moved to shadow by strategy health", {"pillar": PILLAR_METALS, "qualified": False, "shadow_eligible": True, "rejection": "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY", "strategy_health": governance["strategy_health"]})
         experiment_ledger = getattr(self, "experiment_ledger", None)
         if experiment_ledger is not None:
             experiment_ledger.record_decision(
@@ -459,6 +463,11 @@ class InternationalPaperTradingJob:
             confluence = aggregate_confluence(evaluations)
             eligible = [proposal for proposal in proposals.values() if proposal is not None and proposal.side is Side.BUY]
             proposal = max(eligible, key=lambda item: item.confidence) if confluence.direction == "BUY" and eligible else None
+            governance = rank_opportunities([{"strategy": proposal.source if proposal else "NONE", "strategy_version": "international-baseline-v1", "raw_score": ranked_candidate.score, "risk_approved": True}], load_persisted_health())[0]
+            if proposal is not None and not governance["execution_eligible"]:
+                evaluation = {"symbol": candidate, "qualified": False, "rejection": "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY", "strategy_health": governance["strategy_health"], "shadow_eligible": True}
+                evaluations.append(evaluation)
+                continue
             provider_minimum_quantity = max(
                 float(source.minimum_trade_size or 0.0) if source else 0.0,
                 float(source.minimum_lot_size or 0.0) if source else 0.0,
