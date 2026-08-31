@@ -132,3 +132,13 @@ def test_saxo_reconciliation_does_not_adopt_legacy_position(tmp_path):
     assert payload["position_count"] == 1
     assert payload["platform_owned_positions"] == 0
     assert payload["external_legacy_unknown_positions"] == 1
+
+
+def test_shared_alpaca_equity_is_counted_once(tmp_path):
+    rows = [{"name": name, "equity": 100.0, "deployed": 10.0, "pending": 0.0,
+             "available": 90.0, "positions": 1, "working_orders": 0, "realized": 0.0,
+             "unrealized": 0.0, "freshness": "FRESH", "state": "ACTIVE"}
+            for name in ("stocks", "Crypto", "Metals / Commodities")]
+    payload = board.write_authoritative_portfolio_snapshot(rows, output=tmp_path / "snapshot.json")
+    assert payload["totals"]["equity"] == 100.0
+    assert payload["totals"]["deployed"] == 30.0

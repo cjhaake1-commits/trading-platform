@@ -454,11 +454,24 @@ def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/curre
     def total(field):
         values = [row[field] for row in rows]
         return None if any(value is None for value in values) else sum(float(value) for value in values)
+    def equity_total():
+        if any(row["equity"] is None for row in rows):
+            return None
+        seen_accounts = set()
+        result = 0.0
+        for row in rows:
+            account = (row.get("provider"), row.get("environment"))
+            if account in seen_accounts:
+                continue
+            seen_accounts.add(account)
+            result += float(row["equity"])
+        return result
     payload = {
         "observed_at": observed_at, "source": "direct provider/runtime reads",
         "live_trading_enabled": False, "real_money_orders": 0, "pillars": rows,
-        "totals": {field: total(field) for field in ("equity", "deployed", "pending", "available", "realized", "unrealized")},
+        "totals": {field: total(field) for field in ("deployed", "pending", "available", "realized", "unrealized")},
     }
+    payload["totals"]["equity"] = equity_total()
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

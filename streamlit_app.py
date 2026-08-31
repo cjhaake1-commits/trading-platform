@@ -535,6 +535,7 @@ def _kalshi_status() -> dict[str, object]:
         status["perps_positions"] = len(perps_positions.get("positions", []))
         status["perps_open_orders"] = len(perps_orders.get("orders", []))
         status["perps_fills"] = len(perps_fills.get("fills", []))
+        _write_kalshi_position_reconciliation(status)
     except Exception as exc:
         status["perps_provider_state"] = "DEGRADED"
         status["perps_provider_error"] = f"{type(exc).__name__}: {exc}"
@@ -568,6 +569,41 @@ def _kalshi_parent_state(status: dict[str, object]) -> tuple[str, str]:
             f"Perps: {status.get('perps_rejection', '—')}"
         )
     return "READY — EVALUATING OPPORTUNITIES", "Both Kalshi child engines healthy"
+
+
+def _write_kalshi_position_reconciliation(status: dict[str, object]) -> dict[str, object]:
+    """Persist current Demo positions without converting read failures to zero."""
+    positions = []
+    raw = status.get("perps_positions_raw") if isinstance(status.get("perps_positions_raw"), dict) else {}
+    for item in raw.get("positions", []) if isinstance(raw.get("positions"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        positions.append({
+            "engine": "Perps", "ticker": item.get("market_ticker"),
+            "direction": "LONG" if _float(item.get("position")) >= 0 else "SHORT",
+            "quantity": item.get("position"), "provider_identifier": item.get("market_ticker"),
+            "entry_price": item.get("entry_price"), "current_mark": None,
+            "margin": item.get("margin_used"), "unrealized_pnl": item.get("unrealized_pnl"),
+            "related_orders": [], "related_fills": [],
+            "ownership_evidence": "provider is_portfolio flag" if item.get("is_portfolio") else "provider position without portfolio flag",
+            "management_state": "MONITORED_MUTATION_BLOCKED",
+        })
+    payload = {
+        "observed_at": status.get("provider_read_at"), "provider": "Kalshi", "environment": "DEMO",
+        "predictions_positions": [], "perps_positions": positions,
+        "position_count": len(positions), "predictions_position_count": 0,
+        "perps_position_count": len(positions),
+        "open_orders": status.get("perps_open_orders"), "fills": status.get("perps_fills"),
+        "available_balance": status.get("perps_available_balance"),
+        "unrealized_pnl": status.get("perps_unrealized_pnl"),
+        "mutation": "PROVIDER MUTATION BLOCKED — USER_NOT_FOUND",
+        "management": "READ/MARK/RISK ACTIVE; MUTATION BLOCKED",
+        "error": status.get("perps_provider_error") or status.get("predictions_provider_error"),
+    }
+    path = Path("var/reports/kalshi-existing-position-reconciliation.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
 
 
 @st.cache_data(ttl=20)
