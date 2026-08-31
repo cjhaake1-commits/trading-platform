@@ -49,6 +49,7 @@ from .risk import RiskContext, RiskEngine
 from .runtime import JobResult
 from .scanner import CandidateScanner
 from .strategies import BaselineStrategies
+from .strategy_health import load_persisted_health, rank_opportunities
 
 DEFAULT_ALPACA_UNIVERSE = (
     "SPY",
@@ -446,6 +447,20 @@ class AutonomousPaperTradingJob:
                     strategy_evaluations = evaluate_strategies(
                         instrument, bars, candidate.score, timeframe=self.config.interval, strategies=self.strategies
                     )
+                    health = load_persisted_health()
+                    ranked_learning = rank_opportunities(
+                        [{"strategy": item.strategy_id, "strategy_version": item.strategy_version,
+                          "raw_score": item.raw_score, "risk_approved": True}
+                         for item in strategy_evaluations if item.signal], health
+                    )
+                    # Learning governance can reduce eligibility or move a
+                    # strategy to shadow, but it never bypasses risk gates.
+                    if ranked_learning and not any(item["execution_eligible"] for item in ranked_learning):
+                        diagnostics.append({"symbol": instrument.symbol, "rejection": "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY",
+                                            "learning": ranked_learning})
+                        continue
+                    if ranked_learning:
+                        diagnostics.append({"symbol": instrument.symbol, "learning_decision": ranked_learning})
                     confluence = aggregate_confluence(strategy_evaluations)
                     for evaluation in strategy_evaluations:
                         self.experiment_ledger.record_activity(

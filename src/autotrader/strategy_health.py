@@ -7,6 +7,18 @@ from pathlib import Path
 STATES = {"INSUFFICIENT_SAMPLE", "EXPERIMENTAL", "HEALTHY", "WATCH", "DEGRADED", "QUARANTINED"}
 
 
+def load_persisted_health(path: str = "var/reports/strategy-health.json") -> dict[tuple[str, str], dict[str, object]]:
+    """Load optional governance evidence; absent evidence fails open to exploration."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    rows = payload.get("strategies", payload) if isinstance(payload, dict) else {}
+    if isinstance(rows, list):
+        return {(str(row.get("strategy")), str(row.get("strategy_version", "v1"))): row for row in rows if isinstance(row, dict)}
+    return {(str(key[0]), str(key[1])): value for key, value in rows.items() if isinstance(key, (tuple, list)) and len(key) == 2 and isinstance(value, dict)}
+
+
 def assess_strategy_health(strategy: str, version: str, sample_size: int, expectancy: float | None,
                            *, minimum_sample: int = 30, quarantine_expectancy: float = -0.5) -> dict[str, object]:
     if sample_size < minimum_sample:
