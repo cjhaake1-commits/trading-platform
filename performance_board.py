@@ -452,6 +452,18 @@ def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/curre
             # pillar allocation in each economic row.
             account_scope = "shared Alpaca PAPER account"
             economic_equity = BASE_CAPITAL + f(row.get("realized")) + f(row.get("unrealized"))
+        field_sources = {}
+        for field, value in {
+            "equity": economic_equity, "deployed": row.get("deployed"),
+            "pending": row.get("pending"), "available": row.get("available"),
+            "realized": row.get("realized"), "unrealized": row.get("unrealized"),
+        }.items():
+            field_sources[field] = {
+                "value": value, "source": "direct provider/runtime reads",
+                "provider": provider, "account_scope": account_scope,
+                "observed_at": observed_at,
+                "freshness": row.get("freshness"),
+            }
         rows.append({
             "pillar": row.get("name"), "provider": provider, "environment": environment,
             "account_scope": account_scope, "equity": economic_equity,
@@ -461,6 +473,7 @@ def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/curre
             "positions": row.get("positions"), "working_orders": row.get("working_orders"),
             "realized": row.get("realized"), "unrealized": row.get("unrealized"),
             "freshness": row.get("freshness"), "status": row.get("state"),
+            "provenance": field_sources,
         })
     def total(field):
         values = [row[field] for row in rows]
@@ -486,6 +499,10 @@ def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/curre
         if row.get("provider_account_equity") is not None
         and row.get("account_scope") == "shared Alpaca PAPER account"
     ) / max(1, sum(row.get("account_scope") == "shared Alpaca PAPER account" for row in rows))
+    payload["totals"]["provenance"] = {
+        "economic_equity": {"value": payload["totals"]["equity"], "source": "logical pillar allocations and P&L", "observed_at": observed_at},
+        "provider_account_equity": {"value": payload["totals"]["provider_account_equity"], "source": "provider account equity, deduplicated by account scope", "observed_at": observed_at},
+    }
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

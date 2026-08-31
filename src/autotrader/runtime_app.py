@@ -112,6 +112,13 @@ class FoundationAuditJob:
     cadence_seconds: float = 120.0
 
     def run(self, now: datetime) -> JobResult:
+        # Evidence-only governance telemetry: strategy health may affect
+        # ranking within bounded policy, but never changes risk limits.
+        try:
+            from .strategy_health import write_learning_decision_influence
+            write_learning_decision_influence()
+        except Exception:
+            pass
         ledger = PortfolioLedger(self.ledger_path)
         pillars = ("Stocks", "Crypto", "Forex", "Metals/Commodities", "International", "Kalshi")
         key_map = {"Stocks": "alpaca_equities", "Crypto": "alpaca_crypto", "Forex": "oanda_fx",

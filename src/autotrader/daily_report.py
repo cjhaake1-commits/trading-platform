@@ -66,6 +66,31 @@ def _objective_progress(actual: object, *, target_return_pct: float = 0.20, snap
     current = now or datetime.now(UTC)
     state_file = Path(state_path)
     state = _read(state_path)
+    # A prior shared-account snapshot may have cloned one broker balance into
+    # several pillars. Never let that known-invalid opening value distort the
+    # objective. Preserve the audit trail and establish the corrected baseline.
+    if (isinstance(state, dict) and isinstance(state.get("starting_equity"), (int, float))
+            and isinstance(current_equity, (int, float))
+            and float(current_equity) > 0
+            and float(state["starting_equity"]) > float(current_equity) * 2):
+        invalidation = {
+            "date": state.get("date"), "invalidated_at": current.isoformat(),
+            "original_baseline": state.get("starting_equity"),
+            "reason": "INVALIDATED_ACCOUNTING_PROVENANCE",
+            "corrected_baseline": current_equity,
+            "source_snapshot": snapshot.get("observed_at") if isinstance(snapshot, dict) else None,
+        }
+        history_path = state_file.with_name("objective-baseline-invalidations.json")
+        history = _read(str(history_path))
+        if not isinstance(history, list):
+            history = []
+        history.append(invalidation)
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        history_path.write_text(json.dumps(history, sort_keys=True) + "\n", encoding="utf-8")
+        state = {"date": current.date().isoformat(), "opened_at": current.isoformat(),
+                 "starting_equity": current_equity, "peak_equity": current_equity,
+                 "source_snapshot": snapshot.get("observed_at") if isinstance(snapshot, dict) else None,
+                 "baseline_status": "CORRECTED"}
     if not isinstance(state, dict) or state.get("date") != current.date().isoformat() or not isinstance(state.get("starting_equity"), (int, float)):
         state = {"date": current.date().isoformat(), "opened_at": current.isoformat(), "starting_equity": current_equity, "peak_equity": current_equity, "source_snapshot": snapshot.get("observed_at") if isinstance(snapshot, dict) else None}
     if isinstance(current_equity, (int, float)):
