@@ -53,6 +53,29 @@ def _read(path: str) -> object:
         return "UNKNOWN"
 
 
+def _objective_progress(actual: object, *, target_return_pct: float = 0.20) -> dict[str, object]:
+    """Report objective progress as telemetry; it never changes risk limits."""
+    values = actual if isinstance(actual, dict) else {}
+    realized = values.get("cumulative_realized_pnl")
+    status = "TARGET_NOT_REACHED"
+    if isinstance(realized, (int, float)) and realized > 0:
+        status = "TARGET_REACHED" if realized < target_return_pct else "TARGET_EXCEEDED"
+    return {
+        "starting_daily_equity": None, "current_equity": None,
+        "realized_daily_pnl": realized, "unrealized_daily_pnl": None,
+        "daily_return_pct": None, "target_return_pct": target_return_pct,
+        "progress_to_target_pct": None, "drawdown_pct": None,
+        "capital_deployed": None, "capital_available": None,
+        "qualified_opportunities": None, "executed_trades": values.get("completed_trades"),
+        "winning_trades": values.get("wins"), "losing_trades": values.get("losses"),
+        "profit_factor": values.get("profit_factor"), "expectancy": values.get("expectancy"),
+        "estimated_transaction_costs": values.get("execution_quality_penalty"),
+        "estimated_slippage": None, "risk_adjusted_return": None,
+        "status": status, "risk_limits_overridden": False,
+        "evidence_note": "Progress telemetry does not alter qualification, allocation, or risk controls.",
+    }
+
+
 def _provider_metrics(now: datetime | None = None) -> dict[str, object]:
     job_map = {
         "Alpaca": {"autonomous-paper-trading", "alpaca-metals-paper-trading", "crypto-market-data-archive"},
@@ -225,7 +248,8 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
     except sqlite3.Error:
         pass
     sections["PAPER PERFORMANCE"] = [_read("var/autotrader/learning/performance_stats.json")]
-    report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "activity": activity, "strategy_evidence": strategy_evidence, "actual_results": _read("var/autotrader/learning/performance_stats.json"), "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "shadow_scorecard": shadow_scorecard, "shadow_by_pillar": shadow_by_pillar, "shadow_by_strategy": shadow_by_strategy, "provider_performance": provider_performance, "sections": sections, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero", "strategy evidence is descriptive and does not imply governance promotion"]}
+    actual_results = _read("var/autotrader/learning/performance_stats.json")
+    report = {"report_id": "DAILY_LEARNING", "date": current.date().isoformat(), "generated_at": current.isoformat(), "safety": {"live_trading_enabled": False, "mode": "paper", "real_money_orders": 0}, "objective_progress": _objective_progress(actual_results), "activity": activity, "strategy_evidence": strategy_evidence, "actual_results": actual_results, "shadow_results": {"entries": len(shadows), "completed_experiments": len(completed), "wins": sum(row["result"] == "WIN" for row in completed), "losses": sum(row["result"] == "LOSS" for row in completed), "pnl": sum(float(row["hypothetical_pnl"] or 0) for row in completed), "exit_reasons": dict(Counter(row["exit_reason"] for row in completed))}, "shadow_scorecard": shadow_scorecard, "shadow_by_pillar": shadow_by_pillar, "shadow_by_strategy": shadow_by_strategy, "provider_performance": provider_performance, "sections": sections, "evidence_limitations": ["estimated_edge and expected_value remain UNKNOWN until calibrated", "actual and shadow populations are reported separately", "missing provider data is retained as UNKNOWN rather than zero", "strategy evidence is descriptive and does not imply governance promotion"]}
     directory = Path("var/reports")
     directory.mkdir(parents=True, exist_ok=True)
     json_path = directory / f"daily-learning-{report['date']}.json"

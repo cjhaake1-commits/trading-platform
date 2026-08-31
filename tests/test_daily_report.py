@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from autotrader.daily_report import (
     _bottleneck_classification,
     _evidence_classification,
+    _objective_progress,
     _strategy_classification,
     write_report,
 )
@@ -25,6 +26,12 @@ def test_daily_report_is_dated_and_paper_only(tmp_path, monkeypatch):
     assert md_path.exists()
     assert '"live_trading_enabled": false' in json_path.read_text()
     assert '"real_money_orders": 0' in json_path.read_text()
+
+
+def test_objective_progress_is_telemetry_and_does_not_override_risk():
+    progress = _objective_progress({"cumulative_realized_pnl": -2.0, "completed_trades": 3})
+    assert progress["status"] == "TARGET_NOT_REACHED"
+    assert progress["risk_limits_overridden"] is False
 
 
 def test_daily_report_includes_provider_performance_snapshots(tmp_path, monkeypatch):
