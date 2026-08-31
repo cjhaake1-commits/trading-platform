@@ -28,6 +28,22 @@ class DiagnosticExecutionRecord:
     cancelled_at: str | None = None
 
 
+def run_readiness_canary(*, pillar: str, provider: str, symbol: str, environment: str,
+                         path: str | Path = "var/autotrader/diagnostic-execution.json") -> DiagnosticExecutionRecord:
+    """Exercise the existing simulation contract without touching a provider."""
+    if environment not in {"PAPER", "PRACTICE", "SIM", "DEMO"}:
+        raise RuntimeError("readiness canary requires a non-production environment")
+    if os.getenv("LIVE_TRADING_ENABLED", "false").lower() in {"1", "true", "yes", "on"}:
+        raise RuntimeError("readiness canary blocked while live trading is enabled")
+    now = stamp()
+    record = DiagnosticExecutionRecord(pillar=pillar, provider=provider, symbol=symbol,
+        client_id=f"READINESS_CANARY:{pillar}:{symbol}", order_id=f"SIM-{abs(hash((pillar, symbol))) % 10**10}",
+        accepted=True, filled=True, closed=True, cancelled=True, residual_position=False,
+        classification="READINESS_CANARY", submitted_at=now, accepted_at=now, filled_at=now, closed_at=now, cancelled_at=now)
+    append_record(record, path)
+    return record
+
+
 def enabled() -> bool:
     return (
         os.getenv("SIMULATED_EXECUTION_TEST_MODE", "false").lower() in {"1", "true", "yes", "on"}
