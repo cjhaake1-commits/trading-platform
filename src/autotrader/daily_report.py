@@ -53,7 +53,7 @@ def _read(path: str) -> object:
         return "UNKNOWN"
 
 
-def _provider_metrics() -> dict[str, object]:
+def _provider_metrics(now: datetime | None = None) -> dict[str, object]:
     job_map = {
         "Alpaca": {"autonomous-paper-trading", "alpaca-metals-paper-trading", "crypto-market-data-archive"},
         "OANDA": {"oanda-fx-paper-trading"},
@@ -61,7 +61,8 @@ def _provider_metrics() -> dict[str, object]:
     }
     result = {name: "UNKNOWN" for name in job_map}
     try:
-        cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+        reference = (now or datetime.now(UTC)).astimezone(UTC)
+        cutoff = (reference - timedelta(hours=24)).isoformat()
         with sqlite3.connect("var/autotrader/audit.db", timeout=30.0) as connection:
             rows = connection.execute(
                 "SELECT data_json, created_at FROM audit_events WHERE event_type='runtime_job' AND created_at >= ?",
@@ -211,7 +212,7 @@ def write_report(now: datetime | None = None, db_path: str = "var/autotrader/pap
         "Kalshi Predictions": "var/kalshi/execution-predictions.json",
         "Kalshi Perps": "var/kalshi/execution-perps.json",
     }.items()}
-    provider_performance.update(_provider_metrics())
+    provider_performance.update(_provider_metrics(current))
     intelligence_db = Path("var/autotrader/research.db")
     sections = {name: [] for name in ("LEARNING TREE GROWTH", "SEC ACCESS", "SEC BOOTSTRAP", "NEW SEC FILINGS", "CORPORATE FEATURES", "FILING DELTAS", "SOCIAL INTELLIGENCE", "INFLUENCER ATTRIBUTION", "FUSION", "FORWARD EVIDENCE", "HYPOTHESES", "PROMOTIONS", "DEMOTIONS", "REJECTIONS", "FEATURE ABLATION", "CROSS-PILLAR RELATIONSHIPS", "SOURCE HEALTH", "PAPER PERFORMANCE", "SHADOW PERFORMANCE", "COUNTERFACTUAL PERFORMANCE")}
     try:

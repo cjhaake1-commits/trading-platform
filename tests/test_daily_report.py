@@ -44,6 +44,7 @@ def test_daily_report_contains_descriptive_strategy_evidence(tmp_path):
         experiment_id="E1", pillar="Crypto", engine="crypto", provider="paper", market="BTC/USD",
         strategy="MOMENTUM", strategy_version="v1", model_version="v1", features={},
         candidate_status="SIGNAL", qualification_result="NO_TRADE", market_regime="TRENDING",
+        timestamp="2026-08-30T00:00:00+00:00",
     )
     report = __import__("autotrader.daily_report", fromlist=["write_report"]).write_report(
         datetime(2026, 8, 30, 1, tzinfo=UTC), str(tmp_path / "experiment.db")

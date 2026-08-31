@@ -36,7 +36,7 @@ def test_write_error_ledger_uses_explicit_audit_path(tmp_path):
             (json.dumps({"job": "custom", "ok": False}),),
         )
     output = tmp_path / "errors.json"
-    write_error_ledger(audit_path=str(audit), output=str(output))
+    write_error_ledger(audit_path=str(audit), output=str(output), now=datetime(2026, 8, 30, 1, tzinfo=UTC))
     assert len(json.loads(output.read_text())["errors"]) == 1
 
 

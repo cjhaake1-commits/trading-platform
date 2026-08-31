@@ -70,10 +70,10 @@ def build_error_ledger(audit_path: str = "var/autotrader/audit.db", *, now: date
     }
 
 
-def write_error_ledger(*, audit_path: str = "var/autotrader/audit.db", output: str = "var/reports/overnight-errors.json") -> Path:
+def write_error_ledger(*, audit_path: str = "var/autotrader/audit.db", output: str = "var/reports/overnight-errors.json", now: datetime | None = None, hours: int = 24) -> Path:
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(build_error_ledger(audit_path), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(build_error_ledger(audit_path, now=now, hours=hours), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
 
 
