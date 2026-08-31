@@ -7,11 +7,10 @@ def _snapshot(**crypto):
     return {"pillar_performance": {"Crypto": crypto}}
 
 
-def test_performance_board_has_no_automatic_refresh():
+def test_performance_board_has_read_only_automatic_refresh():
     source = Path("performance_board.py").read_text(encoding="utf-8")
-    assert "meta http-equiv" not in source
-    assert "st_autorefresh" not in source
-    assert "auto-refresh 20s" not in source
+    assert 'meta http-equiv="refresh" content="20"' in source
+    assert "submit_order" not in source
 
 
 def test_closed_crypto_activity_is_not_exposure():
@@ -29,6 +28,7 @@ def test_open_crypto_position_is_deployed():
     rows = board.build_pillars(
         _snapshot(),
         {"Crypto": {"connected": True, "positions": 1}}, {},
+        {},
         [{"pillar": "Crypto", "quantity": 2, "average_price": 50, "market_value": 110}],
         {"connected": False},
     )
@@ -70,3 +70,22 @@ def test_missing_provider_snapshot_cannot_verify():
     crypto = next(row for row in rows if row["name"] == "Crypto")
     assert crypto["accounting_status"] == "ACCOUNTING_UNVERIFIED"
     assert crypto["provider_available"] is False
+
+
+def test_fresh_crypto_provider_state_overrides_stale_ledger_snapshot():
+    rows = board.build_pillars(
+        {"pillar_accounting_snapshot": [{"pillar": "Crypto", "provider_observed": True,
+          "freshness": "FRESH", "accounting_status": "ACCOUNTING_VERIFIED",
+          "economic_equity": 1.0, "deployed_cash": 0.0, "available_cash": 1.0,
+          "realized_today": 0.0, "unrealized": 0.0}]},
+        {}, {"Crypto": {"connected": True, "positions": 1, "working_orders": 2,
+          "account_equity": 102630.8, "strategy_cost_basis": 100.0,
+          "unrealized_pnl": 4.0}},
+        {},
+        [{"pillar": "Crypto", "quantity": 2, "average_price": 50, "market_value": 110}],
+        {"connected": False},
+    )
+    crypto = next(row for row in rows if row["name"] == "Crypto")
+    assert crypto["equity"] == 102630.8
+    assert crypto["positions"] == 1
+    assert crypto["working_orders"] == 2

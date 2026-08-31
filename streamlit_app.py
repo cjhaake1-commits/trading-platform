@@ -965,6 +965,16 @@ def fetch_live_broker_data() -> tuple[
     alpaca_base = require_alpaca_paper_url(_secret("ALPACA_PAPER_BASE_URL") or "https://paper-api.alpaca.markets")
     if alpaca_key and alpaca_secret:
         try:
+            account_req = Request(
+                f"{alpaca_base.rstrip('/')}/v2/account",
+                headers={"APCA-API-KEY-ID": alpaca_key, "APCA-API-SECRET-KEY": alpaca_secret, "Accept": "application/json"},
+            )
+            with urlopen(account_req, timeout=10) as account_response:
+                account = json.load(account_response)
+            account_equity = _float(account.get("equity")) if isinstance(account, dict) else None
+            if account_equity is not None:
+                for pillar in ("US Stocks / ETFs", "Crypto", "Metals / Commodities"):
+                    pillar_status[pillar]["account_equity"] = account_equity
             req = Request(
                 f"{alpaca_base.rstrip('/')}/v2/positions",
                 headers={

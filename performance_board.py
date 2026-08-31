@@ -12,8 +12,8 @@ from autotrader.international_trading import INTERNATIONAL_CURRENT_EPOCH
 
 # Read-only observation board. No controls in this module may alter trading,
 # allocation, execution, strategy, risk, credentials, or provider state.
-# This board intentionally has no auto-refresh loop. Data reloads only when
-# the user manually refreshes/reloads the Streamlit page.
+# The board is read-only and refreshes through Streamlit's browser-safe reload
+# hint; it never submits orders or mutates trading state.
 
 PILLAR_ORDER = [
     "stocks",
@@ -255,6 +255,11 @@ def build_pillars(
     rows = []
     for name in PILLAR_ORDER:
         n = normalized.get(name)
+        # A ledger snapshot can be older than the direct provider read.  For
+        # Crypto, force the live Alpaca path whenever it is connected so stale
+        # persisted accounting cannot override current positions/orders/P&L.
+        if name == "Crypto" and isinstance(live_status.get("Crypto"), dict) and live_status["Crypto"].get("connected"):
+            n = None
         if n is not None:
             status = str(n.get("accounting_status") or "ACCOUNTING_UNVERIFIED")
             realized = n.get("realized_today")
@@ -339,7 +344,7 @@ def build_pillars(
             # scoped history.  Current economic equity must use the same
             # provider-reconstructed realized basis shown on this card.
             total_pnl = realized + unrealized
-        equity = BASE_CAPITAL + total_pnl
+        equity = first_number(state, ["account_equity", "equity"], BASE_CAPITAL + total_pnl)
         available = max(equity - deployed - pending, 0.0)
         daily_return = today_pnl / BASE_CAPITAL if BASE_CAPITAL else 0.0
         engine_active = _engine_active(name, runtime, state, kalshi, saxo_live)
@@ -429,6 +434,7 @@ def _load_foundation_report():
 
 
 def main():
+    st.markdown('<meta http-equiv="refresh" content="20">', unsafe_allow_html=True)
     st.markdown(
         """
         <style>
@@ -464,16 +470,6 @@ def main():
     )
 
     snapshot = core.load_snapshot()
-    # The ledger is the financial authority; dashboard/data.json is transport
-    # and legacy/runtime context only.
-    try:
-        from autotrader.portfolio_ledger import PortfolioLedger
-        ledger_rows = PortfolioLedger("var/autotrader/portfolio.db").load_accounting_snapshots()
-        if ledger_rows:
-            snapshot = dict(snapshot)
-            snapshot["pillar_accounting_snapshot"] = ledger_rows
-    except Exception:
-        pass
     runtime = core.load_live_runtime_status()
     if not isinstance(runtime, dict) or not runtime:
         runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}
