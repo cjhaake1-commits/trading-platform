@@ -95,3 +95,27 @@ def test_provider_truth_section_keeps_kalshi_mutation_separate():
     source = Path("performance_board.py").read_text(encoding="utf-8")
     assert "International & Kalshi Provider Truth" in source
     assert "PROVIDER MUTATION BLOCKED — USER_NOT_FOUND" in source
+
+
+def test_crypto_provider_failure_does_not_use_stale_accounting_values():
+    rows = board.build_pillars(
+        {"pillar_accounting_snapshot": [{"pillar": "Crypto", "economic_equity": 999.0, "available_cash": 999.0}]},
+        {}, {"Crypto": {"connected": False, "error": "timeout"}}, {}, [], {"connected": False},
+    )
+    crypto = next(row for row in rows if row["name"] == "Crypto")
+    assert crypto["equity"] is None
+    assert crypto["available"] is None
+    assert crypto["state"] == "UNAVAILABLE"
+
+
+def test_authoritative_snapshot_preserves_unknowns_and_totals(tmp_path):
+    rows = [{"name": "Crypto", "equity": 100.0, "deployed": 25.0, "pending": 0.0,
+             "available": 75.0, "positions": 1, "working_orders": 0, "realized": 2.0,
+             "unrealized": 3.0, "freshness": "FRESH", "state": "ACTIVE"},
+            {"name": "International", "equity": None, "deployed": None, "pending": None,
+             "available": None, "positions": None, "working_orders": None, "realized": None,
+             "unrealized": None, "freshness": "ERROR", "state": "UNAVAILABLE"}]
+    payload = board.write_authoritative_portfolio_snapshot(rows, output=tmp_path / "snapshot.json", observed_at="2026-08-31T00:00:00+00:00")
+    assert payload["source"] == "direct provider/runtime reads"
+    assert payload["totals"]["equity"] is None
+    assert payload["pillars"][0]["provider"] == "Alpaca"

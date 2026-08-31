@@ -260,6 +260,15 @@ def build_pillars(
         # persisted accounting cannot override current positions/orders/P&L.
         if name == "Crypto" and isinstance(live_status.get("Crypto"), dict) and live_status["Crypto"].get("connected"):
             n = None
+        # An explicit failed provider read is authoritative too: never fall
+        # back to a stale ledger/default cash value for Crypto.
+        provider_failed = (
+            name == "Crypto"
+            and isinstance(live_status.get("Crypto"), dict)
+            and live_status["Crypto"].get("connected") is False
+        )
+        if provider_failed:
+            n = None
         if n is not None:
             status = str(n.get("accounting_status") or "ACCOUNTING_UNVERIFIED")
             realized = n.get("realized_today")
@@ -289,6 +298,19 @@ def build_pillars(
         broker = broker_totals.get(name, {})
         broker_positions = int(f(broker.get("positions")))
         working_orders = int(f(state.get("working_orders")))
+
+        if provider_failed:
+            rows.append({
+                "name": name, "display": DISPLAY_NAMES.get(name, name),
+                "engine_active": False, "provider_available": False,
+                "state": "UNAVAILABLE", "equity": None, "deployed": None,
+                "pending": None, "available": None, "today_pnl": None,
+                "daily_return": None, "realized": None, "unrealized": None,
+                "total_pnl": None, "positions": None, "working_orders": None,
+                "completed_today": 0, "activity_reason": str(state.get("error") or "Alpaca PAPER provider read failed"),
+                "accounting_status": "ACCOUNTING_UNVERIFIED", "freshness": "ERROR",
+            })
+            continue
 
         if name == "Kalshi":
             deployed = first_number(kalshi, ["v2_deployed", "perps_deployed", "deployed"], 0.0)
@@ -400,6 +422,39 @@ def build_pillars(
     return rows
 
 
+def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/current-six-pillar-snapshot.json", observed_at=None):
+    """Persist one read-time snapshot; values are never backfilled with zero."""
+    observed_at = observed_at or datetime.now(UTC).isoformat()
+    provider_meta = {
+        "stocks": ("Alpaca", "PAPER"), "Crypto": ("Alpaca", "PAPER"),
+        "Forex": ("OANDA", "PRACTICE"), "Metals / Commodities": ("Alpaca", "PAPER"),
+        "International": ("Saxo", "SIM"), "Kalshi": ("Kalshi", "DEMO"),
+    }
+    rows = []
+    for row in pillars:
+        provider, environment = provider_meta.get(row.get("name"), (None, None))
+        rows.append({
+            "pillar": row.get("name"), "provider": provider, "environment": environment,
+            "equity": row.get("equity"), "deployed": row.get("deployed"),
+            "pending": row.get("pending"), "available": row.get("available"),
+            "positions": row.get("positions"), "working_orders": row.get("working_orders"),
+            "realized": row.get("realized"), "unrealized": row.get("unrealized"),
+            "freshness": row.get("freshness"), "status": row.get("state"),
+        })
+    def total(field):
+        values = [row[field] for row in rows]
+        return None if any(value is None for value in values) else sum(float(value) for value in values)
+    payload = {
+        "observed_at": observed_at, "source": "direct provider/runtime reads",
+        "live_trading_enabled": False, "real_money_orders": 0, "pillars": rows,
+        "totals": {field: total(field) for field in ("equity", "deployed", "pending", "available", "realized", "unrealized")},
+    }
+    path = Path(output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
 def _load_high_velocity():
     path = Path("var/autotrader/learning/high-velocity-research.json")
     if not path.exists():
@@ -490,6 +545,7 @@ def main():
         crypto_realized_today=crypto_realized_today,
         foundation_report=foundation_report,
     )
+    write_authoritative_portfolio_snapshot(pillars)
 
     def aggregate(field):
         values = [row.get(field) for row in pillars]
@@ -515,7 +571,7 @@ def main():
         unsafe_allow_html=True,
     )
     st.markdown(
-        f'<div class="live">● LIVE PROVIDER SNAPSHOT · {datetime.now(UTC).strftime("%H:%M:%S UTC")} · MANUAL REFRESH ONLY</div>',
+        f'<div class="live">● LIVE PROVIDER SNAPSHOT · {datetime.now(UTC).strftime("%H:%M:%S UTC")} · AUTO-REFRESH 20s · READ-ONLY</div>',
         unsafe_allow_html=True,
     )
 
