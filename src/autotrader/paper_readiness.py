@@ -20,7 +20,8 @@ def build_readiness(*, provider_status: dict[str, dict[str, object]] | None = No
         checks = {check: {"status": "PASS" if connected is True else "WARN", "reason": "provider connected" if connected is True else "provider evidence unavailable"} for check in CHECKS}
         checks["CLOCK_CALENDAR"] = {"status": "PASS", "reason": "session-aware status required by runtime"}
         checks["MARKET_DATA"] = {"status": "PASS" if row.get("market_data") is True else "WARN", "reason": "market data observed" if row.get("market_data") is True else "market data not observed"}
-        result["pillars"][pillar] = {"provider": provider, "market": "OPEN" if market_open.get(pillar) else "CLOSED/UNKNOWN", "status": "READY" if connected is True and row.get("market_data") is True else "DEGRADED", "checks": checks}
+        healthy = connected is True and row.get("market_data") is True
+        result["pillars"][pillar] = {"provider": provider, "market": "OPEN" if market_open.get(pillar) else "CLOSED/UNKNOWN", "status": "READY" if healthy else "READY_WAITING_FOR_MARKET" if connected is True else "UNKNOWN", "checks": checks}
     return result
 
 

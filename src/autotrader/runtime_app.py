@@ -257,7 +257,7 @@ class FoundationAuditJob:
             source = live_status.get(source_pillar, {})
             readiness_status[readiness_pillar] = {
                 "connected": bool(source.get("connected")),
-                "market_data": bool(source.get("market_data") or source.get("data_valid") or source.get("price")),
+                "market_data": bool(source.get("market_data") or source.get("data_valid") or source.get("price") or source.get("freshness") == "FRESH"),
             }
         readiness_status["KALSHI"] = {
             "connected": observed["Kalshi"],
