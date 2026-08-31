@@ -34,6 +34,19 @@ def test_objective_progress_is_telemetry_and_does_not_override_risk():
     assert progress["risk_limits_overridden"] is False
 
 
+def test_objective_progress_uses_return_percentage_not_dollars(tmp_path):
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps({"observed_at": "2026-08-31T00:00:00+00:00", "totals": {
+        "equity": 1010.0, "realized": 10.0, "unrealized": 0.0,
+        "deployed": 100.0, "available": 900.0, "pending": 0.0,
+    }}))
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"date": "2026-08-31", "starting_equity": 1000.0, "peak_equity": 1000.0}))
+    progress = _objective_progress({}, snapshot_path=str(snapshot), state_path=str(state), now=datetime(2026, 8, 31, tzinfo=UTC))
+    assert progress["daily_return_pct"] == 0.01
+    assert progress["target_return_pct"] == 0.20
+
+
 def test_daily_report_includes_provider_performance_snapshots(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "var/kalshi").mkdir(parents=True)

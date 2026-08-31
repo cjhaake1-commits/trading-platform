@@ -53,19 +53,41 @@ def _read(path: str) -> object:
         return "UNKNOWN"
 
 
-def _objective_progress(actual: object, *, target_return_pct: float = 0.20) -> dict[str, object]:
+def _objective_progress(actual: object, *, target_return_pct: float = 0.20, snapshot_path: str = "var/reports/current-six-pillar-snapshot.json", state_path: str = "var/autotrader/objective-progress.json", now: datetime | None = None) -> dict[str, object]:
     """Report objective progress as telemetry; it never changes risk limits."""
     values = actual if isinstance(actual, dict) else {}
-    realized = values.get("cumulative_realized_pnl")
+    snapshot = _read(snapshot_path)
+    totals = snapshot.get("totals", {}) if isinstance(snapshot, dict) else {}
+    current_equity = totals.get("equity")
+    unrealized = totals.get("unrealized")
+    deployed = totals.get("deployed")
+    available = totals.get("available")
+    pending = totals.get("pending")
+    current = now or datetime.now(UTC)
+    state_file = Path(state_path)
+    state = _read(state_path)
+    if not isinstance(state, dict) or state.get("date") != current.date().isoformat() or not isinstance(state.get("starting_equity"), (int, float)):
+        state = {"date": current.date().isoformat(), "opened_at": current.isoformat(), "starting_equity": current_equity, "peak_equity": current_equity, "source_snapshot": snapshot.get("observed_at") if isinstance(snapshot, dict) else None}
+    if isinstance(current_equity, (int, float)):
+        state["peak_equity"] = max(float(state.get("peak_equity") or current_equity), float(current_equity))
+    starting = state.get("starting_equity")
+    daily_pnl = (float(current_equity) - float(starting)) if isinstance(current_equity, (int, float)) and isinstance(starting, (int, float)) else None
+    daily_return = daily_pnl / float(starting) if daily_pnl is not None and float(starting) else None
+    drawdown = ((float(current_equity) - float(state["peak_equity"])) / float(state["peak_equity"])) if isinstance(current_equity, (int, float)) and state.get("peak_equity") else None
+    state["last_equity"] = current_equity
+    state["last_observed_at"] = current.isoformat()
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
     status = "TARGET_NOT_REACHED"
-    if isinstance(realized, (int, float)) and realized > 0:
-        status = "TARGET_REACHED" if realized < target_return_pct else "TARGET_EXCEEDED"
+    if isinstance(daily_return, (int, float)) and daily_return > 0:
+        status = "TARGET_REACHED" if daily_return < target_return_pct else "TARGET_EXCEEDED"
     return {
-        "starting_daily_equity": None, "current_equity": None,
-        "realized_daily_pnl": realized, "unrealized_daily_pnl": None,
-        "daily_return_pct": None, "target_return_pct": target_return_pct,
-        "progress_to_target_pct": None, "drawdown_pct": None,
-        "capital_deployed": None, "capital_available": None,
+        "starting_daily_equity": starting, "current_equity": current_equity,
+        "realized_daily_pnl": daily_pnl, "unrealized_daily_pnl": unrealized,
+        "daily_return_pct": daily_return, "target_return_pct": target_return_pct,
+        "progress_to_target_pct": daily_return / target_return_pct if daily_return is not None and target_return_pct else None,
+        "drawdown_pct": drawdown, "max_drawdown_pct": drawdown,
+        "capital_deployed": deployed, "capital_available": available, "capital_pending": pending,
         "qualified_opportunities": None, "executed_trades": values.get("completed_trades"),
         "winning_trades": values.get("wins"), "losing_trades": values.get("losses"),
         "profit_factor": values.get("profit_factor"), "expectancy": values.get("expectancy"),
