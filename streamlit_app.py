@@ -1429,11 +1429,26 @@ def _build_dashboard_context() -> dict[str, object]:
     try:
         import performance_board as board
 
+        saxo_truth = board._saxo_live_truth()
         board_pillars = board.build_pillars(
             snapshot, runtime, live_pillar_status, _kalshi_status(), live_positions,
-            board._saxo_live_truth(), crypto_realized_today=crypto_realized_today,
+            saxo_truth, crypto_realized_today=crypto_realized_today,
         )
         board.write_authoritative_portfolio_snapshot(board_pillars)
+        owned_order_ids, _ = _international_ownership()
+        board.write_international_position_reconciliation(
+            saxo_truth.get("provider_positions_raw", []), owned_order_ids,
+            error=saxo_truth.get("error"),
+        )
+        funnel_path = Path("var/autotrader/international-execution-funnel.json")
+        funnel = _safe_json(funnel_path) if funnel_path.exists() else {}
+        funnel.update({
+            "platform_positions": int(saxo_truth.get("positions", 0) or 0),
+            "broker_positions": len(saxo_truth.get("provider_positions_raw", [])),
+            "last_cycle": saxo_truth.get("observed_at"),
+            "next_activation": funnel.get("next_activation") or "next eligible Saxo exchange session",
+        })
+        board.write_international_execution_funnel(funnel)
     except Exception:
         # The dashboard must remain available if an optional report write has
         # a transient provider/read failure; visible provider errors remain in

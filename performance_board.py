@@ -163,6 +163,7 @@ def _saxo_live_truth():
         result["legacy_exposure"] = 0.0
         payload = adapter.list_positions(account_key=account_key)
         rows = payload.get("Data", []) if isinstance(payload, dict) else []
+        result["provider_positions_raw"] = rows if isinstance(rows, list) else []
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict):
                 continue
@@ -458,6 +459,54 @@ def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/curre
         "live_trading_enabled": False, "real_money_orders": 0, "pillars": rows,
         "totals": {field: total(field) for field in ("equity", "deployed", "pending", "available", "realized", "unrealized")},
     }
+    path = Path(output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def write_international_position_reconciliation(provider_rows, owned_order_ids, *, output="var/reports/international-position-reconciliation.json", observed_at=None, error=None):
+    """Persist Saxo exposure with ownership evidence; never adopt unknown lots."""
+    observed_at = observed_at or datetime.now(UTC).isoformat()
+    owned_order_ids = {str(value) for value in (owned_order_ids or set())}
+    positions = []
+    for row in provider_rows if isinstance(provider_rows, list) else []:
+        base = row.get("PositionBase") if isinstance(row.get("PositionBase"), dict) else row
+        view = row.get("PositionView") if isinstance(row.get("PositionView"), dict) else {}
+        display = row.get("DisplayAndFormat") if isinstance(row.get("DisplayAndFormat"), dict) else {}
+        source_order_id = str(base.get("SourceOrderId") or base.get("OrderId") or row.get("OrderId") or "")
+        positions.append({
+            "provider_position_id": row.get("PositionId") or row.get("NetPositionId"),
+            "net_position_id": row.get("NetPositionId"), "uic": base.get("Uic"),
+            "symbol": display.get("Symbol") or base.get("Symbol") or str(base.get("Uic") or ""),
+            "description": display.get("Description"), "asset_type": base.get("AssetType"),
+            "exchange": display.get("ExchangeId") or display.get("Exchange"),
+            "direction": "LONG" if float(base.get("Amount") or 0) > 0 else "SHORT",
+            "quantity": base.get("Amount"), "entry_open_price": base.get("OpenPrice"),
+            "current_price": view.get("CurrentPrice"), "market_value": view.get("MarketValue"),
+            "exposure": view.get("Exposure"), "unrealized_pnl": view.get("ProfitLossOnTrade"),
+            "open_timestamp": base.get("ExecutionTimeOpen"), "source_order_id": source_order_id,
+            "ownership": "PLATFORM_OWNED" if source_order_id in owned_order_ids else "EXTERNAL_OR_LEGACY_OR_UNKNOWN",
+            "ownership_evidence": "current-epoch executed order match" if source_order_id in owned_order_ids else "not current-epoch platform ownership",
+        })
+    payload = {
+        "observed_at": observed_at, "provider": "Saxo", "environment": "SIM",
+        "position_count": len(positions),
+        "platform_owned_positions": sum(p["ownership"] == "PLATFORM_OWNED" for p in positions),
+        "broker_exposed_positions": len(positions),
+        "external_legacy_unknown_positions": sum(p["ownership"] != "PLATFORM_OWNED" for p in positions),
+        "positions": positions, "error": error,
+    }
+    path = Path(output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def write_international_execution_funnel(current, *, output="var/reports/international-execution-funnel.json", observed_at=None):
+    """Publish the latest bounded runtime funnel without inventing activity."""
+    payload = dict(current) if isinstance(current, dict) else {}
+    payload["last_observed_at"] = observed_at or datetime.now(UTC).isoformat()
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

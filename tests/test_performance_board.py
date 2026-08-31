@@ -119,3 +119,16 @@ def test_authoritative_snapshot_preserves_unknowns_and_totals(tmp_path):
     assert payload["source"] == "direct provider/runtime reads"
     assert payload["totals"]["equity"] is None
     assert payload["pillars"][0]["provider"] == "Alpaca"
+
+
+def test_saxo_reconciliation_does_not_adopt_legacy_position(tmp_path):
+    rows = [{"PositionId": "p1", "NetPositionId": "uic__Share",
+             "PositionBase": {"Uic": 123, "AssetType": "Stock", "Amount": 2,
+                               "OpenPrice": 10, "SourceOrderId": "legacy-1",
+                               "ExecutionTimeOpen": "2026-08-31T00:00:00Z"},
+             "PositionView": {"CurrentPrice": 11, "Exposure": 22,
+                              "MarketValue": 22, "ProfitLossOnTrade": 2}}]
+    payload = board.write_international_position_reconciliation(rows, {"current-1"}, output=tmp_path / "intl.json")
+    assert payload["position_count"] == 1
+    assert payload["platform_owned_positions"] == 0
+    assert payload["external_legacy_unknown_positions"] == 1
