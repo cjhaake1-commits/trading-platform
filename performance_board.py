@@ -298,6 +298,10 @@ def build_pillars(
         broker = broker_totals.get(name, {})
         broker_positions = int(f(broker.get("positions")))
         working_orders = int(f(state.get("working_orders")))
+        if name == "Crypto" and state.get("connected"):
+            # Keep provider-reported dust/legacy holdings visible as positions
+            # while strategy deployed capital remains based on owned positions.
+            broker_positions = int(f(state.get("broker_positions"), broker_positions))
 
         if provider_failed:
             rows.append({
@@ -412,6 +416,7 @@ def build_pillars(
                 "working_orders": working_orders,
                 "completed_today": completed_today,
                 "activity_reason": activity_reason,
+                "freshness": state.get("freshness", "MISSING"),
                 "accounting_status": (foundation_pillars.get(
                     "Crypto" if name == "Crypto" else ("Stocks" if name == "stocks" else name), {}
                 ).get("accounting_status", "ACCOUNTING_UNVERIFIED")
