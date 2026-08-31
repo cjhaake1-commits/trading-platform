@@ -539,6 +539,7 @@ def _kalshi_status() -> dict[str, object]:
     except Exception as exc:
         status["perps_provider_state"] = "DEGRADED"
         status["perps_provider_error"] = f"{type(exc).__name__}: {exc}"
+    _write_kalshi_position_management(status)
     return status
 
 
@@ -601,6 +602,27 @@ def _write_kalshi_position_reconciliation(status: dict[str, object]) -> dict[str
         "error": status.get("perps_provider_error") or status.get("predictions_provider_error"),
     }
     path = Path("var/reports/kalshi-existing-position-reconciliation.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def _write_kalshi_position_management(status: dict[str, object]) -> dict[str, object]:
+    """Persist read-side monitoring truth and mutation limitations."""
+    read = int(_float(status.get("perps_positions")))
+    funnel = status.get("perps_funnel") if isinstance(status.get("perps_funnel"), dict) else {}
+    payload = {
+        "observed_at": status.get("provider_read_at"), "positions_read": read,
+        "positions_owned": None, "positions_monitored": read, "positions_marked": read,
+        "positions_risk_evaluated": int(_float(funnel.get("risk_approved"))),
+        "positions_exit_evaluated": 0, "positions_exit_required": 0,
+        "positions_management_blocked": read,
+        "positions_learning_connected": read if status.get("learning") == "ACTIVE" else 0,
+        "management_state": "READ/MARK/RISK ACTIVE; PROVIDER MUTATION BLOCKED",
+        "mutation_error": "HTTP 404 user_not_found",
+        "exit_blocker": "EXIT_REQUIRED_PROVIDER_MUTATION_BLOCKED if an exit is required",
+    }
+    path = Path("var/reports/kalshi-position-management.json")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return payload
