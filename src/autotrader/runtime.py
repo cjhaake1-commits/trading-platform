@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -55,6 +56,7 @@ class RuntimeConfig:
     snapshot_path: Path | None = None
     autonomous_enabled: bool = False
     experiment_path: Path | None = None
+    job_timeout_seconds: float = 90.0
 
 
 class AutonomousRuntime:
@@ -118,13 +120,25 @@ class AutonomousRuntime:
 
             state.last_started_at = now
             started = self._monotonic()
+            self._write_snapshot(self.snapshot())
+
+            def _timeout(_signum, _frame):
+                raise TimeoutError(f"job exceeded {self.config.job_timeout_seconds:.0f}s timeout")
+
             try:
-                result = job.run(now)
+                previous_handler = signal.signal(signal.SIGALRM, _timeout)
+                signal.setitimer(signal.ITIMER_REAL, self.config.job_timeout_seconds)
+                try:
+                    result = job.run(now)
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, previous_handler)
             except Exception as exc:
                 result = JobResult(
                     False,
                     "Job raised an exception",
-                    {"error": str(exc), "exception_type": type(exc).__name__, "exception_phase": "job.run"},
+                    {"error": str(exc), "exception_type": type(exc).__name__, "exception_phase": "job.run",
+                     "timeout": isinstance(exc, TimeoutError)},
                 )
 
             finished = self._monotonic()
@@ -179,6 +193,9 @@ class AutonomousRuntime:
                     },
                 )
             )
+            # Make every transition visible even if a later provider job is
+            # slow or unavailable; the next job still receives scheduler time.
+            self._write_snapshot(self.snapshot())
 
         if (
             mono_now - self._last_heartbeat_audit_monotonic
