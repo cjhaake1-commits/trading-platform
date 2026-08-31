@@ -140,5 +140,6 @@ def test_shared_alpaca_equity_is_counted_once(tmp_path):
              "unrealized": 0.0, "freshness": "FRESH", "state": "ACTIVE"}
             for name in ("stocks", "Crypto", "Metals / Commodities")]
     payload = board.write_authoritative_portfolio_snapshot(rows, output=tmp_path / "snapshot.json")
-    assert payload["totals"]["equity"] == 100.0
+    assert payload["totals"]["equity"] == 3000.0
+    assert payload["totals"]["provider_account_equity"] == 100.0
     assert payload["totals"]["deployed"] == 30.0

@@ -443,9 +443,20 @@ def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/curre
     rows = []
     for row in pillars:
         provider, environment = provider_meta.get(row.get("name"), (None, None))
+        provider_equity = row.get("equity")
+        economic_equity = provider_equity
+        account_scope = "pillar"
+        if provider == "Alpaca" and provider_equity is not None:
+            # Alpaca Stocks/Crypto/Metals share one account.  Preserve the
+            # broker balance as provenance, but expose only the logical
+            # pillar allocation in each economic row.
+            account_scope = "shared Alpaca PAPER account"
+            economic_equity = BASE_CAPITAL + f(row.get("realized")) + f(row.get("unrealized"))
         rows.append({
             "pillar": row.get("name"), "provider": provider, "environment": environment,
-            "equity": row.get("equity"), "deployed": row.get("deployed"),
+            "account_scope": account_scope, "equity": economic_equity,
+            "provider_account_equity": provider_equity,
+            "economic_equity": economic_equity, "deployed": row.get("deployed"),
             "pending": row.get("pending"), "available": row.get("available"),
             "positions": row.get("positions"), "working_orders": row.get("working_orders"),
             "realized": row.get("realized"), "unrealized": row.get("unrealized"),
@@ -457,21 +468,24 @@ def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/curre
     def equity_total():
         if any(row["equity"] is None for row in rows):
             return None
-        seen_accounts = set()
-        result = 0.0
-        for row in rows:
-            account = (row.get("provider"), row.get("environment"))
-            if account in seen_accounts:
-                continue
-            seen_accounts.add(account)
-            result += float(row["equity"])
-        return result
+        return sum(float(row["equity"]) for row in rows)
     payload = {
         "observed_at": observed_at, "source": "direct provider/runtime reads",
         "live_trading_enabled": False, "real_money_orders": 0, "pillars": rows,
         "totals": {field: total(field) for field in ("deployed", "pending", "available", "realized", "unrealized")},
     }
     payload["totals"]["equity"] = equity_total()
+    payload["totals"]["provider_account_equity"] = sum(
+        float(row["provider_account_equity"])
+        for row in rows
+        if row.get("provider_account_equity") is not None
+        and row.get("account_scope") != "shared Alpaca PAPER account"
+    ) + sum(
+        float(row["provider_account_equity"])
+        for row in rows
+        if row.get("provider_account_equity") is not None
+        and row.get("account_scope") == "shared Alpaca PAPER account"
+    ) / max(1, sum(row.get("account_scope") == "shared Alpaca PAPER account" for row in rows))
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
