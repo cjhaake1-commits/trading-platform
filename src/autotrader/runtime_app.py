@@ -20,6 +20,7 @@ from .edge_engine import benchmark_metrics, classify_edge
 from .fx_paper import FxPaperConfig, FxPaperTradingJob
 from .high_velocity import micro_candidate, write_research_snapshot
 from .lane_ledger import PaperLaneLedger
+from .paper_readiness import build_readiness, persist_readiness
 from .pillar_jobs import InternationalPaperTradingJob, MetalsPaperTradingJob
 from .portfolio_ledger import PortfolioLedger
 from .research_jobs import DailyReportJob, ResearchRefreshJob
@@ -244,6 +245,29 @@ class FoundationAuditJob:
                        "edge_state": classify_edge(benchmark_metrics(outcomes, starting_equity=1000.0))},
             "learning_gate": "ACCOUNTING_VERIFIED_ONLY", "provider_mutation": False,
         }
+        # Persist the same provider observations used by this audit as the
+        # authoritative six-pillar readiness snapshot.  This remains telemetry
+        # only; no readiness status can authorize execution.
+        readiness_status = {}
+        for readiness_pillar, source_pillar in {
+            "US STOCKS / ETFs": "US Stocks / ETFs", "CRYPTO": "Crypto",
+            "FOREX": "Forex", "METALS / COMMODITIES": "Metals / Commodities",
+            "INTERNATIONAL": "International",
+        }.items():
+            source = live_status.get(source_pillar, {})
+            readiness_status[readiness_pillar] = {
+                "connected": bool(source.get("connected")),
+                "market_data": bool(source.get("market_data") or source.get("data_valid") or source.get("price")),
+            }
+        readiness_status["KALSHI"] = {
+            "connected": observed["Kalshi"],
+            "market_data": bool(kalshi.get("predictions_markets") or kalshi.get("perps_markets")),
+        }
+        snapshot = build_readiness(
+            provider_status=readiness_status,
+            market_open={pillar: bool(row.get("market_open")) for pillar, row in live_status.items()},
+        )
+        persist_readiness(snapshot)
         path = Path(self.report_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
