@@ -416,7 +416,11 @@ def build_pillars(
                 "working_orders": working_orders,
                 "completed_today": completed_today,
                 "activity_reason": activity_reason,
-                "freshness": state.get("freshness", "MISSING"),
+                "freshness": (
+                    state.get("freshness", "MISSING")
+                    if name != "Kalshi"
+                    else ("FRESH" if str(kalshi.get("data", "")).upper() == "FRESH" else str(kalshi.get("data") or "MISSING"))
+                ),
                 "accounting_status": (foundation_pillars.get(
                     "Crypto" if name == "Crypto" else ("Stocks" if name == "stocks" else name), {}
                 ).get("accounting_status", "ACCOUNTING_UNVERIFIED")
