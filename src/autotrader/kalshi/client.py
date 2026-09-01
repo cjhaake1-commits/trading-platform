@@ -185,7 +185,11 @@ class KalshiDemoExecutionClient(KalshiReadOnlyClient):
 
     def create_order(self, payload: dict[str, Any], *, family: str = "predictions") -> dict[str, Any]:
         path = "portfolio/events/orders" if family == "predictions" else "orders"
-        return self._mutation("POST", path, payload, family=family)
+        request = dict(payload)
+        # Create Order V2 requires an explicit self-trade policy in Demo and
+        # production. Keep the safe documented default at the shared boundary.
+        request.setdefault("self_trade_prevention_type", "taker_at_cross")
+        return self._mutation("POST", path, request, family=family)
 
     def get_order(self, order_id: str, *, family: str = "predictions") -> dict[str, Any]:
         path = f"portfolio/orders/{order_id}" if family == "predictions" else f"orders/{order_id}"
