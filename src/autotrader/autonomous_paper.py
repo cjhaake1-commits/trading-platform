@@ -530,6 +530,14 @@ class AutonomousPaperTradingJob:
                     )
                     stock_confluence = aggregate_confluence(stock_evaluations)
                     stock_confluence_allows_entry = stock_confluence.direction == "BUY"
+                    learning_rank = rank_opportunities(
+                        [{"strategy": item.strategy_id, "strategy_version": item.strategy_version,
+                          "raw_score": item.raw_score, "risk_approved": True}
+                         for item in stock_evaluations if item.signal], load_persisted_health()
+                    )
+                    if learning_rank and not any(item["execution_eligible"] for item in learning_rank):
+                        stock_confluence_allows_entry = False
+                        diagnostics.append({"symbol": instrument.symbol, "rejection": "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY", "learning": learning_rank})
                     for evaluation in stock_evaluations:
                         self.experiment_ledger.record_activity(
                             experiment_id=experiment_id,

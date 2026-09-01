@@ -17,6 +17,7 @@ from .risk import RiskContext, RiskEngine, RiskLimits
 from .runtime import JobResult
 from .scanner import CandidateScanner
 from .strategies import BaselineStrategies
+from .strategy_health import load_persisted_health, rank_opportunities
 
 DEFAULT_OANDA_UNIVERSE = (
     "EUR/USD",
@@ -92,7 +93,14 @@ class FxPaperTradingJob:
             )
             diagnostics.append(decision.diagnostic)
             if decision.qualified and decision.proposal is not None:
-                qualified.append(decision)
+                governance = rank_opportunities([{"strategy": decision.proposal.source, "strategy_version": "fx-baseline-v1", "raw_score": decision.score, "risk_approved": True}], load_persisted_health())[0]
+                decision.diagnostic["strategy_health"] = governance["strategy_health"]
+                decision.diagnostic["learning_adjustment"] = governance["learning_adjustment"]
+                if governance["execution_eligible"]:
+                    qualified.append(decision)
+                else:
+                    decision.diagnostic["qualified"] = False
+                    decision.diagnostic["reason"] = "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY"
 
         qualified.sort(key=lambda item: item.score, reverse=True)
         counts = {"forex_scanned": len(histories), "forex_qualified": len(qualified), "fx_diagnostics": diagnostics}
