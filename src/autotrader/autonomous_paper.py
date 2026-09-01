@@ -456,11 +456,11 @@ class AutonomousPaperTradingJob:
                     # Learning governance can reduce eligibility or move a
                     # strategy to shadow, but it never bypasses risk gates.
                     if ranked_learning and not any(item["execution_eligible"] for item in ranked_learning):
-                        diagnostics.append({"symbol": instrument.symbol, "rejection": "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY",
+                        diagnostics.append({"symbol": instrument.symbol, "score": candidate.score, "rejection": "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY",
                                             "learning": ranked_learning})
                         continue
                     if ranked_learning:
-                        diagnostics.append({"symbol": instrument.symbol, "learning_decision": ranked_learning})
+                        diagnostics.append({"symbol": instrument.symbol, "score": candidate.score, "learning_decision": ranked_learning})
                     confluence = aggregate_confluence(strategy_evaluations)
                     for evaluation in strategy_evaluations:
                         self.experiment_ledger.record_activity(
@@ -537,7 +537,7 @@ class AutonomousPaperTradingJob:
                     )
                     if learning_rank and not any(item["execution_eligible"] for item in learning_rank):
                         stock_confluence_allows_entry = False
-                        diagnostics.append({"symbol": instrument.symbol, "rejection": "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY", "learning": learning_rank})
+                        diagnostics.append({"symbol": instrument.symbol, "score": candidate.score, "rejection": "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY", "learning": learning_rank})
                     for evaluation in stock_evaluations:
                         self.experiment_ledger.record_activity(
                             experiment_id=experiment_id,

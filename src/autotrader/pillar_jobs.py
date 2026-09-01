@@ -459,7 +459,7 @@ class InternationalPaperTradingJob:
                 "trend_following": self.strategies.trend_following(ranked_candidate.instrument, bars),
                 "relative_strength": None,
             }
-            evaluations = evaluate_proposals(ranked_candidate.instrument, bars, proposals, timeframe="1d", candidate_score=ranked_candidate.score)
+            evaluations = list(evaluate_proposals(ranked_candidate.instrument, bars, proposals, timeframe="1d", candidate_score=ranked_candidate.score))
             confluence = aggregate_confluence(evaluations)
             eligible = [proposal for proposal in proposals.values() if proposal is not None and proposal.side is Side.BUY]
             proposal = max(eligible, key=lambda item: item.confidence) if confluence.direction == "BUY" and eligible else None
