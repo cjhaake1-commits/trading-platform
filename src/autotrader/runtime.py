@@ -18,6 +18,7 @@ from .paper_experiment import PaperExperimentLedger
 from .forward_evidence import ForwardEvidenceLedger
 from .runtime_queue import persist_runtime_queue_decision
 from .capital_recycling import evaluate_position, summarize_releases
+from .forward_lifecycle import ForwardLifecycle
 
 
 class RunMode(StrEnum):
@@ -88,6 +89,7 @@ class AutonomousRuntime:
         self._last_heartbeat_audit_monotonic = 0.0
         self._experiment_ledger = PaperExperimentLedger(self.config.experiment_path) if self.config.experiment_path else None
         self._forward_ledger = ForwardEvidenceLedger()
+        self._lifecycle_ledger = ForwardLifecycle()
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -190,6 +192,13 @@ class AutonomousRuntime:
                 persist_runtime_queue_decision(
                     job_name=job.name, pillar=_pillar_for_job(job.name),
                     provider=_provider_for_job(job.name), now=now, data=data,
+                )
+                trade_id = f"cycle:{job.name}:{now.isoformat()}"
+                self._lifecycle_ledger.record(
+                    trade_id=trade_id, stage="DECISION", occurred_at=now.isoformat(),
+                    pillar=_pillar_for_job(job.name), engine=job.name,
+                    instrument=str(data.get("candidate") or data.get("symbol") or job.name),
+                    payload={"ownership": str(data.get("ownership") or "UNKNOWN"), "decision": result.message},
                 )
                 positions = data.get("positions") if isinstance(data.get("positions"), list) else []
                 recycling = summarize_releases([evaluate_position(item) for item in positions if isinstance(item, dict)])
