@@ -7,6 +7,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Mapping
 from .margin_runtime import calculate_margin
+from .hedge_runtime import evaluate_hedge
 
 
 def persist_activity(data: Mapping[str, object], *, path: str | Path = "var/autotrader/activity-diagnostic.jsonl", now: datetime | None = None) -> dict[str, object]:
@@ -46,3 +47,19 @@ def margin_snapshot(data: Mapping[str, object]) -> dict[str, object]:
         enabled=bool(data.get("margin_supported", False)),
     )
     return state.as_dict()
+
+
+def hedge_snapshot(data: Mapping[str, object]) -> dict[str, object] | None:
+    required = ("target_exposure", "hedge_instrument", "hedge_direction")
+    if not all(data.get(key) for key in required):
+        return None
+    return evaluate_hedge(
+        target_exposure=str(data["target_exposure"]), hedge_instrument=str(data["hedge_instrument"]),
+        hedge_direction=str(data["hedge_direction"]), hedge_ratio=float(data.get("hedge_ratio", 0) or 0),
+        capital_required=float(data.get("hedge_capital_required", 0) or 0),
+        expected_cost=float(data.get("hedge_expected_cost", 0) or 0),
+        expected_downside_reduction=float(data.get("expected_downside_reduction", 0) or 0),
+        expected_return_impact=float(data.get("expected_return_impact", 0) or 0),
+        expected_drawdown_impact=float(data.get("expected_drawdown_impact", 0) or 0),
+        basis_risk=float(data.get("basis_risk", 1) or 0),
+    ).as_dict()

@@ -24,7 +24,7 @@ from .runtime_allocator import refresh_allocator
 from .crypto_settlement_runtime import settle_from_runtime
 from .learning_ingestion import LearningIngestor
 from .options_probe import probe_adapter
-from .activity_diagnostic import persist_activity, margin_snapshot
+from .activity_diagnostic import persist_activity, margin_snapshot, hedge_snapshot
 
 
 class RunMode(StrEnum):
@@ -203,6 +203,7 @@ class AutonomousRuntime:
                     provider=_provider_for_job(job.name), now=now, data=data,
                 )
                 data["margin_snapshot"] = margin_snapshot(data)
+                data["hedge_snapshot"] = hedge_snapshot(data)
                 persist_activity(data, now=now)
                 self._execution_consumer.consume({
                     "intent_id": f"cycle:{job.name}:{now.isoformat()}",
