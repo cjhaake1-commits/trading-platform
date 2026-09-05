@@ -21,6 +21,7 @@ from .capital_recycling import evaluate_position, summarize_releases
 from .forward_lifecycle import ForwardLifecycle
 from .runtime_execution_consumer import RuntimeExecutionConsumer
 from .runtime_allocator import refresh_allocator
+from .crypto_settlement_runtime import settle_from_runtime
 
 
 class RunMode(StrEnum):
@@ -211,6 +212,8 @@ class AutonomousRuntime:
                     "instrument": str(data.get("candidate") or data.get("symbol") or job.name),
                 }, now=now.isoformat())
                 refresh_allocator()
+                if isinstance(data.get("counterfactual_bars"), dict):
+                    settle_from_runtime(bars_by_symbol=data["counterfactual_bars"], now=now)
                 trade_id = f"cycle:{job.name}:{now.isoformat()}"
                 self._lifecycle_ledger.record(
                     trade_id=trade_id, stage="DECISION", occurred_at=now.isoformat(),
