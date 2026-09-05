@@ -221,7 +221,13 @@ class AutonomousRuntime:
                     "pillar": _pillar_for_job(job.name), "engine": job.name,
                     "instrument": str(data.get("candidate") or data.get("symbol") or job.name),
                 }, now=now.isoformat())
-                refresh_allocator()
+                economic = self._economic_ledger.metrics()
+                # Queue ranking uses one economic portfolio. Provider buying
+                # power is deliberately absent; provider jobs remain the
+                # sole execution owners and prevent duplicate submissions.
+                refresh_allocator(allocations={
+                    "economic_portfolio": float(economic.get("available_released_capital", 0.0))
+                })
                 if isinstance(data.get("counterfactual_bars"), dict):
                     settle_from_runtime(bars_by_symbol=data["counterfactual_bars"], now=now)
                 if isinstance(data.get("completed_outcomes"), list):

@@ -18,7 +18,21 @@ def refresh_allocator(*, queue_path: str | Path = "var/autotrader/opportunity-qu
             except (json.JSONDecodeError, TypeError, ValueError):
                 continue
     ranked = rank_shadow_opportunities(opportunities)
-    shadow = shadow_allocation(allocations or {}, ranked)
-    report = {"ranked": ranked, "shadow_allocations": shadow, "executed": False, "side_effects": "NONE"}
+    capital = max(sum(max(float(value), 0.0) for value in (allocations or {}).values()), 0.0)
+    selected = []
+    remaining = capital
+    for record in ranked:
+        required = float(record.get("capital_required") or 0.0)
+        if required <= 0 or required > remaining:
+            continue
+        selected.append({**record, "allocated_capital": required,
+                         "allocation_scope": "SINGLE_ECONOMIC_PORTFOLIO",
+                         "allocation_status": "APPROVED_FOR_PROVIDER_JOB"})
+        remaining -= required
+    report = {"ranked": ranked, "economic_capital": capital,
+              "capital_available_after_allocation": remaining,
+              "allocations": selected, "shadow_allocations": shadow_allocation({}, ranked),
+              "executed": False, "execution_owner": "provider_specific_runtime_job",
+              "side_effects": "NONE"}
     out = Path(output); out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n")
     return report
