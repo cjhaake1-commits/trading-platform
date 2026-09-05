@@ -17,6 +17,7 @@ from .models import AuditEvent
 from .paper_experiment import PaperExperimentLedger
 from .forward_evidence import ForwardEvidenceLedger
 from .runtime_queue import persist_runtime_queue_decision
+from .capital_recycling import evaluate_position, summarize_releases
 
 
 class RunMode(StrEnum):
@@ -190,6 +191,10 @@ class AutonomousRuntime:
                     job_name=job.name, pillar=_pillar_for_job(job.name),
                     provider=_provider_for_job(job.name), now=now, data=data,
                 )
+                positions = data.get("positions") if isinstance(data.get("positions"), list) else []
+                recycling = summarize_releases([evaluate_position(item) for item in positions if isinstance(item, dict)])
+                if positions:
+                    data["capital_recycling"] = recycling
                 # Append the cycle observation to the separate forward
                 # evidence ledger. This is telemetry only and cannot submit
                 # or alter an order.
