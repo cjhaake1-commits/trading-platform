@@ -36,7 +36,11 @@ class RuntimeExecutionConsumer:
         result = execute_qualified_queue_record(record, adapter=adapter, lifecycle=self.lifecycle, now=now)
         state = "SUBMITTED" if result.get("submitted") else "REJECTED"
         if state == "SUBMITTED":
-            self.economic.event(intent_id, "ORDER_INTENT", {"ownership": "PLATFORM_OWNED", "provider_order_id": result.get("provider_order_id")})
+            self.economic.event(intent_id, "ORDER_INTENT", {
+                "ownership": "PLATFORM_OWNED",
+                "provider_order_id": result.get("provider_order_id"),
+                "capital_required": record.get("capital_required") or record.get("allocated_capital") or 0,
+            })
         return self._persist(intent_id, state, None if state == "SUBMITTED" else str(result.get("reason")), record, result)
 
     def _persist(self, intent_id: str, state: str, reason: str | None, record: Mapping[str, object], result: Mapping[str, object] | None = None) -> dict[str, object]:
