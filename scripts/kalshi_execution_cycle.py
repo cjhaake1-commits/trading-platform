@@ -11,10 +11,13 @@ from urllib.error import HTTPError
 
 from autotrader.capital_allocations import kalshi_pool_available
 from autotrader.kalshi.client import KalshiDemoExecutionClient, KalshiReadOnlyClient
+from autotrader.kalshi_forward_runtime import consume_forward
+from autotrader.runtime_execution_consumer import RuntimeExecutionConsumer
 from autotrader.kalshi.config import KalshiConfig
 from autotrader.models import AssetClass, PortfolioState, Side, TradeProposal
 from autotrader.risk import RiskEngine
 from autotrader.risk_stack import LayeredRiskStack
+from autotrader.forward_evidence import ForwardEvidenceLedger
 
 
 def _write_status(engine: str, result: dict[str, object]) -> None:
@@ -240,6 +243,16 @@ def _valid_perps_quote(market: dict[str, object]) -> bool:
     return bid is not None and ask is not None and 0 < bid <= ask < 1_000_000.0
 
 
+class _KalshiPerpsAdapter:
+    """Demo adapter invoked only by the shared execution consumer."""
+    def __init__(self, config: KalshiConfig):
+        self.client = KalshiDemoExecutionClient(config)
+
+    def submit(self, record):
+        response = self.client.create_order(record["provider_payload"], family="perps")
+        return {"provider_order_id": response.get("order_id") or response.get("order", {}).get("order_id"), "ack": True}
+
+
 def cycle() -> dict[str, object]:
     engine = os.getenv("KALSHI_ENGINE", "predictions").lower()
     config = KalshiConfig.from_env()
@@ -283,6 +296,11 @@ def cycle() -> dict[str, object]:
                            "orders": len(client.orders_read_only(limit="100").get("orders", [])),
                            "fills": len(client.fills(limit="100").get("fills", []))})
         else:
+            if not config.perps_autonomous_enabled:
+                result["decision"] = "FAIL_CLOSED"
+                result["last_rejection_reason"] = "PERPS_AUTONOMOUS_GATE"
+                _write_status(engine, result)
+                return result
             enabled = client.perps_enabled()
             markets = client.perps_markets(limit="100")
             rows = markets.get("markets", [])
@@ -315,16 +333,25 @@ def cycle() -> dict[str, object]:
                             evaluation["order_rejection"] = "PROVIDER_SUBMISSION_COOLDOWN"
                             break
                         payload = _perps_order_payload(market, evaluation)
-                        response = KalshiDemoExecutionClient(config).create_order(payload, family="perps")
-                        evaluation["order_state"] = "ACKNOWLEDGED"
-                        evaluation["order_response"] = {"order_id": response.get("order_id") or response.get("order", {}).get("order_id")}
-                        submitted = 1
+                        routed = consume_forward({
+                            "ticker": market.get("ticker"), "trade_id": payload["client_order_id"],
+                            "qualified": True, "qualified_signal": True,
+                            "expected_return_after_costs": evaluation.get("net_edge"),
+                            "risk_approved": True, "capital_approved": True,
+                            "provider_supported": True, "session_allowed": True,
+                            "provider_payload": payload,
+                        }, family="perps", consumer=RuntimeExecutionConsumer(),
+                        adapter=_KalshiPerpsAdapter(config), now=result["observed_at"])
+                        if routed["state"] == "SUBMITTED":
+                            evaluation["order_state"] = "ACKNOWLEDGED"
+                            evaluation["order_response"] = {"order_id": routed.get("provider_order_id")}
+                            submitted = 1
+                        else:
+                            evaluation["order_state"] = "REJECTED"
+                            evaluation["order_rejection"] = routed.get("reason")
                     except ValueError:
-                        payload = _perps_order_payload(market, evaluation)
-                        response = KalshiDemoExecutionClient(config).create_order(payload, family="perps")
-                        evaluation["order_state"] = "ACKNOWLEDGED"
-                        evaluation["order_response"] = {"order_id": response.get("order_id") or response.get("order", {}).get("order_id")}
-                        submitted = 1
+                        evaluation["order_state"] = "REJECTED"
+                        evaluation["order_rejection"] = "INVALID_CANDIDATE"
                     except HTTPError as exc:
                         evaluation["order_state"] = "REJECTED"
                         try:
@@ -400,6 +427,18 @@ def cycle() -> dict[str, object]:
         result.update({"state": "API_DEGRADED", "error": type(exc).__name__})
         result["last_rejection_reason"] = "API_DEGRADED"
     result["provider_telemetry"] = client.telemetry.snapshot()
+    if engine in {"predictions", "perps"}:
+        # One idempotent economic decision per engine cycle. Provider reads,
+        # heartbeats, reconciliation and UI polling are intentionally excluded.
+        ForwardEvidenceLedger().append({
+            "decision_id": f"kalshi:{engine}:{result['observed_at']}",
+            "decision_ts": result["observed_at"], "pillar": "Kalshi Predictions" if engine == "predictions" else "Kalshi Perps",
+            "engine": f"kalshi-{engine}", "provider": "Kalshi Demo", "instrument": str((result.get("top_candidates") or [{}])[0].get("ticker") or engine),
+            "strategy": "KALSHI_BASELINE", "strategy_version": "demo-runtime-v1", "model_version": "demo-runtime-v1", "scope": "DEMO",
+            "decision": result.get("decision") or result.get("state"), "rejection_reason": result.get("last_rejection_reason"),
+            "candidate": bool(result.get("top_candidates")), "signal": bool((result.get("funnel") or {}).get("positive_edge")),
+            "risk_decision": (result.get("funnel") or {}).get("risk_approved"), "orders": result.get("orders", 0), "fills": result.get("fills", 0),
+        })
     _write_candidate_telemetry(engine, result.pop("candidate_telemetry", []))
     _write_status(engine, result)
     return result
