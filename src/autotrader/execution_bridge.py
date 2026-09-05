@@ -44,6 +44,20 @@ def execute_qualified_queue_record(record: Mapping[str, object], *, adapter: Pap
     if not gate.approved:
         result["failed_gates"] = [name for name in ("paper_mode", "qualified_signal", "risk_approved", "capital_approved", "provider_supported", "session_allowed", "ownership_allowed") if not getattr(gate, name)]
         return result
+    # Margin is an additional economic gate, never a source of capital.  A
+    # provider's buying power is intentionally ignored here.
+    margin_required = float(record.get("margin_required", 0) or 0)
+    margin_available = float(record.get("margin_available", 0) or 0)
+    if margin_required > margin_available:
+        result["reason"] = "MARGIN_LIMIT"
+        result["failed_gates"] = ["margin_available"]
+        return result
+    leverage = record.get("leverage_ratio")
+    hard_limit = record.get("platform_margin_limit")
+    if leverage is not None and hard_limit is not None and float(leverage) > float(hard_limit):
+        result["reason"] = "LEVERAGE_LIMIT"
+        result["failed_gates"] = ["platform_margin_limit"]
+        return result
     trade_id = str(record.get("trade_id") or record.get("decision_id") or "")
     if not trade_id or str(record.get("ownership", "UNKNOWN")).upper() != "PLATFORM_OWNED":
         result["reason"] = "OWNERSHIP_REJECTED"
