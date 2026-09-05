@@ -22,6 +22,7 @@ from .forward_lifecycle import ForwardLifecycle
 from .runtime_execution_consumer import RuntimeExecutionConsumer
 from .runtime_allocator import refresh_allocator
 from .crypto_settlement_runtime import settle_from_runtime
+from .learning_ingestion import LearningIngestor
 
 
 class RunMode(StrEnum):
@@ -94,6 +95,7 @@ class AutonomousRuntime:
         self._forward_ledger = ForwardEvidenceLedger()
         self._lifecycle_ledger = ForwardLifecycle()
         self._execution_consumer = RuntimeExecutionConsumer(lifecycle=self._lifecycle_ledger)
+        self._learning_ingestor = LearningIngestor()
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -214,6 +216,10 @@ class AutonomousRuntime:
                 refresh_allocator()
                 if isinstance(data.get("counterfactual_bars"), dict):
                     settle_from_runtime(bars_by_symbol=data["counterfactual_bars"], now=now)
+                if isinstance(data.get("completed_outcomes"), list):
+                    for outcome in data["completed_outcomes"]:
+                        if isinstance(outcome, dict) and outcome.get("outcome_id"):
+                            self._learning_ingestor.ingest(outcome_id=str(outcome["outcome_id"]), outcome=outcome)
                 trade_id = f"cycle:{job.name}:{now.isoformat()}"
                 self._lifecycle_ledger.record(
                     trade_id=trade_id, stage="DECISION", occurred_at=now.isoformat(),
