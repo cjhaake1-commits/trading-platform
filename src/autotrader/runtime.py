@@ -227,7 +227,7 @@ class AutonomousRuntime:
                 # sole execution owners and prevent duplicate submissions.
                 refresh_allocator(allocations={
                     "economic_portfolio": float(economic.get("available_released_capital", 0.0))
-                })
+                }, health=None)
                 if isinstance(data.get("counterfactual_bars"), dict):
                     settle_from_runtime(bars_by_symbol=data["counterfactual_bars"], now=now)
                 if isinstance(data.get("completed_outcomes"), list):

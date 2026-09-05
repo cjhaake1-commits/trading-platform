@@ -55,3 +55,23 @@ def test_allocated_capital_reaches_paper_consumer_and_new_owned_position(tmp_pat
         adapter=Paper(), now="2026-09-05T23:30:00+00:00")
     assert result["state"] == "SUBMITTED"
     assert consumer.economic.metrics()["capital_redeployed"] == 100
+
+
+def test_allocator_uses_clean_forward_governance_for_positive_and_negative_cohorts(tmp_path):
+    queue = tmp_path / "queue.jsonl"
+    def row(engine, instrument):
+        return {"decision":"QUEUE_ELIGIBLE", "opportunity": {
+            "pillar":"stocks","engine":engine,"instrument":instrument,"side":"LONG",
+            "expected_return_after_costs":.1,"expected_loss":.01,"confidence":.9,
+            "sample_quality":.9,"liquidity":.9,"correlation":.1,"holding_time_minutes":10,
+            "capital_required":100,"margin_required":0,"drawdown_contribution":.01,
+            "strategy_version":"v1","execution_mode":"PAPER","eligible":True,"rejection_reason":None}}
+    queue.write_text(json.dumps(row("good-strategy", "GOOD")) + "\n" + json.dumps(row("bad-strategy", "BAD")) + "\n")
+    health = {
+        ("good-strategy", "v1"): {"state":"HEALTHY"},
+        ("bad-strategy", "v1"): {"state":"QUARANTINED"},
+    }
+    report = refresh_allocator(queue_path=queue, output=tmp_path / "a.json",
+                               allocations={"economic_portfolio": 100}, health=health)
+    assert [item["instrument"] for item in report["allocations"]] == ["GOOD"]
+    assert report["allocations"][0]["learning_adjustment"] == .10
