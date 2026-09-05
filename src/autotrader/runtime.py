@@ -26,6 +26,7 @@ from .crypto_settlement_runtime import settle_from_runtime
 from .learning_ingestion import LearningIngestor
 from .options_probe import probe_adapter
 from .activity_diagnostic import persist_activity, margin_snapshot, hedge_snapshot
+from .performance_truth import report as performance_truth_report
 
 
 class RunMode(StrEnum):
@@ -264,6 +265,8 @@ class AutonomousRuntime:
                                                        released_at=str(exit_fill.get("filled_at") or now.isoformat()))
                 data["economic_lifecycle"] = self._economic_ledger.metrics()
                 data["capital_velocity"] = self._economic_ledger.velocity_metrics()
+                data["performance_truth"] = performance_truth_report(
+                    portfolio=data, ledger=self._forward_ledger)
                 # Append the cycle observation to the separate forward
                 # evidence ledger. This is telemetry only and cannot submit
                 # or alter an order.

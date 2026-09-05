@@ -15,8 +15,10 @@ def report(*, portfolio: Mapping[str, object], ledger: ForwardEvidenceLedger | N
             "realized_pnl": realized, "unrealized_pnl": unrealized,
             "total_pnl": realized + unrealized,
             "total_return": (realized + unrealized) / capital if capital else None},
-            "clean_forward": {"sample_size": evidence["completed"],
+            "clean_forward": {"sample_size": evidence["completed"], "trade_count": evidence["completed"],
+            "trades": evidence["completed"], "wins": evidence["wins"], "losses": evidence["losses"],
             "realized_pnl": evidence["realized_pnl"], "win_rate": evidence["win_rate"],
             "expectancy": evidence["expectancy_after_costs"], "profit_factor": evidence["profit_factor"],
-            "max_drawdown": evidence["max_drawdown"],
+            "max_drawdown": evidence["max_drawdown"], "deployed_capital": evidence["deployed_capital"],
+            "return_on_deployed_capital": evidence["return_on_deployed_capital"],
             "state": "INSUFFICIENT_DATA" if not evidence["completed"] else "EVIDENCE_AVAILABLE"}}
