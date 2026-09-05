@@ -38,4 +38,7 @@ class EconomicLifecycle:
         with sqlite3.connect(self.path) as db:
             released, pnl = db.execute("SELECT COALESCE(SUM(amount),0), COALESCE(SUM(realized_pnl),0) FROM releases").fetchone()
             outcomes = db.execute("SELECT COUNT(*) FROM events WHERE stage='OUTCOME' AND ownership='PLATFORM_OWNED'").fetchone()[0]
-        return {"capital_released": float(released), "realized_pnl": float(pnl), "completed_outcomes": int(outcomes)}
+            redeployed = db.execute("SELECT COALESCE(SUM(CAST(json_extract(payload, '$.capital_required') AS REAL)),0) FROM events WHERE stage='ORDER_INTENT' AND ownership='PLATFORM_OWNED'").fetchone()[0]
+        return {"capital_released": float(released), "realized_pnl": float(pnl),
+                "completed_outcomes": int(outcomes), "capital_redeployed": float(redeployed),
+                "available_released_capital": max(float(released) - float(redeployed), 0.0)}

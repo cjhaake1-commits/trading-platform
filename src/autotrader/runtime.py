@@ -19,6 +19,7 @@ from .forward_evidence import ForwardEvidenceLedger
 from .runtime_queue import persist_runtime_queue_decision
 from .capital_recycling import evaluate_position, summarize_releases
 from .forward_lifecycle import ForwardLifecycle
+from .forward_economic_lifecycle import EconomicLifecycle
 from .runtime_execution_consumer import RuntimeExecutionConsumer
 from .runtime_allocator import refresh_allocator
 from .crypto_settlement_runtime import settle_from_runtime
@@ -96,7 +97,8 @@ class AutonomousRuntime:
         self._experiment_ledger = PaperExperimentLedger(self.config.experiment_path) if self.config.experiment_path else None
         self._forward_ledger = ForwardEvidenceLedger()
         self._lifecycle_ledger = ForwardLifecycle()
-        self._execution_consumer = RuntimeExecutionConsumer(lifecycle=self._lifecycle_ledger)
+        self._economic_ledger = EconomicLifecycle()
+        self._execution_consumer = RuntimeExecutionConsumer(lifecycle=self._lifecycle_ledger, economic=self._economic_ledger)
         self._learning_ingestor = LearningIngestor()
         probe_adapter("paper-runtime-adapter", self)
         self._validate_config()
@@ -237,6 +239,23 @@ class AutonomousRuntime:
                 recycling = summarize_releases([evaluate_position(item) for item in positions if isinstance(item, dict)])
                 if positions:
                     data["capital_recycling"] = recycling
+                # Exit fills are the only release authority. Engines may
+                # report a completed exit after provider reconciliation; make
+                # that evidence durable and idempotent before refreshing the
+                # cross-pillar allocator. Protected/unknown positions are
+                # rejected by EconomicLifecycle.event and can never release.
+                for exit_fill in data.get("completed_exit_fills", []) if isinstance(data.get("completed_exit_fills"), list) else []:
+                    if not isinstance(exit_fill, dict):
+                        continue
+                    trade_id = str(exit_fill.get("trade_id") or exit_fill.get("position_id") or "")
+                    if not trade_id or str(exit_fill.get("ownership") or "UNKNOWN").upper() != "PLATFORM_OWNED":
+                        continue
+                    if self._economic_ledger.event(trade_id, "EXIT_FILL", exit_fill):
+                        released = float(exit_fill.get("capital_released") or exit_fill.get("market_value") or 0.0)
+                        self._economic_ledger.release(trade_id, amount=max(released, 0.0),
+                                                       realized_pnl=exit_fill.get("realized_pnl"),
+                                                       released_at=str(exit_fill.get("filled_at") or now.isoformat()))
+                data["economic_lifecycle"] = self._economic_ledger.metrics()
                 # Append the cycle observation to the separate forward
                 # evidence ledger. This is telemetry only and cannot submit
                 # or alter an order.
