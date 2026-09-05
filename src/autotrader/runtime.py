@@ -23,6 +23,7 @@ from .runtime_execution_consumer import RuntimeExecutionConsumer
 from .runtime_allocator import refresh_allocator
 from .crypto_settlement_runtime import settle_from_runtime
 from .learning_ingestion import LearningIngestor
+from .options_probe import probe_adapter
 
 
 class RunMode(StrEnum):
@@ -96,6 +97,7 @@ class AutonomousRuntime:
         self._lifecycle_ledger = ForwardLifecycle()
         self._execution_consumer = RuntimeExecutionConsumer(lifecycle=self._lifecycle_ledger)
         self._learning_ingestor = LearningIngestor()
+        probe_adapter("paper-runtime-adapter", self)
         self._validate_config()
 
     def _validate_config(self) -> None:
