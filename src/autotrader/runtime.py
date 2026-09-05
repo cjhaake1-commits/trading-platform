@@ -234,6 +234,7 @@ class AutonomousRuntime:
                     for outcome in data["completed_outcomes"]:
                         if isinstance(outcome, dict) and outcome.get("outcome_id"):
                             self._learning_ingestor.ingest(outcome_id=str(outcome["outcome_id"]), outcome=outcome)
+                    self._learning_ingestor.publish_strategy_health()
                 trade_id = f"cycle:{job.name}:{now.isoformat()}"
                 self._lifecycle_ledger.record(
                     trade_id=trade_id, stage="DECISION", occurred_at=now.isoformat(),

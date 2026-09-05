@@ -29,3 +29,18 @@ class LearningIngestor:
 
     def count(self) -> int:
         with sqlite3.connect(self.path) as db: return int(db.execute("SELECT COUNT(*) FROM outcomes").fetchone()[0])
+
+    def strategy_health(self, *, minimum_sample: int = 30) -> list[dict[str, object]]:
+        """Aggregate only clean platform-owned forward outcomes for governance."""
+        from .strategy_health import assess_strategy_health
+        with sqlite3.connect(self.path) as db:
+            rows = db.execute("SELECT strategy, COUNT(*), AVG(realized_pnl) FROM outcomes WHERE ownership='PLATFORM_OWNED' GROUP BY strategy").fetchall()
+        return [{**assess_strategy_health(str(strategy), "v1", int(sample), float(expectancy) if expectancy is not None else None, minimum_sample=minimum_sample), "source": "CLEAN_FORWARD_PAPER_OUTCOMES"} for strategy, sample, expectancy in rows]
+
+    def publish_strategy_health(self, path: str | Path = "var/reports/strategy-health.json", *, minimum_sample: int = 30) -> dict[str, object]:
+        payload = {"strategies": self.strategy_health(minimum_sample=minimum_sample), "evidence_scope": "FORWARD_PAPER_PLATFORM_OWNED_ONLY", "minimum_sample": minimum_sample}
+        target = Path(path); target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.replace(target)
+        return payload
