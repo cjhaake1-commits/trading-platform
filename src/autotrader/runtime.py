@@ -20,6 +20,7 @@ from .runtime_queue import persist_runtime_queue_decision
 from .capital_recycling import evaluate_position, summarize_releases
 from .forward_lifecycle import ForwardLifecycle
 from .runtime_execution_consumer import RuntimeExecutionConsumer
+from .runtime_allocator import refresh_allocator
 
 
 class RunMode(StrEnum):
@@ -209,6 +210,7 @@ class AutonomousRuntime:
                     "pillar": _pillar_for_job(job.name), "engine": job.name,
                     "instrument": str(data.get("candidate") or data.get("symbol") or job.name),
                 }, now=now.isoformat())
+                refresh_allocator()
                 trade_id = f"cycle:{job.name}:{now.isoformat()}"
                 self._lifecycle_ledger.record(
                     trade_id=trade_id, stage="DECISION", occurred_at=now.isoformat(),
