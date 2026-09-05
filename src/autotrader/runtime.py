@@ -263,6 +263,7 @@ class AutonomousRuntime:
                                                        realized_pnl=exit_fill.get("realized_pnl"),
                                                        released_at=str(exit_fill.get("filled_at") or now.isoformat()))
                 data["economic_lifecycle"] = self._economic_ledger.metrics()
+                data["capital_velocity"] = self._economic_ledger.velocity_metrics()
                 # Append the cycle observation to the separate forward
                 # evidence ledger. This is telemetry only and cannot submit
                 # or alter an order.

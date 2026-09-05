@@ -40,6 +40,7 @@ class RuntimeExecutionConsumer:
                 "ownership": "PLATFORM_OWNED",
                 "provider_order_id": result.get("provider_order_id"),
                 "capital_required": record.get("capital_required") or record.get("allocated_capital") or 0,
+                "occurred_at": now,
             })
         return self._persist(intent_id, state, None if state == "SUBMITTED" else str(result.get("reason")), record, result)
 

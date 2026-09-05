@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import sqlite3
+import json
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping
 
@@ -42,3 +44,30 @@ class EconomicLifecycle:
         return {"capital_released": float(released), "realized_pnl": float(pnl),
                 "completed_outcomes": int(outcomes), "capital_redeployed": float(redeployed),
                 "available_released_capital": max(float(released) - float(redeployed), 0.0)}
+
+    def velocity_metrics(self) -> dict[str, float | None]:
+        """Calculate release/redeployment velocity from economic event timestamps."""
+        with sqlite3.connect(self.path) as db:
+            releases = db.execute("SELECT trade_id, amount, released_at FROM releases ORDER BY released_at").fetchall()
+            intents = db.execute("SELECT trade_id, payload FROM events WHERE stage='ORDER_INTENT' AND ownership='PLATFORM_OWNED' ORDER BY event_id").fetchall()
+        redeployed = sum(float(json.loads(payload).get("capital_required") or 0.0) for _, payload in intents)
+        latencies = []
+        for _, _, released_at in releases:
+            try:
+                released = datetime.fromisoformat(str(released_at).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            for _, payload in intents:
+                try:
+                    allocated_at = datetime.fromisoformat(str(json.loads(payload).get("occurred_at")).replace("Z", "+00:00"))
+                except (TypeError, ValueError):
+                    continue
+                if allocated_at >= released:
+                    latencies.append((allocated_at - released).total_seconds())
+                    break
+        released_total = sum(float(row[1]) for row in releases)
+        return {"capital_released": released_total, "capital_redeployed": redeployed,
+                "average_time_to_redeploy": sum(latencies) / len(latencies) if latencies else None,
+                "capital_turnover": redeployed / released_total if released_total else 0.0,
+                "capital_velocity": len(latencies) / max((datetime.now().astimezone() - datetime.fromisoformat(str(releases[0][2]).replace("Z", "+00:00"))).total_seconds() / 86400, 1.0) if releases else 0.0,
+                "return_on_deployed_capital": None}
