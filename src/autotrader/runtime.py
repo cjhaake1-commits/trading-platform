@@ -24,6 +24,7 @@ from .runtime_allocator import refresh_allocator
 from .crypto_settlement_runtime import settle_from_runtime
 from .learning_ingestion import LearningIngestor
 from .options_probe import probe_adapter
+from .activity_diagnostic import persist_activity
 
 
 class RunMode(StrEnum):
@@ -201,6 +202,7 @@ class AutonomousRuntime:
                     job_name=job.name, pillar=_pillar_for_job(job.name),
                     provider=_provider_for_job(job.name), now=now, data=data,
                 )
+                persist_activity(data, now=now)
                 self._execution_consumer.consume({
                     "intent_id": f"cycle:{job.name}:{now.isoformat()}",
                     "decision_id": f"cycle:{job.name}:{now.isoformat()}",
