@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import signal
 import time
 from collections.abc import Callable
@@ -14,6 +15,8 @@ from typing import Protocol
 from .audit import SQLiteAuditStore
 from .models import AuditEvent
 from .paper_experiment import PaperExperimentLedger
+from .forward_evidence import ForwardEvidenceLedger
+from .runtime_queue import persist_runtime_queue_decision
 
 
 class RunMode(StrEnum):
@@ -83,6 +86,7 @@ class AutonomousRuntime:
         self._last_heartbeat_at: datetime | None = None
         self._last_heartbeat_audit_monotonic = 0.0
         self._experiment_ledger = PaperExperimentLedger(self.config.experiment_path) if self.config.experiment_path else None
+        self._forward_ledger = ForwardEvidenceLedger()
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -147,6 +151,20 @@ class AutonomousRuntime:
             state.last_duration_ms = duration_ms
             state.next_due_monotonic = finished + job.cadence_seconds
 
+            # Durable lifecycle evidence is written for every engine cycle,
+            # including legitimate no-signal/closed/shadow outcomes.
+            with sqlite3.connect("var/autotrader/lifecycle.db", timeout=30) as lifecycle_db:
+                lifecycle_db.execute("""CREATE TABLE IF NOT EXISTS engine_cycles
+                    (cycle_id TEXT PRIMARY KEY, engine TEXT, pillar TEXT, started_at TEXT,
+                     finished_at TEXT, provider_status TEXT, final_stage TEXT,
+                     stop_reason TEXT, payload_json TEXT NOT NULL)""")
+                payload = dict(result.data)
+                lifecycle_db.execute("INSERT OR REPLACE INTO engine_cycles VALUES (?,?,?,?,?,?,?,?,?)", (
+                    f"{job.name}:{now.isoformat()}", job.name, _pillar_for_job(job.name),
+                    now.isoformat(), state.last_finished_at.isoformat(),
+                    "OK" if result.ok else "ERROR", str(payload.get("last_successful_lifecycle_stage") or payload.get("stage") or "CYCLE"),
+                    result.message, json.dumps(payload, sort_keys=True, default=str)))
+
             if self._experiment_ledger is not None:
                 data = result.data
                 rejection = data.get("rejection") or data.get("reason") or data.get("final_bottleneck")
@@ -168,6 +186,25 @@ class AutonomousRuntime:
                     learning_update="cycle_persisted",
                 )
                 _record_candidate_payloads(self._experiment_ledger, job.name, data)
+                persist_runtime_queue_decision(
+                    job_name=job.name, pillar=_pillar_for_job(job.name),
+                    provider=_provider_for_job(job.name), now=now, data=data,
+                )
+                # Append the cycle observation to the separate forward
+                # evidence ledger. This is telemetry only and cannot submit
+                # or alter an order.
+                if job.name in {"autonomous-paper-trading", "oanda-fx-paper-trading", "alpaca-metals-paper-trading", "saxo-international-paper-trading", "kalshi-predictions", "kalshi-perps"}:
+                    self._forward_ledger.append({
+                    "decision_id": f"cycle:{job.name}:{now.isoformat()}",
+                    "decision_ts": now.isoformat(), "pillar": _pillar_for_job(job.name),
+                    "engine": job.name, "provider": _provider_for_job(job.name),
+                    "instrument": str(data.get("candidate") or data.get("symbol") or job.name),
+                    "strategy": str(data.get("strategy") or data.get("mode") or "cycle"),
+                    "strategy_version": str(data.get("strategy_version") or "runtime-v1"),
+                    "model_version": "runtime-v1", "scope": "FORWARD_PAPER",
+                    "decision": result.message, "rejection_reason": rejection,
+                    "payload": data,
+                    })
 
             if result.ok:
                 state.consecutive_failures = 0
