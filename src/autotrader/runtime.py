@@ -75,6 +75,12 @@ class RuntimeConfig:
 class AutonomousRuntime:
     """Long-running supervisor for market, research, learning, and execution jobs."""
 
+    EXECUTION_JOBS = frozenset({
+        "autonomous-paper-trading", "oanda-fx-paper-trading",
+        "alpaca-metals-paper-trading", "saxo-international-paper-trading",
+        "kalshi-predictions", "kalshi-perps",
+    })
+
     def __init__(
         self,
         jobs: list[RuntimeJob],
@@ -201,10 +207,11 @@ class AutonomousRuntime:
                     learning_update="cycle_persisted",
                 )
                 _record_candidate_payloads(self._experiment_ledger, job.name, data)
-                persist_runtime_queue_decision(
-                    job_name=job.name, pillar=_pillar_for_job(job.name),
-                    provider=_provider_for_job(job.name), now=now, data=data,
-                )
+                if job.name in self.EXECUTION_JOBS:
+                    persist_runtime_queue_decision(
+                        job_name=job.name, pillar=_pillar_for_job(job.name),
+                        provider=_provider_for_job(job.name), now=now, data=data,
+                    )
                 data["margin_snapshot"] = margin_snapshot(data)
                 data["hedge_snapshot"] = hedge_snapshot(data)
                 persist_activity(data, now=now)

@@ -60,7 +60,7 @@ def test_runtime_respects_job_cadence(tmp_path):
     runtime = AutonomousRuntime(
         [job],
         SQLiteAuditStore(tmp_path / "audit.db"),
-        RuntimeConfig(heartbeat_audit_seconds=60.0),
+        RuntimeConfig(autonomous_enabled=True, experiment_path=tmp_path / "experiments.db", heartbeat_audit_seconds=60.0),
         monotonic=clock.monotonic,
         now_factory=fixed_now,
     )
@@ -190,6 +190,20 @@ def test_autonomous_arming_defaults_false_and_requires_exact_true(monkeypatch):
     assert not runtime_app_module.autonomous_trading_armed()
     monkeypatch.setenv("AUTONOMOUS_TRADING_ENABLED", "true")
     assert runtime_app_module.autonomous_trading_armed()
+
+
+def test_runtime_queue_bridge_ignores_non_execution_jobs(tmp_path, monkeypatch):
+    import autotrader.runtime as runtime_module
+    calls = []
+    monkeypatch.setattr(runtime_module, "persist_runtime_queue_decision", lambda **kwargs: calls.append(kwargs))
+    runtime = AutonomousRuntime(
+        [CountingJob(name="health"), CountingJob(name="autonomous-paper-trading")],
+        SQLiteAuditStore(tmp_path / "audit.db"),
+        RuntimeConfig(autonomous_enabled=True, experiment_path=tmp_path / "experiments.db", heartbeat_audit_seconds=60.0),
+        now_factory=fixed_now,
+    )
+    runtime.run_once()
+    assert [call["job_name"] for call in calls] == ["autonomous-paper-trading"]
 
 
 def test_runtime_restart_with_autonomous_flag_remains_disarmed_by_default(
