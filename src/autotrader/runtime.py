@@ -19,6 +19,7 @@ from .forward_evidence import ForwardEvidenceLedger
 from .runtime_queue import persist_runtime_queue_decision
 from .capital_recycling import evaluate_position, summarize_releases
 from .forward_lifecycle import ForwardLifecycle
+from .runtime_execution_consumer import RuntimeExecutionConsumer
 
 
 class RunMode(StrEnum):
@@ -90,6 +91,7 @@ class AutonomousRuntime:
         self._experiment_ledger = PaperExperimentLedger(self.config.experiment_path) if self.config.experiment_path else None
         self._forward_ledger = ForwardEvidenceLedger()
         self._lifecycle_ledger = ForwardLifecycle()
+        self._execution_consumer = RuntimeExecutionConsumer(lifecycle=self._lifecycle_ledger)
         self._validate_config()
 
     def _validate_config(self) -> None:
@@ -193,6 +195,20 @@ class AutonomousRuntime:
                     job_name=job.name, pillar=_pillar_for_job(job.name),
                     provider=_provider_for_job(job.name), now=now, data=data,
                 )
+                self._execution_consumer.consume({
+                    "intent_id": f"cycle:{job.name}:{now.isoformat()}",
+                    "decision_id": f"cycle:{job.name}:{now.isoformat()}",
+                    "execution_mode": str(data.get("execution_mode") or "PAPER"),
+                    "qualified_signal": bool(data.get("qualified")),
+                    "risk_approved": bool(data.get("risk_approved")),
+                    "capital_approved": bool(data.get("capital_approved")),
+                    "provider_supported": bool(data.get("provider_supported")),
+                    "session_allowed": bool(data.get("session_allowed", True)),
+                    "ownership_allowed": str(data.get("ownership") or "UNKNOWN").upper() == "PLATFORM_OWNED",
+                    "ownership": str(data.get("ownership") or "UNKNOWN"),
+                    "pillar": _pillar_for_job(job.name), "engine": job.name,
+                    "instrument": str(data.get("candidate") or data.get("symbol") or job.name),
+                }, now=now.isoformat())
                 trade_id = f"cycle:{job.name}:{now.isoformat()}"
                 self._lifecycle_ledger.record(
                     trade_id=trade_id, stage="DECISION", occurred_at=now.isoformat(),
