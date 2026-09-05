@@ -81,6 +81,13 @@ class AutonomousRuntime:
         "kalshi-predictions", "kalshi-perps",
     })
 
+    @staticmethod
+    def _has_execution_candidate(job_name: str, data: dict[str, object]) -> bool:
+        candidate = data.get("candidate") or data.get("symbol") or data.get("instrument")
+        if candidate and str(candidate) != job_name:
+            return True
+        return bool(data.get("qualified") and (data.get("strategy") or data.get("instrument")))
+
     def __init__(
         self,
         jobs: list[RuntimeJob],
@@ -207,7 +214,7 @@ class AutonomousRuntime:
                     learning_update="cycle_persisted",
                 )
                 _record_candidate_payloads(self._experiment_ledger, job.name, data)
-                if job.name in self.EXECUTION_JOBS:
+                if job.name in self.EXECUTION_JOBS and self._has_execution_candidate(job.name, data):
                     persist_runtime_queue_decision(
                         job_name=job.name, pillar=_pillar_for_job(job.name),
                         provider=_provider_for_job(job.name), now=now, data=data,

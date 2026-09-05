@@ -203,7 +203,7 @@ def test_runtime_queue_bridge_ignores_non_execution_jobs(tmp_path, monkeypatch):
         now_factory=fixed_now,
     )
     runtime.run_once()
-    assert [call["job_name"] for call in calls] == ["autonomous-paper-trading"]
+    assert calls == []
 
 
 def test_runtime_restart_with_autonomous_flag_remains_disarmed_by_default(
