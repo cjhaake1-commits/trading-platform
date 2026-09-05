@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Mapping
+from .margin_runtime import calculate_margin
 
 
 def persist_activity(data: Mapping[str, object], *, path: str | Path = "var/autotrader/activity-diagnostic.jsonl", now: datetime | None = None) -> dict[str, object]:
@@ -32,3 +33,16 @@ def persist_activity(data: Mapping[str, object], *, path: str | Path = "var/auto
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True, default=str) + "\n")
     return record
+
+
+def margin_snapshot(data: Mapping[str, object]) -> dict[str, object]:
+    """Derive margin from economic notional, never provider buying power."""
+    state = calculate_margin(
+        economic_equity=float(data.get("economic_equity", data.get("equity", 0)) or 0),
+        long_notional=float(data.get("long_notional", 0) or 0),
+        short_notional=float(data.get("short_notional", 0) or 0),
+        margin_used=float(data.get("margin_used", 0) or 0),
+        platform_limit=float(data["platform_margin_limit"]) if data.get("platform_margin_limit") is not None else None,
+        enabled=bool(data.get("margin_supported", False)),
+    )
+    return state.as_dict()
