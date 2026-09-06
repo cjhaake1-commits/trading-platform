@@ -28,3 +28,14 @@ def test_runtime_queue_accepts_complete_engine_evidence(tmp_path):
     )
     assert record["decision"] == "QUEUE_ELIGIBLE"
     assert record["execution_side_effects"] == "NONE"
+
+
+def test_runtime_queue_preserves_explicit_closed_session_reason(tmp_path):
+    record = persist_runtime_queue_decision(
+        job_name="saxo-international-paper-trading", pillar="International", provider="Saxo",
+        now=datetime(2026, 9, 5, tzinfo=UTC),
+        data={"candidate": "MU:xmil", "execution_state": "READY / EVALUATING",
+              "execution_open": 0},
+        path=tmp_path / "queue.jsonl",
+    )
+    assert record["rejection_reason"] == "SESSION_CLOSED"

@@ -32,6 +32,12 @@ def persist_runtime_queue_decision(
     instrument = str(data.get("candidate") or data.get("symbol") or job_name)
     eligible = bool(data.get("qualified") or data.get("risk_approved"))
     reason = data.get("rejection") or data.get("reason") or data.get("final_bottleneck")
+    if not reason:
+        state = str(data.get("execution_state") or "").upper()
+        if "CLOSED" in state or data.get("execution_open") == 0:
+            reason = "SESSION_CLOSED"
+        elif "RATE_LIMIT" in state or ("PROVIDER" in state and "BLOCK" in state):
+            reason = "PROVIDER_UNAVAILABLE"
     opportunity = Opportunity(
         pillar=pillar, engine=job_name, instrument=instrument,
         side=str(data.get("side") or "UNKNOWN"),
