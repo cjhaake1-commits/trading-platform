@@ -141,7 +141,10 @@ class AutonomousRuntime:
         mono_now = self._monotonic()
         self._last_heartbeat_at = now
         if self._observability_boundary:
-            publish_status({"healthy": True})
+            # Publish the scheduler registry, not a heartbeat-only stub.  A
+            # heartbeat proves the process is alive; it must not make every
+            # execution pillar appear disabled to external observers.
+            publish_status(self.snapshot())
         # Publish heartbeat freshness before potentially slow provider/research
         # jobs run. The final snapshot below still captures their outcomes.
         self._write_snapshot(self.snapshot())
