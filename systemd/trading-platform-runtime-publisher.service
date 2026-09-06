@@ -1,0 +1,10 @@
+[Unit]
+Description=Trading Platform sanitized runtime-status publisher
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/cjhaake1/trading-platform
+Environment=PYTHONPATH=/home/cjhaake1/trading-platform/src
+ExecStart=/home/cjhaake1/trading-platform/.venv/bin/python /home/cjhaake1/trading-platform/scripts/publish_runtime_status.py
+TimeoutStartSec=60

@@ -1,0 +1,11 @@
+[Unit]
+Description=Publish sanitized trading runtime status every minute
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=60s
+Persistent=true
+Unit=trading-platform-runtime-publisher.service
+
+[Install]
+WantedBy=timers.target
