@@ -67,7 +67,8 @@ def main() -> int:
         public_status["boundary_timestamp"] = boundary["boundary_timestamp_utc"]
         public_status["runtime_instance_id"] = boundary["runtime_instance_id"]
         public_status["running_sha"] = boundary["git_commit_sha"]
-        public_status["qualified"] = public_status.get("first_qualifying_post_boundary_trade") is not None
+        first = public_status.get("first_qualifying_post_boundary_trade")
+        public_status["qualified"] = bool(first and first.get("qualified") is True)
         raw["external_status.json"] = (json.dumps(public_status, indent=2, sort_keys=True) + "\n").encode()
         validate_payloads(raw, boundary, public_status)
         PUBLIC.mkdir(parents=True, exist_ok=True)
