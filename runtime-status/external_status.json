@@ -1,0 +1,80 @@
+{
+  "boundary": {
+    "boundary_id": "63b2a090-60bc-47ba-89cd-1469deae3608",
+    "boundary_timestamp_utc": "2026-09-06T14:49:45.727943+00:00",
+    "environment": "PAPER/PRACTICE/SIM/DEMO",
+    "git_branch": "bootstrap-paper-trading-core",
+    "git_commit_sha": "8b92db0f85f6129d4e9b5a59d645ad51389605ff",
+    "hostname": "instance-20260806-154514",
+    "live_trading_enabled": false,
+    "reason": "post-fix observability boundary",
+    "runtime_instance_id": "paper-runtime:3488295",
+    "runtime_process_start_time": "2026-09-06T14:49:45.731721+00:00"
+  },
+  "environment": "PAPER/PRACTICE/SIM/DEMO",
+  "first_qualifying_post_boundary_trade": {
+    "boundary_id": "63b2a090-60bc-47ba-89cd-1469deae3608",
+    "checked_at": "2026-09-06T14:50:11.342306+00:00",
+    "qualified": false,
+    "runtime_healthy": true
+  },
+  "generated_at_utc": "2026-09-06T14:50:11.340122+00:00",
+  "git": {
+    "branch": "bootstrap-paper-trading-core",
+    "commit_sha": "8b92db0f85f6129d4e9b5a59d645ad51389605ff"
+  },
+  "live_trading_enabled": false,
+  "runtime_health": true,
+  "runtime_instance_id": "paper-runtime:3488295",
+  "six_pillars": {
+    "crypto": {
+      "enabled": true,
+      "last_activity_at": null,
+      "last_error": null,
+      "mode": "PAPER",
+      "provider": "Alpaca Paper"
+    },
+    "forex": {
+      "enabled": true,
+      "last_activity_at": null,
+      "last_error": null,
+      "mode": "PRACTICE",
+      "provider": "OANDA Practice"
+    },
+    "international": {
+      "enabled": true,
+      "last_activity_at": null,
+      "last_error": null,
+      "mode": "SIM",
+      "provider": "Saxo SIM"
+    },
+    "kalshi_perps": {
+      "enabled": false,
+      "last_activity_at": null,
+      "last_error": null,
+      "mode": "DEMO",
+      "provider": "Kalshi DEMO"
+    },
+    "kalshi_predictions": {
+      "enabled": false,
+      "last_activity_at": null,
+      "last_error": null,
+      "mode": "DEMO",
+      "provider": "Kalshi DEMO"
+    },
+    "metals": {
+      "enabled": true,
+      "last_activity_at": null,
+      "last_error": null,
+      "mode": "PAPER",
+      "provider": "Alpaca Paper"
+    },
+    "stocks": {
+      "enabled": true,
+      "last_activity_at": null,
+      "last_error": null,
+      "mode": "PAPER",
+      "provider": "Alpaca Paper"
+    }
+  }
+}
