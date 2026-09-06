@@ -27,6 +27,7 @@ from .learning_ingestion import LearningIngestor
 from .options_probe import probe_adapter
 from .activity_diagnostic import persist_activity, margin_snapshot, hedge_snapshot
 from .performance_truth import report as performance_truth_report
+from .observability import ensure_boundary, publish_status
 
 
 class RunMode(StrEnum):
@@ -114,6 +115,7 @@ class AutonomousRuntime:
         self._economic_ledger = EconomicLifecycle()
         self._execution_consumer = RuntimeExecutionConsumer(lifecycle=self._lifecycle_ledger, economic=self._economic_ledger)
         self._learning_ingestor = LearningIngestor()
+        self._observability_boundary = ensure_boundary(runtime_instance_id=f"paper-runtime:{__import__('os').getpid()}") if self.config.snapshot_path else None
         probe_adapter("paper-runtime-adapter", self)
         self._validate_config()
 
@@ -138,6 +140,8 @@ class AutonomousRuntime:
         now = self._now_factory()
         mono_now = self._monotonic()
         self._last_heartbeat_at = now
+        if self._observability_boundary:
+            publish_status({"healthy": True})
         # Publish heartbeat freshness before potentially slow provider/research
         # jobs run. The final snapshot below still captures their outcomes.
         self._write_snapshot(self.snapshot())

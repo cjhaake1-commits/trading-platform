@@ -247,7 +247,7 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
     provider_rows = provider_rows or "<tr><td colspan='7'>UNKNOWN</td></tr>"
 
     return f"""<!doctype html>
-<html><head><meta charset='utf-8'><meta http-equiv='refresh' content='10'>
+<html><head><meta charset='utf-8'>
 <title>Autotrader Paper Dashboard</title>
 <style>
 body{{font-family:system-ui,-apple-system,sans-serif;background:#0b1020;color:#e8edf7;margin:0;padding:24px}}
@@ -263,7 +263,7 @@ th{{color:#9aa7bd}}
 section{{margin-top:24px}} code{{color:#b8c7ff}} .meta{{font-size:13px;color:#9aa7bd;line-height:1.6}}
 </style></head><body><div class='wrap'>
 <h1>Autonomous Paper Trading</h1>
-<div class='sub'>Combined Alpaca Paper + OANDA Practice • refreshes every 10 seconds</div>
+<div class='sub'>Combined Alpaca Paper + OANDA Practice • manual browser refresh</div>
 <div class='grid'>
 <div class='card'><div class='k'>Runtime</div><div class='v {runtime_class}'>{runtime_label}</div></div>
 <div class='card'><div class='k'>Portfolio Equity</div><div class='v'>{_fmt_money(equity)}</div></div>
@@ -343,6 +343,19 @@ def main() -> None:
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            from .observability import EVENTS, first_qualifying_trade, publish_status
+            if self.path == "/api/runtime/status":
+                body = json.dumps(publish_status(status=_read_json(status_path)), sort_keys=True).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path == "/api/runtime/first-qualified-trade":
+                body = json.dumps(first_qualifying_trade(), sort_keys=True).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+            if self.path == "/api/runtime/events":
+                body = EVENTS.read_bytes() if EVENTS.exists() else b""
+                self.send_response(200); self.send_header("Content-Type", "application/x-ndjson")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
             if self.path not in {"/", "/index.html"}:
                 self.send_response(404)
                 self.end_headers()
