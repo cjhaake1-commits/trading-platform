@@ -408,22 +408,40 @@ class InternationalPaperTradingJob:
             item for item in instruments
             if self._provider_session(item, now) == "OPEN"
         )
+        # International is a diversified non-FX market pillar.  FX is owned
+        # by the OANDA Forex pillar and must not dominate Saxo discovery merely
+        # because SBFX is almost always open.
+        international_instruments = tuple(
+            item for item in instruments
+            if str(item.asset_type or "").lower() in {"stock", "etf", "cfdonindex"}
+            and self._is_foreign(item.exchange_id or "")
+        )
+        open_international = tuple(
+            item for item in international_instruments
+            if self._provider_session(item, now) == "OPEN"
+        )
         discovery = {
-            "venues_discovered": len({item.exchange_id for item in instruments if item.exchange_id}),
-            "venues_open": len({item.exchange_id for item in open_instruments if item.exchange_id}),
-            "instruments_discovered": len(instruments),
-            "instruments_evaluated": len(open_instruments),
+            "venues_discovered": len({item.exchange_id for item in international_instruments if item.exchange_id}),
+            "venues_open": len({item.exchange_id for item in open_international if item.exchange_id}),
+            "instruments_discovered": len(international_instruments),
+            "instruments_evaluated": len(international_instruments),
+            "fx_instruments_excluded": len(instruments) - len(international_instruments),
         }
-        funnel.update({"session": "OPEN" if open_instruments else "CLOSED", "universe": len(instruments), "history_valid": 0,
-                       "state": "ACTIVE — EVALUATING OPEN MARKETS" if open_instruments else "ACTIVE — WAITING FOR OPEN ELIGIBLE MARKET"})
-        if not open_instruments:
+        funnel.update({"session": "OPEN" if open_international else "CLOSED", "universe": len(international_instruments), "history_valid": 0,
+                       "research_eligible": len(international_instruments), "execution_open": len(open_international),
+                       "state": "ACTIVE — EVALUATING INTERNATIONAL MARKETS" if international_instruments else "ACTIVE — WAITING FOR ELIGIBLE MARKET"})
+        if not international_instruments:
             funnel.update({"final_bottleneck": "NO_OPEN_FOREIGN_SESSION", "rejection_reason": "No foreign venue currently open"})
             _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International waiting for open foreign venue", {
                 **discovery, "state": "ACTIVE — WAITING FOR OPEN ELIGIBLE MARKET"
             })
+        # Research is intentionally independent of execution-session state.
+        # Closed exchanges still provide valid historical bars for features,
+        # candidate evaluation, and Learning Tree updates; only order
+        # submission below remains session-gated.
         histories: dict[Instrument, list[MarketBar]] = {}
-        for item in open_instruments:
+        for item in international_instruments:
             instrument = Instrument(item.symbol.replace(".", "-"), AssetClass.STOCK)
             try:
                 samples = self.adapter.chart_samples(item, count=30)
@@ -450,7 +468,7 @@ class InternationalPaperTradingJob:
         selected = None
         for ranked_candidate in ranked:
             candidate = ranked_candidate.instrument.symbol
-            source = next((item for item in open_instruments if item.symbol.replace('.', '-') == candidate), None)
+            source = next((item for item in international_instruments if item.symbol.replace('.', '-') == candidate), None)
             bars = histories[ranked_candidate.instrument]
             proposals = {
                 "momentum": self.strategies.momentum(ranked_candidate.instrument, bars),
@@ -525,7 +543,7 @@ class InternationalPaperTradingJob:
             funnel.update({"final_bottleneck": "SAXO_WRITE_PERMISSION", "rejection_reason": "TradeLevel/account capability did not prove writable execution"})
             _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International shadow candidate blocked by Saxo SIM permissions", {**discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "EXTERNAL ACCOUNT WRITE BLOCK", "rejection": "EXTERNAL_ACCOUNT_WRITE_PERMISSION"})
-        if selected is not None:
+        if selected is not None and selected[1] in open_international:
             ranked_candidate, source, proposal = selected
             spec = InternationalOrderSpec(proposal=proposal, account_key=summary.default_account_key, uic=source.uic, saxo_asset_type=source.asset_type, target_price=None, strategy_version="international-top10-v1")
             execution = self.service.execute(spec, PortfolioState(equity=1000.0, cash=1000.0), international_deployed=0.0, now=now)
@@ -540,8 +558,14 @@ class InternationalPaperTradingJob:
                            "submission_rejected": int(not execution.submitted)})
             _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International candidate reached SIM execution", {**discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "ACTIVE — DEPLOYING CAPITAL" if execution.submitted else "BLOCKED — SAXO EXECUTION", "order_id": execution.order_id, "execution_reason": execution.reason})
-        funnel.update({"final_bottleneck": "NO_QUALIFIED_EXECUTION", "rejection_reason": "All candidates rejected before submission"})
+        if selected is not None:
+            funnel.update({"final_bottleneck": "MARKET_CLOSED", "rejection_reason": "Candidate evaluated; execution session closed"})
+        else:
+            funnel.update({"final_bottleneck": "NO_QUALIFIED_EXECUTION", "rejection_reason": "All candidates rejected before submission"})
         _write_international_funnel(now=now, funnel=funnel)
         return JobResult(True, "International cycle scanned successfully", {
-            **discovery, "candidate": candidate, "ranked_candidates": evaluations, "execution_state": "READY / EVALUATING"
+            **discovery, "candidate": candidate, "ranked_candidates": evaluations,
+            "research_eligible": len(international_instruments),
+            "execution_open": len(open_international),
+            "execution_state": "READY / EVALUATING"
         })
