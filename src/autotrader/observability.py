@@ -86,10 +86,23 @@ def first_qualifying_trade() -> dict[str, object]:
 
 def publish_status(status: dict[str, object] | None = None) -> dict[str, object]:
     boundary = ensure_boundary()
+    jobs = (status or {}).get("jobs") if isinstance((status or {}).get("jobs"), dict) else {}
+    mapping = {"stocks":"autonomous-paper-trading", "crypto":"autonomous-paper-trading",
+               "forex":"oanda-fx-paper-trading", "metals":"alpaca-metals-paper-trading",
+               "international":"saxo-international-paper-trading",
+               "kalshi_predictions":"kalshi-predictions", "kalshi_perps":"kalshi-perps"}
+    pillars = {name: {"enabled": bool(jobs.get(job)) and not jobs.get(job, {}).get("disabled", False),
+                      "provider": {"stocks":"Alpaca Paper","crypto":"Alpaca Paper","forex":"OANDA Practice",
+                                   "metals":"Alpaca Paper","international":"Saxo SIM",
+                                   "kalshi_predictions":"Kalshi DEMO","kalshi_perps":"Kalshi DEMO"}[name],
+                      "mode": "PAPER" if name not in {"forex","international","kalshi_predictions","kalshi_perps"} else
+                              ("PRACTICE" if name == "forex" else "SIM" if name == "international" else "DEMO"),
+                      "last_activity_at": jobs.get(job, {}).get("last_finished_at"),
+                      "last_error": jobs.get(job, {}).get("last_error")} for name, job in mapping.items()}
     result = {"generated_at_utc": _now(), "runtime_instance_id": boundary["runtime_instance_id"],
               "boundary": boundary, "git": {"commit_sha": _sha(), "branch": boundary.get("git_branch")},
               "environment": "PAPER/PRACTICE/SIM/DEMO", "live_trading_enabled": False,
-              "runtime_health": (status or {}).get("healthy", True), "six_pillars": {},
+              "runtime_health": (status or {}).get("healthy", True), "six_pillars": pillars,
               "first_qualifying_post_boundary_trade": first_qualifying_trade()}
     tmp = STATUS.with_suffix(".tmp")
     tmp.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,14 @@
+[Unit]
+Description=Trading Platform read-only runtime dashboard API
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/cjhaake1/trading-platform
+Environment=PYTHONPATH=/home/cjhaake1/trading-platform/src
+ExecStart=/home/cjhaake1/trading-platform/.venv/bin/autotrader-dashboard --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

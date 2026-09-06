@@ -27,7 +27,7 @@ from .learning_ingestion import LearningIngestor
 from .options_probe import probe_adapter
 from .activity_diagnostic import persist_activity, margin_snapshot, hedge_snapshot
 from .performance_truth import report as performance_truth_report
-from .observability import ensure_boundary, publish_status
+from .observability import ensure_boundary, publish_status, record as record_observation
 
 
 class RunMode(StrEnum):
@@ -219,6 +219,20 @@ class AutonomousRuntime:
                 )
                 _record_candidate_payloads(self._experiment_ledger, job.name, data)
                 if job.name in self.EXECUTION_JOBS and self._has_execution_candidate(job.name, data):
+                    candidate = str(data.get("candidate") or data.get("symbol") or data.get("instrument"))
+                    record_observation({
+                        "event_type": "CANDIDATE_DETECTED", "pillar": _pillar_for_job(job.name),
+                        "instrument": candidate, "symbol": candidate, "provider": _provider_for_job(job.name),
+                        "candidate_id": f"candidate:{job.name}:{now.isoformat()}",
+                        "strategy": data.get("strategy"), "reason": data.get("rejection") or data.get("reason"),
+                    })
+                    if data.get("qualified"):
+                        record_observation({
+                            "event_type": "CANDIDATE_QUALIFIED", "pillar": _pillar_for_job(job.name),
+                            "instrument": candidate, "provider": _provider_for_job(job.name),
+                            "candidate_id": f"candidate:{job.name}:{now.isoformat()}",
+                            "allocated_capital": data.get("capital_required"),
+                        })
                     persist_runtime_queue_decision(
                         job_name=job.name, pillar=_pillar_for_job(job.name),
                         provider=_provider_for_job(job.name), now=now, data=data,
