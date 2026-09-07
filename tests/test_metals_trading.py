@@ -87,10 +87,10 @@ def test_untradable_symbol_is_filtered_before_submission_and_logged(tmp_path):
     assert "not currently active and tradable" in history.records()[0]["rejection_reason"]
 
 
-def test_metals_allocation_is_hard_capped_at_one_thousand(tmp_path):
+def test_metals_allocation_is_hard_capped_at_authorized_paper_capital(tmp_path):
     execution, broker, history = service(tmp_path)
 
-    result = execution.execute(spec(), portfolio(), metals_deployed=1000.0)
+    result = execution.execute(spec(), portfolio(), metals_deployed=10000.0)
 
     assert not result.approved
     assert broker.orders == []
@@ -103,10 +103,10 @@ def test_approved_metals_order_uses_deterministic_sizing(tmp_path):
     result = execution.execute(spec(requested_quantity=20.0), portfolio(), metals_deployed=800.0)
 
     assert result.approved and result.submitted
-    assert result.quantity == 2.0
+    assert result.quantity == 12.0
     assert broker.orders[0].risk_approved
     assert broker.orders[0].stop_price == 95.0
-    assert history.records()[0]["notional"] == 200.0
+    assert history.records()[0]["notional"] == 1200.0
 
 
 def test_completed_metals_trade_feeds_learning_history(tmp_path):

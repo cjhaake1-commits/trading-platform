@@ -46,7 +46,7 @@ class MetalsExecutionPolicy:
 
     def __post_init__(self) -> None:
         if self.allocation_cap != METALS_PAPER_CAPITAL:
-            raise ValueError("Metals allocation is hard-locked to $1,000")
+            raise ValueError(f"Metals allocation is hard-locked to ${METALS_PAPER_CAPITAL:,.0f}")
         if not 0 < self.max_risk_per_trade_pct <= RiskLimits().risk_per_trade_pct:
             raise ValueError("Metals risk per trade must be positive and cannot exceed the global limit")
         if not 0 <= self.min_cash_reserve_pct < 1:
