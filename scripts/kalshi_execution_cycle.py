@@ -65,9 +65,41 @@ def _prediction_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
     data_valid = [m for m in markets if m.get("yes_bid_dollars") is not None and m.get("yes_ask_dollars") is not None]
     liquid = [m for m in data_valid if float(m.get("yes_bid_size_fp") or 0) > 0 and float(m.get("yes_ask_size_fp") or 0) > 0]
     spread_valid = [m for m in liquid if float(m.get("yes_ask_dollars") or 1) - float(m.get("yes_bid_dollars") or 0) <= 0.10]
+    model_valid = [m for m in spread_valid if _prediction_model(m) is not None]
+    fee_valid = [m for m in model_valid if _prediction_fee(m) is not None]
+    positive_edge = [m for m in fee_valid if _prediction_edge(m) > 0]
     return {"scanned": len(markets), "data_valid": len(data_valid), "liquid": len(liquid),
-            "spread_valid": len(spread_valid), "fee_valid": 0, "positive_edge": 0,
+            "spread_valid": len(spread_valid), "model_valid": len(model_valid),
+            "fee_valid": len(fee_valid), "positive_edge": len(positive_edge),
             "risk_approved": 0, "capital_approved": 0, "orders_submitted": 0}
+
+
+def _prediction_model(market: dict[str, object]) -> float | None:
+    """Use only an explicit model probability; market midpoint is not a model."""
+    value = market.get("model_probability", market.get("estimated_probability"))
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if 0.0 < value < 1.0 else None
+
+
+def _prediction_fee(market: dict[str, object]) -> float | None:
+    value = market.get("estimated_fee", market.get("fee_cost"))
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0.0 else None
+
+
+def _prediction_edge(market: dict[str, object]) -> float:
+    model = _prediction_model(market)
+    fee = _prediction_fee(market)
+    ask = _number(market.get("yes_ask_dollars"))
+    if model is None or fee is None or ask is None:
+        return 0.0
+    return model - ask - fee - max(_number(market.get("yes_ask_dollars")) - _number(market.get("yes_bid_dollars")), 0.0)
 
 
 def _perps_funnel(markets: list[dict[str, object]]) -> dict[str, int]:
