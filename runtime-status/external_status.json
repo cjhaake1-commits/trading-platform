@@ -13,41 +13,52 @@
   },
   "boundary_id": "81d8b45a-172b-49fa-a272-782f7db3157f",
   "boundary_timestamp": "2026-09-06T14:50:34.190914+00:00",
+  "capital": {
+    "authorized_strategy_capital": 100000.0,
+    "pillar_allocations": {
+      "alpaca_crypto": 20000.0,
+      "alpaca_equities": 25000.0,
+      "alpaca_metals": 10000.0,
+      "ibkr_global": 15000.0,
+      "kalshi": 15000.0,
+      "oanda_fx": 15000.0
+    }
+  },
   "environment": "PAPER/PRACTICE/SIM/DEMO",
   "first_qualifying_post_boundary_trade": {
     "boundary_id": "81d8b45a-172b-49fa-a272-782f7db3157f",
-    "checked_at": "2026-09-07T14:35:05.201419+00:00",
+    "checked_at": "2026-09-07T14:35:05.735977+00:00",
     "qualified": false,
     "runtime_healthy": true
   },
-  "generated_at_utc": "2026-09-07T14:35:05.185606+00:00",
+  "generated_at_utc": "2026-09-07T14:35:05.720405+00:00",
   "git": {
     "branch": "bootstrap-paper-trading-core",
-    "commit_sha": "33b0e98442f2ab5107e12373a4aaa48314a0169a"
+    "commit_sha": "b4a7978e336c1367318b7ed58ceb13b681939ab1"
   },
   "live_trading_enabled": false,
   "qualified": false,
-  "running_sha": "33b0e98442f2ab5107e12373a4aaa48314a0169a",
+  "running_sha": "b4a7978e336c1367318b7ed58ceb13b681939ab1",
   "runtime_health": true,
   "runtime_instance_id": "paper-runtime:3489098",
   "six_pillars": {
     "crypto": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T14:34:49.493331+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "forex": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T14:34:56.601165+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "PRACTICE",
       "provider": "OANDA Practice"
     },
     "international": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T14:30:52.532061+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "SIM",
       "provider": "Saxo SIM"
@@ -78,14 +89,14 @@
     },
     "metals": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T14:30:19.533997+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "stocks": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T14:34:49.493331+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
