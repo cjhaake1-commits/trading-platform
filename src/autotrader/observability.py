@@ -99,6 +99,21 @@ def publish_status(status: dict[str, object] | None = None) -> dict[str, object]
                               ("PRACTICE" if name == "forex" else "SIM" if name == "international" else "DEMO"),
                       "last_activity_at": jobs.get(job, {}).get("last_finished_at"),
                       "last_error": jobs.get(job, {}).get("last_error")} for name, job in mapping.items()}
+    # Kalshi runs as two independent DEMO services rather than runtime jobs;
+    # reflect their authenticated engine snapshots instead of treating their
+    # absence from the main scheduler registry as disabled.
+    for name, engine in (("kalshi_predictions", "predictions"), ("kalshi_perps", "perps")):
+        try:
+            snapshot = json.loads(Path("var/kalshi") .joinpath(f"execution-{engine}.json").read_text(encoding="utf-8"))
+            enabled = bool(snapshot.get("execution_enabled") and snapshot.get("broker_control"))
+            pillars[name].update({"enabled": enabled, "configured": True,
+                                  "runtime_active": enabled, "last_activity_at": snapshot.get("observed_at"),
+                                  "last_error": snapshot.get("error") or snapshot.get("last_rejection_reason"),
+                                  "state": snapshot.get("state", "UNKNOWN"),
+                                  "cycle_count": snapshot.get("cycle_count", 0),
+                                  "provider_available": bool((snapshot.get("provider_telemetry") or {}).get("last_status") == 200)})
+        except (OSError, ValueError, TypeError):
+            pillars[name].update({"configured": True, "runtime_active": False, "state": "PROVIDER_UNAVAILABLE"})
     result = {"generated_at_utc": _now(), "runtime_instance_id": boundary["runtime_instance_id"],
               "boundary": boundary, "git": {"commit_sha": _sha(), "branch": boundary.get("git_branch")},
               "environment": "PAPER/PRACTICE/SIM/DEMO", "live_trading_enabled": False,
