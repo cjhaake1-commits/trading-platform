@@ -27,11 +27,11 @@
   "environment": "PAPER/PRACTICE/SIM/DEMO",
   "first_qualifying_post_boundary_trade": {
     "boundary_id": "81d8b45a-172b-49fa-a272-782f7db3157f",
-    "checked_at": "2026-09-07T16:55:41.723071+00:00",
+    "checked_at": "2026-09-07T16:55:43.846777+00:00",
     "qualified": false,
     "runtime_healthy": true
   },
-  "generated_at_utc": "2026-09-07T16:55:41.698781+00:00",
+  "generated_at_utc": "2026-09-07T16:55:43.812212+00:00",
   "git": {
     "branch": "bootstrap-paper-trading-core",
     "commit_sha": "3de53ff126e184eb594e18cbfc38832fffc0d612"
@@ -44,26 +44,35 @@
   "six_pillars": {
     "crypto": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T16:55:18.557317+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "forex": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T16:55:37.460259+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "PRACTICE",
       "provider": "OANDA Practice"
     },
     "international": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T16:52:12.257610+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "SIM",
       "provider": "Saxo SIM"
     },
     "kalshi_perps": {
+      "capacity": {
+        "account_equity": 515.1111,
+        "available_balance": 0.0,
+        "capital_deployed": 235.5567,
+        "maintenance_margin": 201.9069,
+        "margin_used": 235.5567,
+        "resting_orders_margin": 0.0,
+        "settled_funds": 288.2977
+      },
       "configured": true,
       "cycle_count": 11609,
       "enabled": true,
@@ -76,6 +85,10 @@
       "state": "SCANNING"
     },
     "kalshi_predictions": {
+      "capacity": {
+        "provider_balance": "518.4091",
+        "provider_portfolio_value": 0
+      },
       "configured": true,
       "cycle_count": 12019,
       "enabled": true,
@@ -89,14 +102,14 @@
     },
     "metals": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T16:50:40.991716+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "stocks": {
       "enabled": true,
-      "last_activity_at": "2026-09-07T16:55:18.557317+00:00",
+      "last_activity_at": null,
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
