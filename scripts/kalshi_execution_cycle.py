@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError
 
-from autotrader.capital_allocations import kalshi_pool_available
+from autotrader.capital_allocations import KALSHI_DEMO_BASE_CAPITAL, kalshi_pool_available
 from autotrader.kalshi.client import KalshiDemoExecutionClient, KalshiReadOnlyClient
 from autotrader.kalshi_forward_runtime import consume_forward
 from autotrader.runtime_execution_consumer import RuntimeExecutionConsumer
@@ -165,7 +165,7 @@ def _perps_risk_evaluation(market: dict[str, object]) -> dict[str, object]:
         rationale="Existing Perps baseline after market-quality and net-edge gates",
         requested_quantity=1.0,
     )
-    portfolio = PortfolioState(equity=1000.0, cash=1000.0)
+    portfolio = PortfolioState(equity=KALSHI_DEMO_BASE_CAPITAL, cash=KALSHI_DEMO_BASE_CAPITAL)
     stack = LayeredRiskStack(RiskEngine())
     decision = stack.evaluate(proposal, portfolio)
     risk_approved = bool(decision.approved)
