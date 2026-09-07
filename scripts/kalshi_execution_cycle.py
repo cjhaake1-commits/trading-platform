@@ -310,6 +310,9 @@ def cycle() -> dict[str, object]:
         if engine == "predictions":
             markets = client.markets(limit="100")
             rows = markets.get("markets", [])
+            balance = client.balance()
+            result["provider_balance"] = balance.get("balance_dollars")
+            result["provider_portfolio_value"] = balance.get("portfolio_value")
             funnel = _prediction_funnel(rows)
             result["candidate_telemetry"] = [{
                 "observed_at": result["observed_at"], "engine": engine,
@@ -422,6 +425,10 @@ def cycle() -> dict[str, object]:
                     "margin_used": initial_margin,
                     "available_balance": sum(float(b.get("available_balance") or 0) for b in balances),
                     "unrealized_pnl": sum(float(p.get("unrealized_pnl") or 0) for p in live_positions),
+                    "settled_funds": float(live_balance.get("settled_funds") or 0),
+                    "account_equity": sum(float(b.get("account_equity") or 0) for b in balances),
+                    "maintenance_margin": sum(float(b.get("maintenance_margin") or 0) for b in balances),
+                    "resting_orders_margin": sum(float(b.get("resting_orders_margin") or 0) for b in balances),
                 })
             except Exception as exc:
                 result["reconciliation_error"] = type(exc).__name__

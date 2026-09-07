@@ -113,6 +113,10 @@ def publish_status(status: dict[str, object] | None = None) -> dict[str, object]
                                   "state": snapshot.get("state", "UNKNOWN"),
                                   "cycle_count": snapshot.get("cycle_count", 0),
                                   "provider_available": bool((snapshot.get("provider_telemetry") or {}).get("last_status") == 200)})
+            pillars[name]["capacity"] = {key: snapshot.get(key) for key in (
+                "provider_balance", "provider_portfolio_value", "available_balance", "settled_funds",
+                "account_equity", "capital_deployed", "margin_used", "maintenance_margin",
+                "resting_orders_margin") if key in snapshot}
         except (OSError, ValueError, TypeError):
             pillars[name].update({"configured": True, "runtime_active": False, "state": "PROVIDER_UNAVAILABLE"})
     result = {"generated_at_utc": _now(), "runtime_instance_id": boundary["runtime_instance_id"],
