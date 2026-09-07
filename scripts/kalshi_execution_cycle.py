@@ -18,6 +18,7 @@ from autotrader.models import AssetClass, PortfolioState, Side, TradeProposal
 from autotrader.risk import RiskEngine
 from autotrader.risk_stack import LayeredRiskStack
 from autotrader.forward_evidence import ForwardEvidenceLedger
+from autotrader.observability import record as record_observation
 
 
 def _write_status(engine: str, result: dict[str, object]) -> None:
@@ -472,6 +473,18 @@ def cycle() -> dict[str, object]:
             "risk_decision": (result.get("funnel") or {}).get("risk_approved"), "orders": result.get("orders", 0), "fills": result.get("fills", 0),
         })
     _write_candidate_telemetry(engine, result.pop("candidate_telemetry", []))
+    # Kalshi is supervised by separate services, so explicitly bridge genuine
+    # execution candidates into the canonical post-boundary ledger.  This is
+    # observation only; order mutations remain behind the existing Demo gates.
+    for candidate in result.get("top_candidates", []) if engine == "perps" else []:
+        if not isinstance(candidate, dict):
+            continue
+        record_observation({
+            "event_type": "CANDIDATE_DETECTED", "pillar": "Kalshi Perps",
+            "instrument": candidate.get("ticker"), "symbol": candidate.get("ticker"),
+            "provider": "Kalshi DEMO", "candidate_id": f"kalshi:{engine}:{candidate.get('ticker')}:{result['observed_at']}",
+            "strategy": "KALSHI_BASELINE", "reason": candidate.get("capital_rejection") or candidate.get("risk_rejection"),
+        })
     _write_status(engine, result)
     return result
 
