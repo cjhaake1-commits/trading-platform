@@ -3,6 +3,7 @@ from __future__ import annotations
 import json, socket, subprocess, uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from .capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL, KALSHI_DEMO_BASE_CAPITAL
 
 ROOT = Path("var/runtime")
 BOUNDARY = ROOT / "post_fix_boundary.json"
@@ -118,6 +119,8 @@ def publish_status(status: dict[str, object] | None = None) -> dict[str, object]
               "boundary": boundary, "git": {"commit_sha": _sha(), "branch": boundary.get("git_branch")},
               "environment": "PAPER/PRACTICE/SIM/DEMO", "live_trading_enabled": False,
               "runtime_health": (status or {}).get("healthy", True), "six_pillars": pillars,
+              "capital": {"authorized_strategy_capital": TOTAL_PAPER_CAPITAL + KALSHI_DEMO_BASE_CAPITAL,
+                           "pillar_allocations": {**PILLAR_ALLOCATIONS, "kalshi": KALSHI_DEMO_BASE_CAPITAL}},
               "first_qualifying_post_boundary_trade": first_qualifying_trade()}
     tmp = STATUS.with_suffix(".tmp")
     tmp.parent.mkdir(parents=True, exist_ok=True)

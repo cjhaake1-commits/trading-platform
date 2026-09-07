@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Mapping
 
+from .capital_allocations import PILLAR_CAPITAL
+
 
 @dataclass(frozen=True)
 class MicroCandidate:
@@ -41,7 +43,7 @@ def micro_candidate(
     signal_strength: float,
     expected_gross_edge: float,
     costs: float,
-    pillar_capital: float = 1000.0,
+    pillar_capital: float = PILLAR_CAPITAL,
 ) -> MicroCandidate | None:
     net = expected_gross_edge - costs
     if net <= 0 or signal_strength <= 0:

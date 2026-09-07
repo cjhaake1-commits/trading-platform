@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from .brokers.alpaca_metals_paper import AlpacaMetalsConfigurationError
 from .brokers.saxo_sim import SaxoApprovedOrder, SaxoSimAdapter
-from .capital_allocations import PILLAR_METALS
+from .capital_allocations import PILLAR_ALLOCATIONS, PILLAR_METALS
 from .international_trading import InternationalExecutionService, InternationalOrderSpec
 from .marketdata import YahooHistoricalData
 from .metals_trading import MetalsExecutionService, MetalsOrderSpec
@@ -174,7 +174,7 @@ class MetalsPaperTradingJob:
             )
         result = self.service.execute(
             MetalsOrderSpec(proposal=proposal, strategy_version="metals-baseline-v1" if mode == "BASELINE" else "metals-experimental-v1"),
-            PortfolioState(equity=1000.0, cash=max(1000.0 - deployed, 0.0)),
+            PortfolioState(equity=PILLAR_ALLOCATIONS[PILLAR_METALS], cash=max(PILLAR_ALLOCATIONS[PILLAR_METALS] - deployed, 0.0)),
             metals_deployed=deployed,
             now=now,
         )
@@ -546,7 +546,8 @@ class InternationalPaperTradingJob:
         if selected is not None and selected[1] in open_international:
             ranked_candidate, source, proposal = selected
             spec = InternationalOrderSpec(proposal=proposal, account_key=summary.default_account_key, uic=source.uic, saxo_asset_type=source.asset_type, target_price=None, strategy_version="international-top10-v1")
-            execution = self.service.execute(spec, PortfolioState(equity=1000.0, cash=1000.0), international_deployed=0.0, now=now)
+            capital = PILLAR_ALLOCATIONS["ibkr_global"]
+            execution = self.service.execute(spec, PortfolioState(equity=capital, cash=capital), international_deployed=0.0, now=now)
             funnel["orders_constructed"] = 1
             funnel["orders_submitted"] = int(execution.submitted)
             funnel["orders_accepted"] = int(bool(execution.order_id))

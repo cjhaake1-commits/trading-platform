@@ -11,7 +11,7 @@ from pathlib import Path
 from .alpaca_backlog import load_backlog_checkpoint, reconcile_alpaca_equity_backlog
 from .audit import SQLiteAuditStore
 from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
-from .capital_allocations import TOTAL_PAPER_CAPITAL
+from .capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL
 from .crypto_market_archive import AlpacaCryptoArchiveCollector
 from .crypto_replay import load_archive
 from .crypto_shadow import update_shadow
@@ -128,7 +128,7 @@ class FoundationAuditJob:
             if not ledger.load_pillar_day_start_equity(pillar=key_map[pillar], equity_date=day):
                 ledger.save_pillar_day_start_equity(
                     pillar=key_map[pillar], equity_date=day, timezone="UTC",
-                    day_start_timestamp=f"{day}T00:00:00+00:00", starting_economic_equity=1000.0,
+                    day_start_timestamp=f"{day}T00:00:00+00:00", starting_economic_equity=PILLAR_ALLOCATIONS[key_map[pillar]],
                     source="paper_allocation_cap_pending_provider_reconciliation",
                 )
         # Financial input is read directly from providers.  dashboard/data.json
@@ -142,8 +142,11 @@ class FoundationAuditJob:
             sys.path.insert(0, str(repo_root))
         from streamlit_app import _alpaca_crypto_history, _kalshi_status, fetch_live_broker_data
 
-        live_positions, _metrics, live_status, provider_errors = fetch_live_broker_data.__wrapped__()
-        crypto_history = _alpaca_crypto_history.__wrapped__()
+        # These dashboard reads are intentionally uncached.  Calling the
+        # removed decorator's ``__wrapped__`` attribute caused FoundationAudit
+        # to fail closed and eventually disable itself after restart.
+        live_positions, _metrics, live_status, provider_errors = fetch_live_broker_data()
+        crypto_history = _alpaca_crypto_history()
         kalshi = _kalshi_status()
         position_values = {pillar: 0.0 for pillar in pillars}
         positions_counts = {pillar: 0 for pillar in pillars}
@@ -177,7 +180,7 @@ class FoundationAuditJob:
                 status_row = kalshi
             provider_seen = observed[pillar]
             if not provider_seen:
-                normalized[pillar] = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": 1000.0,
+                normalized[pillar] = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": PILLAR_ALLOCATIONS[key_map[pillar]],
                     # SQLite keeps the identity columns NOT NULL.  Zero is a
                     # storage sentinel only; accounting_status/source state
                     # that this is not an economic observation.
@@ -191,7 +194,7 @@ class FoundationAuditJob:
             realized = realized_values[pillar]
             unrealized = unrealized_values[pillar]
             day_start = ledger.load_pillar_day_start_equity(pillar=key_map[pillar], equity_date=day)
-            starting = float(day_start["starting_economic_equity"]) if day_start else 1000.0
+            starting = float(day_start["starting_economic_equity"]) if day_start else PILLAR_ALLOCATIONS[key_map[pillar]]
             economic = starting + realized + unrealized
             deployed = float(status_row.get("strategy_cost_basis") or status_row.get("deployed") or 0.0)
             pending = float(status_row.get("pending_capital") or 0.0)
@@ -230,7 +233,7 @@ class FoundationAuditJob:
                 f"available_cash + position_market_value differs by {difference:.6f}; "
                 "source fields: available_cash, capital_deployed, unrealized_pnl"
             )
-            record = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": 1000.0,
+            record = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": PILLAR_ALLOCATIONS[key_map[pillar]],
                       "starting_equity": starting, "economic_equity": economic, "available_cash": available,
                       "deployed_cash": deployed, "pending": pending, "notional_exposure": market_value,
                       "position_market_value": market_value, "realized_today": realized, "unrealized": unrealized,
@@ -242,6 +245,29 @@ class FoundationAuditJob:
                       "total_pnl": realized + unrealized, "daily_return": (realized + unrealized) / starting}
             ledger.save_accounting_snapshot(record)
             normalized[pillar] = record
+        # The runtime audit is the authoritative continuous publisher.  The
+        # dashboard remains a reader/manual-refresh surface; it must not be
+        # the only process capable of advancing canonical P&L timestamps.
+        try:
+            import performance_board as board
+            runtime_snapshot = {}
+            try:
+                runtime_snapshot = json.loads(Path("var/autotrader/status.json").read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                runtime_snapshot = {}
+            saxo_truth = board._saxo_live_truth()
+            canonical_pillars = board.build_pillars(
+                runtime_snapshot, runtime_snapshot, live_status, kalshi, live_positions,
+                saxo_truth, crypto_realized_today=crypto_history.get("realized_today"),
+            )
+            board.write_authoritative_portfolio_snapshot(canonical_pillars)
+        except Exception as exc:
+            # Preserve the last-known-good canonical file and expose the
+            # publication defect in the audit result; never publish partial
+            # or fabricated accounting.
+            report_publication_error = f"{type(exc).__name__}: {exc}"
+        else:
+            report_publication_error = None
         outcomes = []  # Legacy fills have no explicit accounting verification and cannot affect learning.
         report = {
             "observed_at": now.isoformat(), "pillars": {p: {"accounting_status": normalized[p]["accounting_status"],
@@ -279,7 +305,9 @@ class FoundationAuditJob:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return JobResult(True, "Foundation audit persisted", {"report": self.report_path,
-                         "crypto_provider_fill_rows": len(crypto), "verified_outcomes": 0})
+                         "crypto_provider_fill_rows": len(crypto), "verified_outcomes": 0,
+                         "canonical_snapshot_published": report_publication_error is None,
+                         "canonical_snapshot_error": report_publication_error})
 
 
 @dataclass
