@@ -7,7 +7,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: isolated-paper-income-repair
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -18,28 +22,79 @@ jobs:
       KALSHI_LIVE_TRADING_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4
-      - name: Archive exact tracked source for isolated testing
-        run: git archive --format=tar.gz --output="${RUNNER_TEMP}/paper-repair-source.tar.gz" HEAD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: paper-repair-source-${{ github.sha }}
-          path: ${{ runner.temp }}/paper-repair-source.tar.gz
-          retention-days: 3
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
-      - name: Install test dependencies
+      - name: Install test dependencies without broker credentials
         id: install
         run: pip install -e '.[dev,streaming]'
+      - name: Apply reviewed deterministic source changes
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = fix/paper-income-baseline-20260908
+          python tools/apply_income_repairs.py
+      - name: Mechanical lint repair only
+        run: |
+          set -euo pipefail
+          ruff check --fix-only .
+          python - <<'PY'
+          import ast
+          import json
+          import subprocess
+          from pathlib import Path
+          findings = subprocess.run(['ruff', 'check', '.', '--output-format', 'json'], capture_output=True, text=True)
+          if findings.returncode not in (0, 1):
+              raise SystemExit(findings.stderr)
+          errors = json.loads(findings.stdout)
+          if any(row['code'] not in ('E701', 'E702') for row in errors):
+              raise SystemExit('Manual review required: ' + json.dumps(errors))
+          for name in sorted({row['filename'] for row in errors}):
+              path = Path(name)
+              before = ast.dump(ast.parse(path.read_text()), include_attributes=False)
+              subprocess.run(['ruff', 'format', name], check=True)
+              after = ast.dump(ast.parse(path.read_text()), include_attributes=False)
+              if before != after:
+                  raise SystemExit('Formatting changed AST: ' + name)
+          PY
       - name: Full repository lint
         run: ruff check .
       - name: Full tests without broker credentials
         if: ${{ always() && steps.install.outcome == 'success' }}
-        run: python -m pytest -q
-      - name: Compile
+        run: |
+          set -euo pipefail
+          python -m pytest -q | tee "$RUNNER_TEMP/paper-repair-tests.txt"
+      - name: Compile and diff integrity
         if: ${{ always() && steps.install.outcome == 'success' }}
         run: |
           python -m compileall -q src tests scripts
-          python -m py_compile streamlit_app.py
+          python -m py_compile streamlit_app.py dashboard_simple.py portfolio_reporting.py
           git diff --check
+      - name: Commit only validated code to isolated repair branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = fix/paper-income-baseline-20260908
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --exit-code -- .github/
+          git add src scripts tests tools dashboard_simple.py portfolio_reporting.py streamlit_app.py
+          if ! git diff --cached --quiet; then
+            git commit -m 'Restore six-thousand-dollar paper income baseline and verified reporting; pass full validation'
+            git push origin HEAD:fix/paper-income-baseline-20260908
+          fi
+          git rev-parse HEAD > "$RUNNER_TEMP/paper-repair-validated-sha.txt"
+      - name: Preserve source and validation evidence
+        if: always()
+        run: |
+          git diff > "$RUNNER_TEMP/paper-repair-changes.diff"
+          tar --exclude=.git --exclude=.pytest_cache --exclude=__pycache__ --exclude='*.pyc' -czf "$RUNNER_TEMP/paper-repair-source.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paper-repair-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/paper-repair-source.tar.gz
+            ${{ runner.temp }}/paper-repair-changes.diff
+            ${{ runner.temp }}/paper-repair-tests.txt
+            ${{ runner.temp }}/paper-repair-validated-sha.txt
+          retention-days: 3

@@ -25,262 +25,147 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
-
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[dev,streaming]'
-
       - name: Safety guard
         shell: bash
         run: |
           set -euo pipefail
           if grep -R --line-number --exclude-dir=.git -E '^LIVE_TRADING_ENABLED[[:space:]]*=[[:space:]]*(true|1|yes|on)[[:space:]]*$' .; then
-            echo 'Refusing deployment: repository contains an enabled LIVE_TRADING_ENABLED setting.' >&2
+            echo 'Refusing deployment: LIVE_TRADING_ENABLED is enabled in the repository.' >&2
             exit 1
           fi
-
-      - name: Lint changed Python files
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git rev-parse HEAD^ >/dev/null 2>&1; then
-            mapfile -t changed_python < <(git diff --name-only HEAD^ HEAD -- '*.py')
-          else
-            mapfile -t changed_python < <(git ls-files '*.py')
-          fi
-          if [ "${#changed_python[@]}" -gt 0 ]; then
-            printf 'Linting changed Python files:\n%s\n' "${changed_python[*]}"
-            ruff check "${changed_python[@]}"
-          else
-            echo 'No Python files changed; skipping Ruff.'
-          fi
-
-      - name: Tests
+      - name: Full repository lint
+        run: ruff check .
+      - name: Full tests
         run: python -m pytest -q
-
       - name: Compile
         run: |
-          python -m compileall -q src tests
-          python -m py_compile streamlit_app.py
+          python -m compileall -q src tests scripts
+          python -m py_compile streamlit_app.py dashboard_simple.py portfolio_reporting.py
           git diff --check
 
   deploy:
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: paper-sim
     steps:
       - uses: actions/checkout@v4
-
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
           service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
-
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
-
-      - name: Deploy guarded source update
+      - name: Deploy exactly the tested source without discarding local work
         shell: bash
         run: |
           set -euo pipefail
-
           REMOTE_SCRIPT=$(cat <<'EOS'
           set -euo pipefail
-
           APP=/home/cjhaake1/trading-platform
           BRANCH=bootstrap-paper-trading-core
           RUNTIME_SERVICE=trading-platform-paper-runtime.service
-          INTELLIGENCE_SERVICE=trading-platform-public-intelligence.service
+          STREAMLIT_SERVICE=trading-platform-streamlit.service
           cd "$APP"
-
           BEFORE=$(git rev-parse HEAD)
+          TARGET=${1:?tested commit SHA required}
           echo "BEFORE=$BEFORE"
-
-          # Runtime-generated files may remain dirty, but source changes outside
-          # the known runtime paths must not be overwritten by automation.
+          echo "TARGET=$TARGET"
           DIRTY_SOURCE=$(git status --porcelain --untracked-files=no | grep -vE ' dashboard/data\.json$| var/' || true)
           if [ -n "$DIRTY_SOURCE" ]; then
-            echo 'Refusing deployment because non-runtime tracked files are locally modified:' >&2
+            echo 'Refusing to overwrite modified tracked source; changes preserved:' >&2
             echo "$DIRTY_SOURCE" >&2
             exit 1
           fi
-
-          # Never deploy or restart if the VM has enabled real-money mode.
-          if [ -f .env ] && grep -Eq '^LIVE_TRADING_ENABLED[[:space:]]*=[[:space:]]*(true|1|yes|on)[[:space:]]*$' .env; then
-            echo 'Refusing deployment: LIVE_TRADING_ENABLED is enabled on the VM.' >&2
+          if [ -f .env ] && grep -Eiq '^(LIVE_TRADING_ENABLED|KALSHI_LIVE_TRADING_ENABLED)[[:space:]]*=[[:space:]]*(true|1|yes|on)[[:space:]]*$' .env; then
+            echo 'Refusing deployment: real-money trading flag enabled.' >&2
             exit 1
           fi
-
-          git fetch --prune origin "$BRANCH"
-          TARGET=$(git rev-parse "origin/$BRANCH")
-          echo "TARGET=$TARGET"
-
-          if [ "$BEFORE" = "$TARGET" ]; then
-            echo 'VM already at target commit.'
-          else
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          systemctl --user is-active --quiet "$RUNTIME_SERVICE"
+          systemctl --user is-active --quiet "$STREAMLIT_SERVICE"
+          git fetch origin "$BRANCH"
+          git cat-file -e "${TARGET}^{commit}"
+          git merge-base --is-ancestor "$BEFORE" "$TARGET"
+          git merge-base --is-ancestor "$TARGET" "origin/$BRANCH"
+          if [ "$BEFORE" != "$TARGET" ]; then
             git checkout "$BRANCH"
-            git merge --ff-only "origin/$BRANCH"
+            git merge --ff-only "$TARGET"
           fi
-
-          # Validate in the VM environment before restarting anything.
-          .venv/bin/python -m py_compile streamlit_app.py
+          test "$(git rev-parse HEAD)" = "$TARGET"
+          .venv/bin/python -m py_compile streamlit_app.py dashboard_simple.py portfolio_reporting.py
           .venv/bin/python -m compileall -q src
-          .venv/bin/python -m ensurepip --upgrade >/dev/null
-          .venv/bin/python -m pip install -q -e '.[streaming]'
-
-          CHANGED=$(git diff --name-only "$BEFORE" "$TARGET" || true)
+          CHANGED=$(git diff --name-only "$BEFORE" "$TARGET")
           echo 'Changed files:'
           echo "$CHANGED"
-
-          restart_streamlit=0
           restart_runtime=0
-
-          if echo "$CHANGED" | grep -Eq '^(streamlit_app\.py|performance_board\.py|src/.+dashboard|src/.+branding)'; then
-            restart_streamlit=1
-          fi
-
+          restart_streamlit=0
           if echo "$CHANGED" | grep -Eq '^src/autotrader/'; then
             restart_runtime=1
           fi
-
-          USER_ID=$(id -u)
-          export XDG_RUNTIME_DIR="/run/user/${USER_ID}"
-
-          # Install/update the research-only public stream collector. It is
-          # supervised separately and cannot submit broker orders.
-          mkdir -p "$HOME/.config/systemd/user"
-          install -m 0644 "$APP/deploy/$INTELLIGENCE_SERVICE" "$HOME/.config/systemd/user/$INTELLIGENCE_SERVICE"
-          systemctl --user daemon-reload
-          stream_enabled=true
-          if [ -f .env ] && grep -Eq '^PUBLIC_INTELLIGENCE_STREAM_ENABLED[[:space:]]*=[[:space:]]*(false|0|no|off)[[:space:]]*$' .env; then
-            stream_enabled=false
+          if echo "$CHANGED" | grep -Eq '^(streamlit_app\.py|dashboard_simple\.py|portfolio_reporting\.py|performance_board\.py|src/.+dashboard|src/.+branding)'; then
+            restart_streamlit=1
           fi
-          if [ "$stream_enabled" = true ]; then
-            systemctl --user enable --now "$INTELLIGENCE_SERVICE"
-            if echo "$CHANGED" | grep -Eq '^(src/autotrader/(public_market_intelligence|derived_intelligence|public_intelligence_app)\.py|deploy/trading-platform-public-intelligence\.service)'; then
-              systemctl --user restart "$INTELLIGENCE_SERVICE"
-            fi
-          else
-            systemctl --user disable --now "$INTELLIGENCE_SERVICE" || true
-          fi
-
-          # Runtime source is reloaded through the existing user service so the
-          # service's environment, restart policy, and reconciliation entrypoint
-          # remain authoritative. This deployment target is paper/sim only.
+          rollback() {
+            echo 'Rolling back source without resetting data or deleting history.' >&2
+            git switch --detach "$BEFORE"
+            if [ "$restart_runtime" -eq 1 ]; then systemctl --user restart "$RUNTIME_SERVICE"; fi
+            if [ "$restart_streamlit" -eq 1 ]; then systemctl --user restart "$STREAMLIT_SERVICE"; fi
+          }
           if [ "$restart_runtime" -eq 1 ]; then
-            if ! systemctl --user list-unit-files --type=service | grep -q "^${RUNTIME_SERVICE}"; then
-              echo "Runtime service ${RUNTIME_SERVICE} is not installed; rolling source back." >&2
-              git reset --hard "$BEFORE"
-              exit 1
-            fi
-            systemctl --user restart "$RUNTIME_SERVICE"
-            runtime_ready=0
-            for _ in $(seq 1 30); do
-              if systemctl --user is-active --quiet "$RUNTIME_SERVICE"; then
-                runtime_ready=1
-                break
-              fi
-              sleep 1
-            done
-            if [ "$runtime_ready" -ne 1 ]; then
-              echo 'Paper runtime did not become active; rolling source back.' >&2
-              git reset --hard "$BEFORE"
-              systemctl --user restart "$RUNTIME_SERVICE" || true
-              exit 1
-            fi
-            echo 'RUNTIME_SOURCE_CHANGED=1'
-            echo 'RUNTIME_RESTARTED=1'
-          else
-            echo 'RUNTIME_SOURCE_CHANGED=0'
-            echo 'RUNTIME_RESTARTED=0'
+            if ! systemctl --user restart "$RUNTIME_SERVICE"; then rollback; exit 1; fi
           fi
-
-          # Streamlit restart is isolated from trading runtime.
           if [ "$restart_streamlit" -eq 1 ]; then
-            pkill -f 'streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' || true
-            sleep 2
-            nohup "$APP/.venv/bin/streamlit" run "$APP/streamlit_app.py" \
-              --server.address 0.0.0.0 \
-              --server.port 8501 \
-              --server.headless true \
-              > "$APP/var/autotrader/streamlit.log" 2>&1 &
+            if ! systemctl --user restart "$STREAMLIT_SERVICE"; then rollback; exit 1; fi
           fi
-
-          sleep 5
-
-          if ! curl -fsS --max-time 15 http://127.0.0.1:8501/ >/dev/null; then
-            echo 'Streamlit health check failed. Rolling source back.' >&2
-            git reset --hard "$BEFORE"
-            if [ "$restart_runtime" -eq 1 ]; then
-              systemctl --user restart "$RUNTIME_SERVICE" || true
+          ready=0
+          for attempt in $(seq 1 30); do
+            if systemctl --user is-active --quiet "$RUNTIME_SERVICE" && systemctl --user is-active --quiet "$STREAMLIT_SERVICE" && curl -fsS --max-time 5 http://127.0.0.1:8501/_stcore/health >/dev/null; then
+              ready=1
+              break
             fi
-            pkill -f 'streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' || true
             sleep 2
-            nohup "$APP/.venv/bin/streamlit" run "$APP/streamlit_app.py" \
-              --server.address 0.0.0.0 \
-              --server.port 8501 \
-              --server.headless true \
-              > "$APP/var/autotrader/streamlit.log" 2>&1 &
-            exit 1
-          fi
-
-          RUNTIME_COUNT=$(ps -eo args | grep -E '/autotrader-runtime ' | grep -v grep | wc -l || true)
-          STREAMLIT_COUNT=$(ps -eo args | grep -E '/streamlit run /home/cjhaake1/trading-platform/streamlit_app.py' | grep -v grep | wc -l || true)
-          INTELLIGENCE_COUNT=$(ps -eo args | grep -E '/autotrader-public-intelligence --stream' | grep -v grep | wc -l || true)
-
-          echo "RUNTIME_COUNT=$RUNTIME_COUNT"
-          echo "STREAMLIT_COUNT=$STREAMLIT_COUNT"
-          echo "INTELLIGENCE_COUNT=$INTELLIGENCE_COUNT"
-
-          if [ "$RUNTIME_COUNT" -ne 1 ]; then
-            echo 'Unexpected autonomous runtime count; deployment health failed.' >&2
-            exit 1
-          fi
-
-          if [ "$STREAMLIT_COUNT" -ne 1 ]; then
-            echo 'Unexpected Streamlit process count; deployment health failed.' >&2
-            exit 1
-          fi
-
-          if [ "$stream_enabled" = true ] && [ "$INTELLIGENCE_COUNT" -ne 1 ]; then
-            echo 'Unexpected public-intelligence stream count; deployment health failed.' >&2
-            exit 1
-          fi
-
+          done
+          if [ "$ready" -ne 1 ]; then rollback; exit 1; fi
           echo "DEPLOYED_COMMIT=$(git rev-parse HEAD)"
+          echo "RUNTIME_RESTARTED=$restart_runtime"
+          echo "DASHBOARD_RESTARTED=$restart_streamlit"
           echo 'LOCAL_HTTP=200'
+          # Read-only diagnostics. No broker credentials, raw databases or
+          # synthetic trades are exported by this reporting function.
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from portfolio_reporting import build_report
+          report = build_report(Path.cwd())
+          print('ACCOUNTING_REPORT=' + json.dumps(report, allow_nan=False))
+          PY
           EOS
           )
-
-          printf '%s\n' "$REMOTE_SCRIPT" | base64 -w0 > /tmp/deploy-script.b64
-          SCRIPT_B64=$(cat /tmp/deploy-script.b64)
-
+          SCRIPT_B64=$(printf '%s\n' "$REMOTE_SCRIPT" | base64 -w0)
           gcloud compute ssh "${GCP_INSTANCE}" \
-            --zone="${GCP_ZONE}" \
-            --project="${GCP_PROJECT_ID}" \
-            --quiet \
-            --command="echo '${SCRIPT_B64}' | base64 -d | sudo -u cjhaake1 bash"
-
+            --zone="${GCP_ZONE}" --project="${GCP_PROJECT_ID}" --quiet \
+            --command="echo '${SCRIPT_B64}' | base64 -d | sudo -u cjhaake1 bash -s -- '${{ github.sha }}'"
       - name: Public dashboard health
         shell: bash
         run: |
           set -euo pipefail
           PUBLIC_IP=$(gcloud compute instances describe "$GCP_INSTANCE" \
-            --zone="$GCP_ZONE" \
-            --project="$GCP_PROJECT_ID" \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT_ID" \
             --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
           echo "Dashboard: http://${PUBLIC_IP}:8501"
-          curl -fsS --max-time 20 "http://${PUBLIC_IP}:8501/" >/dev/null
+          curl -fsS --max-time 20 "http://${PUBLIC_IP}:8501/_stcore/health" >/dev/null
