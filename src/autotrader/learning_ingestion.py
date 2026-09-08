@@ -37,8 +37,25 @@ class LearningIngestor:
             rows = db.execute("SELECT strategy, COUNT(*), AVG(realized_pnl) FROM outcomes WHERE ownership='PLATFORM_OWNED' GROUP BY strategy").fetchall()
         return [{**assess_strategy_health(str(strategy), "v1", int(sample), float(expectancy) if expectancy is not None else None, minimum_sample=minimum_sample), "source": "CLEAN_FORWARD_PAPER_OUTCOMES"} for strategy, sample, expectancy in rows]
 
+    def income_learning_summary(self) -> dict[str, object]:
+        """Read the existing ledger without relabeling old trades or changing governance."""
+        from .income_learning import summarize_income_outcomes
+
+        with sqlite3.connect(self.path) as db:
+            rows = db.execute("SELECT outcome_id, payload_json FROM outcomes").fetchall()
+        outcomes = []
+        for outcome_id, raw in rows:
+            try:
+                payload = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                payload = {}
+            if not isinstance(payload, dict):
+                payload = {}
+            outcomes.append({**payload, "outcome_id": outcome_id})
+        return summarize_income_outcomes(outcomes)
+
     def publish_strategy_health(self, path: str | Path = "var/reports/strategy-health.json", *, minimum_sample: int = 30) -> dict[str, object]:
-        payload = {"strategies": self.strategy_health(minimum_sample=minimum_sample), "evidence_scope": "FORWARD_PAPER_PLATFORM_OWNED_ONLY", "minimum_sample": minimum_sample}
+        payload = {"strategies": self.strategy_health(minimum_sample=minimum_sample), "evidence_scope": "FORWARD_PAPER_PLATFORM_OWNED_ONLY", "minimum_sample": minimum_sample, "income_learning": self.income_learning_summary()}
         target = Path(path); target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_suffix(".tmp")
         temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

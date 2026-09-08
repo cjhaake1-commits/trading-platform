@@ -1,187 +1,55 @@
 # Trading Platform Objectives
 
-## Primary operating objective
+## Controlling owner mandate - September 8, 2026
 
-The platform is being designed to pursue **daily realized P&L opportunities** through short-horizon trading, with particular emphasis on:
+Build an **active, short-horizon income-trading system**, not a managed wealth portfolio. Continuously seek opportunities to deploy modest trading capital, close positions when the validated exit logic warrants it, release usable cash, and redeploy it into the next qualifying opportunity. Fractional quantities and sub-cent net gains are legitimate when executable and profitable after costs.
 
-- intraday U.S. stock and ETF trading
-- liquid major forex pairs
-- 24/7 crypto opportunities where appropriate
-- fast reaction to price, volume, volatility, news, social, political, institutional, insider, and other authorized quantitative data
-- TradingAgents multi-agent research as a deep-analysis layer for the best-ranked candidates
-- deterministic risk, sizing, loss limits, execution controls, and auditability around every trade
+The initial economic test is **$6,000 total: $1,000 each for Stocks, Crypto, Forex, Metals, International, and one shared Kalshi pool**. Predictions and Perps must not each receive a separate $1,000 allocation. The authoritative code is `src/autotrader/capital_allocations.py`; provider demo balances and leveraged buying power are capacity constraints, not additional owner capital.
 
-The system should maximize the quality and speed of the information pipeline while minimizing unnecessary latency and expensive LLM calls.
+This mandate supersedes the previous $100,000 expansion and the previous dual income/long-term capital mandate. Long-term investment and ETF-like wealth accumulation are a separate future project. Historical source revisions remain in Git; do not relabel prior performance.
 
-## Role as an autonomous income pillar
+The $6,000 is initial capital, not a perpetual cap that prevents legitimate compounding. Reconciled retained net gains can increase economic equity; losses, costs, withdrawals, open losses and outstanding obligations reduce usable capital. Returning principal, short-sale proceeds, margin borrowing, deposits, simulated balance top-ups and unrealized gains are not realized trading income. No automatic funding from the owner's other businesses.
 
-This trading platform is intended to operate as a **standalone autonomous income and capital-growth pillar** alongside the owner's other automated businesses.
+Everything remains PAPER/PRACTICE/SIM/DEMO. This document gives no permission to enable real-money trading, transfer real funds, buy data, change leverage caps, or reset provider accounts.
 
-It has two complementary mandates:
+## Operating loop and capital activity
 
-1. **Active income engine:** continuously seek high-quality short-horizon opportunities across approved global markets and trading sessions, with daily realized P&L as the operating target.
-2. **Long-term capital engine:** retain and compound capital through a diversified ETF-like portfolio and systematically allocate a share of realized profits toward long-horizon growth.
+Data -> fresh candidate -> cost/latency-adjusted edge -> existing risk and account constraints -> reserved capital -> order -> provider ACK/fill -> position management -> exit fill -> net outcome and released capacity -> next eligible opportunity.
 
-The trading pillar must remain financially and operationally isolated from the other business pillars. It may report performance into a shared command center, but operating cash from other businesses must not be automatically transferred into trading, and trading losses must not be funded automatically from other business accounts.
+Favor productive capital use rather than passive holding by default. Measure approved opportunities missed, capital locked in positions, holding time, idle time, actual capital released and linked redeployments. Rank comparable validated opportunities using net expected profit, capital tied up, expected duration, liquidity and downside risk. Avoid unstable rankings caused by near-zero holding-time estimates.
 
-## Daily return ambition
+Do not impose a mandatory trade count, utilization percentage or daily dollar return. Increased turnover is useful only when it improves net economics. A small gross gain below round-trip costs is not an opportunity. Do not close every green position regardless of exit costs, retain losing positions indefinitely to inflate realized win rate, or loosen risk to reach an income target. Time stops, invalidation exits, profit-taking and loss exits require the same evidence-based testing as entries.
 
-The platform's **stretch performance bar is the ability to produce 20-30% positive days when genuine, unusually strong edge and market conditions make that achievable**. Engineering, research, market coverage, information acquisition, execution quality, capital utilization, and strategy discovery should all be optimized with that upper-end capability in mind.
+## Income-focused research and learning
 
-A 20-30% return is **not a guaranteed daily result and not a quota that overrides risk controls**. The platform must never manufacture trades, chase losses, increase leverage merely because a daily target has not been reached, or reinterpret a lack of opportunity as a reason to relax validation.
+Research intraday momentum, opening-range breakouts, breakdowns, VWAP reversion/reclaim, mean reversion, relative strength, volatility expansion, event-driven trading, FX session strategies, liquid crypto intraday strategies, eligible equity short sales and cost-aware scalping. Liquidity provision, market making, options calls/puts, spreads and other methods remain research-only until venue support, account eligibility, data, sizing, execution and risk are proven. A listed strategy family is not an active strategy.
 
-The engineering objective is therefore:
+Use legally accessible, properly licensed and timestamped price/volume data; bid/ask spreads and order books where available; executable liquidity and fill/cancel/reject logs; volatility and cross-asset regimes; official news and macro/central-bank calendars; earnings; public SEC/institutional/political datasets; authorized social and alternative data; borrow availability; fee schedules; financing and funding; and peer-reviewed research. Publication and receipt timestamps must be retained to prevent look-ahead. Promotional trading content is a hypothesis source, not validated return evidence. Unavailable, delayed or unlicensed feeds remain explicitly unavailable.
 
-> continuously improve the probability and magnitude of positive daily P&L, including the ability to capture exceptional 20-30% days when real edge exists, while keeping drawdowns, execution costs, slippage, and failure risk inside explicit limits.
+Model both entry and exit costs, fee tiers, order-size minimums, lot/tick precision, partial fills, latency, queue position, adverse selection, inventory exposure, borrow and margin constraints. Apply realistic operating expenses for market data, compute and model inference. Do not deduct spread/slippage a second time when already embedded in actual fill-based P&L. Keep monetary calculations precise enough for sub-cent outcomes and cryptocurrency quantities.
 
-The dashboard should track progress toward 10%, 20%, and 30% daily return thresholds, but the risk engine remains independent of those thresholds. Missing a threshold is diagnostic information, not an execution signal.
+Use chronological out-of-sample/walk-forward tests, cost and latency stress tests, and separate natural forward-paper evidence. Keep research, backtests, hypothetical missed trades, old-capital cohorts and provider/external inventory distinct. Report sample size, strategy version, capital cohort and data provenance. Compare candidates with incumbent strategies and a no-trade baseline. No automatic promotion based only on win rate, turnover or positive realized P&L while open losses grow.
 
-## Continuous intelligence and evolution mandate
+## Role of TradingAgents
 
-The platform must operate as a learning system rather than a static strategy bundle.
+TradingAgents supplies multi-agent research, competing bullish/bearish analysis and risk discussion. It is not proof of sub-second execution or an income guarantee. Use deterministic code for time-sensitive scanning, order/risk checks and execution; invoke slower model analysis only where incremental value exceeds latency and inference cost. Compare TradingAgents-assisted decisions with deterministic baselines under identical costs and realistic capital.
 
-It should continuously:
+## Margin, shorts and provider realism
 
-- monitor approved market, news, macro, social, political, institutional, insider, derivatives, microstructure, and alternative-data sources
-- timestamp and normalize incoming information into a common feature model
-- measure latency, reliability, cost, and freshness for every provider
-- attribute realized and unrealized P&L to strategies, signals, data sources, asset classes, market sessions, and execution venues
-- detect when a previously useful signal is decaying or failing in a new regime
-- discover candidate new features and combinations from accumulated data
-- re-estimate signal usefulness using timestamp-correct historical and recent out-of-sample evidence
-- compare fast deterministic strategies with TradingAgents-assisted decisions
-- maintain market/session-specific models rather than assuming one strategy works everywhere
-- identify gaps in the information base and evaluate additional legitimate APIs or datasets
-- continuously improve execution routing, capital utilization, and data-processing latency
+Keep economic capital, notional exposure, posted margin, available buying power and maximum loss separate. Large notional exposure is not income and cannot be presented as additional deployed cash. Margin calls are risk failures, not an income technique. No martingale sizing or maximum-leverage default.
 
-No data source or model receives permanent trust. Its weight must be earned and re-earned through evidence.
+Account eligibility is checked at the real provider-account level, while all internal pillar budgets still apply. Shared provider capital must not be multiplied across pillars; unrelated accounts cannot be treated as one funding pool. A large provider demo account must not hide restrictions that the intended small live account would face. Confirm settlement, account/jurisdiction permissions, margin, borrow, asset and order-type capabilities with current official sources and account responses.
 
-The system may automate measurement, ranking, parameter research, and candidate-model generation, but **live risk limits and execution permissions may not self-relax without passing predefined validation and deployment gates**.
+## Required app and learning measurements
 
-## Risk posture: aggressive, not reckless
+Show source timestamp and freshness, initial capital, current economic equity, cost-based capital committed, margin, notional exposure, pending/reserved amounts, available-to-trade capacity, open positions, new entries, exit fills, realized gains AND losses, unrealized P&L, fees/financing, operating costs, net P&L, and per-pillar/strategy/provider breakdowns.
 
-The initial pilot should pursue growth aggressively **when measurable edge is present**, while treating capital preservation as a hard constraint rather than a suggestion.
+For income generation also show complete round trips, net expectancy per cycle, profitable/losing days, turnover defined without leverage inflation, average holding time, time from released capacity to linked redeployment, missed qualified opportunities, drawdown, downside/tail risk and settled withdrawable cash separately from reinvestable equity. Display all-cost estimates separately from provider-reconciled results. Unknown is not zero.
 
-Aggressive means:
+`income_learning.py` adds a read-only income contract and cost-labeled closed-cycle measurements to the existing LearningIngestor report. It does not train a model, connect new feeds, change order routing or promote a strategy. Producers must provide reconciled fill provenance, net costs and the new capital-policy/cohort identity before results qualify. The deployment and accounting reconciliation must be verified before the app is described as corrected.
 
-- scan broadly across approved markets and global sessions
-- recycle available capital into multiple independent high-quality opportunities
-- use controlled notional leverage where the instrument, broker, liquidity, and tested strategy support it
-- favor the strongest risk-adjusted expected-return opportunities rather than leaving capital idle by default
-- react quickly to validated market, news, social, political, institutional, and alternative-data events
-- compound retained profits and increase usable trading capital as the account grows
+Old 10-30%+ daily-return ambitions and income-dollar targets are not assumed achievable, guaranteed, training rewards or execution quotas. Paper success alone is not proof of live income.
 
-Aggressive does **not** mean:
+## Release acceptance
 
-- maximum broker leverage
-- increasing size after losses to recover money
-- trading simply to meet a daily activity or return target
-- ignoring spreads, slippage, financing, liquidity, correlation, or event risk
-- allowing one position or one market to threaten the account
-- relaxing daily/weekly circuit breakers because a signal appears attractive
-
-The preferred behavior is **dynamic aggression**: risk capacity rises when signal quality, liquidity, execution quality, and validated strategy performance are strong, and falls when drawdown, volatility, correlation, spreads, uncertainty, or system-health risk increase.
-
-## Information advantage
-
-The platform should seek the broadest legitimate information base that can be tested and maintained reliably:
-
-1. price, volume, spreads, volatility, order/market microstructure where available
-2. technical and statistical indicators
-3. market regime and cross-asset relationships
-4. company fundamentals and earnings information
-5. real-time and historical news
-6. social-media sentiment and velocity
-7. government policy, hearings, legislation, contracts, lobbying, and political exposure
-8. authorized congressional/public-official transaction datasets
-9. SEC Form 4 insider activity
-10. institutional and 13F ownership changes
-11. off-exchange / dark-pool indicators
-12. options/futures positioning where licensed data is available
-13. macroeconomic and central-bank events
-14. additional alternative datasets only after data rights, timestamp integrity, and backtestability are verified
-
-No information source receives permanent weight merely because it is interesting. Each feature must demonstrate incremental predictive value in timestamp-correct backtests and paper/shadow trading.
-
-## Speed architecture
-
-The intended decision pipeline is:
-
-```text
-high-speed feeds
-    -> deterministic universe scanner
-    -> feature calculation / event detection
-    -> rank candidates
-    -> fast baseline strategies
-    -> alternative-data fusion
-    -> TradingAgents deep research only for top candidates
-    -> deterministic portfolio/risk approval
-    -> execution adapter
-    -> fill / P&L / attribution logging
-```
-
-Fast deterministic code should handle continuous scanning. Slower multi-agent LLM analysis should be reserved for situations where its expected value exceeds its latency and API cost.
-
-## Daily operating modes
-
-### U.S. equities
-- pre-market preparation and ranking
-- opening-session opportunities
-- intraday momentum / breakout / mean-reversion opportunities
-- event-driven repricing
-- close/overnight-risk decisions
-
-### Forex
-- continuous session-aware monitoring
-- Asia / London / New York session context
-- macro-event and central-bank awareness
-- spread and liquidity filters
-
-### Crypto
-- continuous monitoring
-- separate risk bucket from equities/forex
-- 24/7 scheduler and health monitoring
-
-## Performance hierarchy
-
-The platform should optimize in this order:
-
-1. maintain reliable data and execution
-2. produce positive expectancy after all costs
-3. preserve enough capital to continue exploiting edge
-4. improve consistency and magnitude of daily/weekly realized P&L
-5. increase capital utilization when measured net edge is present
-6. capture exceptional-return opportunities when evidence supports them
-7. scale position size only after adequate evidence
-
-Raw trade count, gross profit, and headline win rate are not primary objectives.
-
-## Metrics
-
-Track at minimum:
-
-- realized P&L by day, week, month, strategy, asset class, and signal family
-- unrealized P&L
-- net P&L after fees, spread, financing, and estimated slippage
-- average daily P&L
-- percentage of profitable days
-- frequency and conditions of 10%, 20%, and 30%+ return days
-- best / worst day
-- maximum daily and rolling drawdown
-- Sharpe / Sortino-like risk-adjusted measures
-- profit factor
-- expectancy per trade
-- average win / loss
-- tail loss statistics
-- latency from event -> signal -> decision -> order -> fill
-- opportunity rejection reasons
-- P&L attribution by information source
-- incremental value of TradingAgents versus deterministic baselines
-- feature decay / drift statistics
-- provider latency, freshness, uptime, and cost-to-edge contribution
-- latency-adjusted expected edge before every new exposure decision
-- stressed performance under higher slippage, costs, latency, and adverse regimes
-
-## Risk principle
-
-More information and faster execution are useful only when they increase **net expected value after costs and risk**. The system must not increase leverage, trade frequency, or position size simply to create daily profit.
+See `docs/INCOME_TRADING_ROLLOUT.md`. A source commit or a fresh heartbeat is not evidence of deployed code, executed transactions, profitable turnover or an improved model.

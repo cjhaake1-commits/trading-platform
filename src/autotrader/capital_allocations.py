@@ -1,35 +1,37 @@
 from __future__ import annotations
 
+from math import isfinite
+
 from .models import AssetClass
 
-TOTAL_PAPER_CAPITAL = 85000.0
-KALSHI_DEMO_BASE_CAPITAL = 15000.0
-SIX_PILLAR_BASE_CAPITAL = TOTAL_PAPER_CAPITAL + KALSHI_DEMO_BASE_CAPITAL
-PILLAR_CAPITAL = 1000.0  # legacy compatibility default; named allocations are authoritative
+# Initial economic capital, not a provider balance or leveraged buying power.
+CAPITAL_POLICY_ID = "income-6000-v1"
+PILLAR_CAPITAL = 1000.0
 
 PILLAR_EQUITIES = "alpaca_equities"
 PILLAR_FOREX = "oanda_fx"
 PILLAR_CRYPTO = "alpaca_crypto"
 PILLAR_METALS = "alpaca_metals"
 PILLAR_IBKR_GLOBAL = "ibkr_global"
-# The existing fourth-pillar key is retained for ledger/backward compatibility.
-# Saxo SIM is the read-only connectivity adapter for this international pillar.
+# Preserve the existing international ledger key for compatibility.
 PILLAR_INTERNATIONAL = PILLAR_IBKR_GLOBAL
-INTERNATIONAL_SIM_CAPITAL = 15000.0
-METALS_PAPER_CAPITAL = 10000.0
+PILLAR_KALSHI = "kalshi"
 
 PILLAR_ALLOCATIONS = {
-    PILLAR_EQUITIES: 25000.0,
-    PILLAR_FOREX: 15000.0,
-    PILLAR_CRYPTO: 20000.0,
-    PILLAR_METALS: 10000.0,
-    PILLAR_IBKR_GLOBAL: 15000.0,
+    PILLAR_EQUITIES: PILLAR_CAPITAL,
+    PILLAR_FOREX: PILLAR_CAPITAL,
+    PILLAR_CRYPTO: PILLAR_CAPITAL,
+    PILLAR_METALS: PILLAR_CAPITAL,
+    PILLAR_IBKR_GLOBAL: PILLAR_CAPITAL,
 }
+TOTAL_PAPER_CAPITAL = sum(PILLAR_ALLOCATIONS.values())
+KALSHI_DEMO_BASE_CAPITAL = PILLAR_CAPITAL
+SIX_PILLAR_BASE_CAPITAL = TOTAL_PAPER_CAPITAL + KALSHI_DEMO_BASE_CAPITAL
+INTERNATIONAL_SIM_CAPITAL = PILLAR_ALLOCATIONS[PILLAR_INTERNATIONAL]
+METALS_PAPER_CAPITAL = PILLAR_ALLOCATIONS[PILLAR_METALS]
 
 ACTIVE_PILLARS = (PILLAR_EQUITIES, PILLAR_FOREX, PILLAR_CRYPTO, PILLAR_METALS)
 RESERVED_PILLARS = (PILLAR_IBKR_GLOBAL,)
-
-PILLAR_KALSHI = "kalshi"
 KALSHI_CHILD_PILLARS = ("kalshi_predictions", "kalshi_perps")
 SIX_PILLARS = (
     PILLAR_EQUITIES,
@@ -39,19 +41,28 @@ SIX_PILLARS = (
     PILLAR_IBKR_GLOBAL,
     PILLAR_KALSHI,
 )
-KALSHI_CHILD_MAX = 7500.0
+KALSHI_CHILD_MAX = KALSHI_DEMO_BASE_CAPITAL / len(KALSHI_CHILD_PILLARS)
 
 
 def kalshi_pool_available(*, committed: float, pending: float, realized_profit: float = 0.0) -> float:
-    """Return shared Kalshi capacity; child reservations cannot double count it."""
-    return max(KALSHI_DEMO_BASE_CAPITAL + max(realized_profit, 0.0) - committed - pending, 0.0)
+    """Shared economic headroom; signed net P&L includes losses as well as gains.
+
+    Provider availability, settlement, withdrawals, open losses, and risk gates
+    must further constrain this amount. This helper never authorizes leverage.
+    """
+    values = (committed, pending, realized_profit)
+    if not all(isfinite(value) for value in values) or committed < 0 or pending < 0:
+        return 0.0
+    return max(KALSHI_DEMO_BASE_CAPITAL + realized_profit - committed - pending, 0.0)
 
 
 def validate_kalshi_reservation(*, predictions_committed: float, perps_committed: float,
                                 predictions_pending: float = 0.0, perps_pending: float = 0.0,
                                 realized_profit: float = 0.0) -> bool:
     values = (predictions_committed, perps_committed, predictions_pending, perps_pending)
-    return all(value >= 0 for value in values) and sum(values) <= KALSHI_DEMO_BASE_CAPITAL + max(realized_profit, 0.0)
+    if not isfinite(realized_profit) or not all(isfinite(value) and value >= 0 for value in values):
+        return False
+    return sum(values) <= max(KALSHI_DEMO_BASE_CAPITAL + realized_profit, 0.0)
 
 
 def pillar_for_asset(asset_class: AssetClass) -> str:
