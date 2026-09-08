@@ -58,3 +58,8 @@ replace("streamlit_app.py", "def main() -> None:\n    render_dashboard()", "def 
 replace("tests/test_metals_trading.py", "assert result.quantity == 12.0", "assert result.quantity == 2.0")
 replace("tests/test_metals_trading.py", 'assert history.records()[0]["notional"] == 1200.0', 'assert history.records()[0]["notional"] == 200.0')
 replace("src/autotrader/runtime_app.py", "args = build_parser().parse_args()\n    mode", "args = build_parser().parse_args()\n    # Stale service flags cannot enlarge the owner-authorized paper budget.\n    args.initial_equity = min(args.initial_equity, TOTAL_PAPER_CAPITAL)\n    mode")
+# These assertions were changed for the withdrawn $100k experiment. Preserve
+# their cash/P&L tests and restore only the owner-authorized sleeve amounts.
+replace("tests/test_cash_dashboard.py", 'metrics["pillar_allocations"]["International"] == 15000.0', 'metrics["pillar_allocations"]["International"] == 1000.0')
+replace("tests/test_cash_dashboard.py", 'metrics.pillar_allocations["Metals/Commodities"] == 10000.0', 'metrics.pillar_allocations["Metals/Commodities"] == 1000.0')
+replace("tests/test_pillar_jobs.py", 'job.service.calls[0][1].equity == 10000.0', 'job.service.calls[0][1].equity == 1000.0')
