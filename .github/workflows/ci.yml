@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches-ignore:
+      - runtime-status
   pull_request:
 
 jobs:
