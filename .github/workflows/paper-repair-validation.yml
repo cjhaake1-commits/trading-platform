@@ -1,0 +1,45 @@
+name: Paper Repair Validation
+
+on:
+  push:
+    branches:
+      - fix/paper-income-baseline-20260908
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LIVE_TRADING_ENABLED: 'false'
+      KALSHI_LIVE_TRADING_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Archive exact tracked source for isolated testing
+        run: git archive --format=tar.gz --output="${RUNNER_TEMP}/paper-repair-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-repair-source-${{ github.sha }}
+          path: ${{ runner.temp }}/paper-repair-source.tar.gz
+          retention-days: 3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install test dependencies
+        id: install
+        run: pip install -e '.[dev,streaming]'
+      - name: Full repository lint
+        run: ruff check .
+      - name: Full tests without broker credentials
+        if: ${{ always() && steps.install.outcome == 'success' }}
+        run: python -m pytest -q
+      - name: Compile
+        if: ${{ always() && steps.install.outcome == 'success' }}
+        run: |
+          python -m compileall -q src tests scripts
+          python -m py_compile streamlit_app.py
+          git diff --check
