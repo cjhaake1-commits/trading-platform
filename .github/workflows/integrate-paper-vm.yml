@@ -26,7 +26,7 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: project-79d49028-a68b-4bb1-bd9
-      - name: Read the exact reviewed source patch without modifying VM files
+      - name: Read exact reviewed source patch without changing VM files
         shell: bash
         run: |
           set -euo pipefail
@@ -80,15 +80,34 @@ jobs:
       - name: Install validation dependencies
         id: install
         run: pip install -e '.[dev,streaming]'
-      - name: Mechanical import sorting
+      - name: Mechanical lint corrections with AST equivalence
         run: |
+          set -euo pipefail
           ruff check --fix-only .
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          path = Path('streamlit_app.py')
+          before = path.read_text()
+          lines = []
+          for line in before.splitlines(keepends=True):
+              if line.lstrip().startswith('a.metric("Forward Decisions", total);'):
+                  indentation = line[:len(line)-len(line.lstrip())]
+                  line = line.replace('; ', '\n'+indentation)
+              elif line.lstrip().startswith('if by_pillar: st.dataframe('):
+                  indentation = line[:len(line)-len(line.lstrip())]
+                  line = line.replace('if by_pillar: ', 'if by_pillar:\n'+indentation+'    ', 1)
+              lines.append(line)
+          after = ''.join(lines)
+          assert ast.dump(ast.parse(before)) == ast.dump(ast.parse(after))
+          path.write_text(after)
+          PY
           ruff check .
       - name: All tests with no broker credentials
         run: |
           set -euo pipefail
           python -m pytest -q | tee "$RUNNER_TEMP/preserved-source-tests.txt"
-      - name: Validate source and commit reviewed integration only
+      - name: Validate and commit integration only to review branch
         shell: bash
         run: |
           set -euo pipefail
@@ -98,7 +117,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c fix/preserved-vm-income-20260908
-          git add performance_board.py streamlit_app.py src tests systemd docs/vm-preserved-source-manifest.json
+          git add performance_board.py streamlit_app.py src scripts tests systemd docs/vm-preserved-source-manifest.json
           git commit -m 'Preserve reviewed VM improvements alongside the validated $6000 income repair'
           git push origin HEAD:fix/preserved-vm-income-20260908
           git rev-parse HEAD > "$RUNNER_TEMP/preserved-source-sha.txt"
