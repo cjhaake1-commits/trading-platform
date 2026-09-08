@@ -12,6 +12,8 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
+from runtime_income_evidence import capital_diagnostics, cycle_evidence
+
 REPORT_VERSION = "income-report-v1"
 POLICY_VERSION = "income_6000_v1"
 MAX_AGE_SECONDS = 300
@@ -150,7 +152,7 @@ def runtime_view(runtime, external, *, now):
         observed = [r.get("last_activity_at") for r in records]
         enabled = bool(records) and all(r.get("enabled") is True for r in records)
         active = current and enabled and all(fresh(t, now, 900) for t in observed)
-        errors = [str(r["last_error"]) for r in records if r.get("last_error")]
+        errors = ["RUNTIME_OR_PROVIDER_REJECTION" for r in records if r.get("last_error")]
         state = "STALE / UNKNOWN" if not current else "SCANNING / NO EXECUTION PROOF" if active else "DISABLED / NO RECENT CYCLE"
         if active and errors:
             state = "ACTIVE / BLOCKED OR DEGRADED"
@@ -197,4 +199,6 @@ def build_report(root, *, now=None):
     report["positions_fresh"] = fresh(positions.get("observed_at"), now)
     report["first_qualifying_post_boundary_trade"] = external.get("first_qualifying_post_boundary_trade")
     report["source"] = "read-only runtime accounting ledger"
+    report["capital_state_diagnostics"] = capital_diagnostics(root, now=now)
+    report["execution_evidence"] = cycle_evidence(root, now=now)
     return report
