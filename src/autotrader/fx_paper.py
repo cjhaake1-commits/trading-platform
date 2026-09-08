@@ -309,10 +309,10 @@ class FxPaperTradingJob:
         deployed = sum(abs(position.quantity * position.average_price) for position in strategy_positions.values())
         cash = max(self.config.initial_equity - deployed, 0.0)
         return type(portfolio)(
-            equity=max(self.config.initial_equity, cash + deployed),
+            equity=min(self.config.initial_equity, portfolio.equity),
             cash=cash,
-            daily_pnl=0.0,
-            weekly_pnl=0.0,
+            daily_pnl=portfolio.daily_pnl,
+            weekly_pnl=portfolio.weekly_pnl,
             positions=strategy_positions,
         )
 

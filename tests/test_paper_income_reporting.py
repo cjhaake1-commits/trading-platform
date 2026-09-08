@@ -88,6 +88,7 @@ def test_paper_budget_regression_and_shared_kalshi_losses():
 
 def test_optional_audit_database_without_table_is_empty_evidence(tmp_path):
     import sqlite3
+
     from autotrader.learning import RealizedOutcomeLearner
     path = tmp_path / "audit.db"
     with sqlite3.connect(path):

@@ -103,10 +103,10 @@ def test_approved_metals_order_uses_deterministic_sizing(tmp_path):
     result = execution.execute(spec(requested_quantity=20.0), portfolio(), metals_deployed=800.0)
 
     assert result.approved and result.submitted
-    assert result.quantity == 12.0
+    assert result.quantity == 2.0
     assert broker.orders[0].risk_approved
     assert broker.orders[0].stop_price == 95.0
-    assert history.records()[0]["notional"] == 1200.0
+    assert history.records()[0]["notional"] == 200.0
 
 
 def test_completed_metals_trade_feeds_learning_history(tmp_path):

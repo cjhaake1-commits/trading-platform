@@ -1,8 +1,9 @@
 import json
+
+from autotrader.forward_economic_lifecycle import EconomicLifecycle
+from autotrader.forward_lifecycle import ForwardLifecycle
 from autotrader.runtime_allocator import refresh_allocator
 from autotrader.runtime_execution_consumer import RuntimeExecutionConsumer
-from autotrader.forward_lifecycle import ForwardLifecycle
-from autotrader.forward_economic_lifecycle import EconomicLifecycle
 
 
 def test_allocator_consumes_queue_and_never_executes(tmp_path):

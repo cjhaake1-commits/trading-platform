@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import sqlite3
+from datetime import UTC, datetime
+
 from autotrader.capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL, pillar_for_asset
 from autotrader.models import PortfolioState
 from autotrader.portfolio_ledger import PortfolioLedger
-from datetime import UTC, datetime
-import sqlite3
 
 LEDGER_PATH = "var/autotrader/portfolio.db"
 

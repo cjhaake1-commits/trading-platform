@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Mapping
+
 from .forward_evidence import ForwardEvidenceLedger
 
 

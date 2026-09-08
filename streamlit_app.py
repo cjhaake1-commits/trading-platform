@@ -3789,7 +3789,8 @@ def render_dashboard() -> None:
 
 
 def main() -> None:
-    render_dashboard()
+    from dashboard_simple import main as render_income_dashboard
+    render_income_dashboard()
 
 
 if __name__ == "__main__":

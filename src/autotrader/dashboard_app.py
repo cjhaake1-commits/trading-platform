@@ -127,20 +127,23 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
         except Exception:
             return "—"
 
-    runtime_live = bool(status.get("last_heartbeat_at")) and bool(paper_job) and not bool(
-        (paper_job or {}).get("disabled")
+    runtime_live = (
+        bool(status.get("last_heartbeat_at")) and bool(paper_job) and not bool((paper_job or {}).get("disabled"))
     )
     runtime_label = "RUNNING" if runtime_live else "NOT CONFIRMED"
     runtime_class = "good" if runtime_live else "warn"
 
-    position_rows = "".join(
-        f"<tr><td>{html.escape(str(p.get('symbol','')))}</td>"
-        f"<td>{html.escape(str(p.get('asset_class','')))}</td>"
-        f"<td>{float(p.get('quantity',0)):,.6f}</td>"
-        f"<td>{_fmt_money(p.get('average_price'))}</td>"
-        f"<td>{_fmt_money(p.get('stop_price'))}</td></tr>"
-        for p in positions
-    ) or "<tr><td colspan='5'>No open positions</td></tr>"
+    position_rows = (
+        "".join(
+            f"<tr><td>{html.escape(str(p.get('symbol', '')))}</td>"
+            f"<td>{html.escape(str(p.get('asset_class', '')))}</td>"
+            f"<td>{float(p.get('quantity', 0)):,.6f}</td>"
+            f"<td>{_fmt_money(p.get('average_price'))}</td>"
+            f"<td>{_fmt_money(p.get('stop_price'))}</td></tr>"
+            for p in positions
+        )
+        or "<tr><td colspan='5'>No open positions</td></tr>"
+    )
 
     audit_rows = ""
     for row in audit:
@@ -188,62 +191,104 @@ def render_dashboard(status_path: Path, ledger_path: Path, audit_path: Path) -> 
         "<div class='card'><div class='k'>Cumulative Net Trading Cash Generated</div>"
         f"<div class='v'>{cumulative_net_cash}</div></div>"
     )
-    learning_rows = "".join(
-        f"<tr><td>{html.escape(str(item.get('parameter', '')))}</td>"
-        f"<td>{html.escape(str(item.get('old_value', '')))}</td>"
-        f"<td>{html.escape(str(item.get('new_value', '')))}</td>"
-        f"<td>{html.escape(str(item.get('reason', '')))}</td></tr>"
-        for item in learning.get("history", [])
-    ) or "<tr><td colspan='4'>No parameter updates yet</td></tr>"
+    learning_rows = (
+        "".join(
+            f"<tr><td>{html.escape(str(item.get('parameter', '')))}</td>"
+            f"<td>{html.escape(str(item.get('old_value', '')))}</td>"
+            f"<td>{html.escape(str(item.get('new_value', '')))}</td>"
+            f"<td>{html.escape(str(item.get('reason', '')))}</td></tr>"
+            for item in learning.get("history", [])
+        )
+        or "<tr><td colspan='4'>No parameter updates yet</td></tr>"
+    )
 
     lab_engines = lab.get("engines") if isinstance(lab.get("engines"), dict) else {}
     daily_activity = daily_learning.get("activity") if isinstance(daily_learning.get("activity"), dict) else {}
-    actual_results = daily_learning.get("actual_results") if isinstance(daily_learning.get("actual_results"), dict) else {}
+    actual_results = (
+        daily_learning.get("actual_results") if isinstance(daily_learning.get("actual_results"), dict) else {}
+    )
     lab_rows = ""
     for name in ("Stocks", "Crypto", "Forex", "Metals", "International", "Kalshi Predictions", "Kalshi Perps"):
         values = lab_engines.get(name) if isinstance(lab_engines.get(name), dict) else {}
         activity_values = daily_activity.get(name) if isinstance(daily_activity.get(name), dict) else {}
-        bottlenecks = activity_values.get("top_bottlenecks") if isinstance(activity_values.get("top_bottlenecks"), dict) else {}
+        bottlenecks = (
+            activity_values.get("top_bottlenecks") if isinstance(activity_values.get("top_bottlenecks"), dict) else {}
+        )
         top_bottleneck = next(iter(bottlenecks), "UNKNOWN")
         cells = [
-            name, (values.get("status") or ("OBSERVED" if values.get("latest", "UNKNOWN") != "UNKNOWN" else "UNKNOWN")), values.get("activity_health", "UNKNOWN"), values.get("latest", "UNKNOWN"),
-            values.get("markets_scanned", "UNKNOWN"), values.get("strategy_evaluations", "UNKNOWN"),
-            values.get("candidates", "UNKNOWN"), values.get("signals", "UNKNOWN"),
-            values.get("positive_edge_or_proxy", "UNKNOWN"), values.get("qualified", "UNKNOWN"), values.get("actual_orders", "UNKNOWN"),
-            values.get("shadow_entries", "UNKNOWN"), values.get("fills", "UNKNOWN"), values.get("shadow_exits", "UNKNOWN"),
-            values.get("actual_exits", "UNKNOWN"), values.get("shadow_expectancy", "UNKNOWN"),
-            values.get("open_actual", "UNKNOWN"), values.get("open_shadow", "UNKNOWN"),
+            name,
+            (values.get("status") or ("OBSERVED" if values.get("latest", "UNKNOWN") != "UNKNOWN" else "UNKNOWN")),
+            values.get("activity_health", "UNKNOWN"),
+            values.get("latest", "UNKNOWN"),
+            values.get("markets_scanned", "UNKNOWN"),
+            values.get("strategy_evaluations", "UNKNOWN"),
+            values.get("candidates", "UNKNOWN"),
+            values.get("signals", "UNKNOWN"),
+            values.get("positive_edge_or_proxy", "UNKNOWN"),
+            values.get("qualified", "UNKNOWN"),
+            values.get("actual_orders", "UNKNOWN"),
+            values.get("shadow_entries", "UNKNOWN"),
+            values.get("fills", "UNKNOWN"),
+            values.get("shadow_exits", "UNKNOWN"),
+            values.get("actual_exits", "UNKNOWN"),
+            values.get("shadow_expectancy", "UNKNOWN"),
+            values.get("open_actual", "UNKNOWN"),
+            values.get("open_shadow", "UNKNOWN"),
             actual_results.get("expectancy", "UNKNOWN") if name == "Stocks" else "UNKNOWN",
             actual_results.get("cumulative_realized_pnl", "UNKNOWN") if name == "Stocks" else "UNKNOWN",
-            values.get("capital_utilization", "UNKNOWN"), activity_values.get("observations", "UNKNOWN"), top_bottleneck,
+            values.get("capital_utilization", "UNKNOWN"),
+            activity_values.get("observations", "UNKNOWN"),
+            top_bottleneck,
             (activity_values.get("regime") or "UNKNOWN"),
         ]
         lab_rows += "<tr>" + "".join(f"<td>{html.escape(str(cell))}</td>" for cell in cells) + "</tr>"
     lab_rows = lab_rows or "<tr><td colspan='24'>UNKNOWN</td></tr>"
     strategy_rows = ""
-    strategy_evidence = daily_learning.get("strategy_evidence") if isinstance(daily_learning.get("strategy_evidence"), dict) else {}
+    strategy_evidence = (
+        daily_learning.get("strategy_evidence") if isinstance(daily_learning.get("strategy_evidence"), dict) else {}
+    )
     for strategy, values in sorted(strategy_evidence.items()):
         if not isinstance(values, dict):
             continue
-        strategy_rows += "<tr>" + "".join(
-            f"<td>{html.escape(str(cell))}</td>" for cell in (
-                strategy, values.get("classification", "UNKNOWN"), values.get("observations", "UNKNOWN"),
-                values.get("signals", "UNKNOWN"), values.get("qualified", "UNKNOWN"),
+        strategy_rows += (
+            "<tr>"
+            + "".join(
+                f"<td>{html.escape(str(cell))}</td>"
+                for cell in (
+                    strategy,
+                    values.get("classification", "UNKNOWN"),
+                    values.get("observations", "UNKNOWN"),
+                    values.get("signals", "UNKNOWN"),
+                    values.get("qualified", "UNKNOWN"),
+                )
             )
-        ) + "</tr>"
+            + "</tr>"
+        )
     strategy_rows = strategy_rows or "<tr><td colspan='5'>UNKNOWN</td></tr>"
     provider_rows = ""
-    provider_metrics = daily_learning.get("provider_performance") if isinstance(daily_learning.get("provider_performance"), dict) else {}
+    provider_metrics = (
+        daily_learning.get("provider_performance")
+        if isinstance(daily_learning.get("provider_performance"), dict)
+        else {}
+    )
     for provider, values in sorted(provider_metrics.items()):
         values = values if isinstance(values, dict) else {}
-        provider_rows += "<tr>" + "".join(
-            f"<td>{html.escape(str(cell))}</td>" for cell in (
-                provider, values.get("status", "UNKNOWN"), values.get("requests", values.get("requests_job_proxy", "UNKNOWN")),
-                values.get("failures", "UNKNOWN"), values.get("timeouts", "UNKNOWN"),
-                values.get("p50_latency_ms", values.get("p50_latency_ms_job_proxy", "UNKNOWN")),
-                values.get("p95_latency_ms", values.get("p95_latency_ms_job_proxy", "UNKNOWN")),
+        provider_rows += (
+            "<tr>"
+            + "".join(
+                f"<td>{html.escape(str(cell))}</td>"
+                for cell in (
+                    provider,
+                    values.get("status", "UNKNOWN"),
+                    values.get("requests", values.get("requests_job_proxy", "UNKNOWN")),
+                    values.get("failures", "UNKNOWN"),
+                    values.get("timeouts", "UNKNOWN"),
+                    values.get("p50_latency_ms", values.get("p50_latency_ms_job_proxy", "UNKNOWN")),
+                    values.get("p95_latency_ms", values.get("p95_latency_ms_job_proxy", "UNKNOWN")),
+                )
             )
-        ) + "</tr>"
+            + "</tr>"
+        )
     provider_rows = provider_rows or "<tr><td colspan='7'>UNKNOWN</td></tr>"
 
     return f"""<!doctype html>
@@ -283,14 +328,14 @@ section{{margin-top:24px}} code{{color:#b8c7ff}} .meta{{font-size:13px;color:#9a
 <div class='card'><div class='k'>Weekly P&L</div><div class='v'>{_fmt_money(weekly_pnl)}</div></div>
 <div class='card'><div class='k'>Peak Drawdown</div><div class='v'>{_fmt_pct(drawdown)}</div></div>
 <div class='card'><div class='k'>Open Positions</div><div class='v'>{len(positions)}</div></div>
-<div class='card'><div class='k'>Recorded Fills</div><div class='v'>{ledger.get('fills',0)}</div></div>
+<div class='card'><div class='k'>Recorded Fills</div><div class='v'>{ledger.get("fills", 0)}</div></div>
 </div>
 <section><h2>Runtime health</h2><div class='card meta'>
 Started: <code>{started_at}</code><br>Last heartbeat: <code>{last_heartbeat}</code><br>
-Autonomous job disabled: <code>{html.escape(str((paper_job or {}).get('disabled','—')))}</code><br>
-Consecutive failures: <code>{html.escape(str((paper_job or {}).get('consecutive_failures','—')))}</code><br>
+Autonomous job disabled: <code>{html.escape(str((paper_job or {}).get("disabled", "—")))}</code><br>
+Consecutive failures: <code>{html.escape(str((paper_job or {}).get("consecutive_failures", "—")))}</code><br>
 Last error: <code>{paper_error}</code><br>
-Health job disabled: <code>{html.escape(str((health_job or {}).get('disabled','—')))}</code>
+Health job disabled: <code>{html.escape(str((health_job or {}).get("disabled", "—")))}</code>
 </div></section>
 <section><h2>Learning</h2>
 <div class='grid'>
@@ -344,18 +389,31 @@ def main() -> None:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             from .observability import EVENTS, first_qualifying_trade, publish_status
+
             if self.path == "/api/runtime/status":
                 body = json.dumps(publish_status(status=_read_json(status_path)), sort_keys=True).encode()
-                self.send_response(200); self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.path == "/api/runtime/first-qualified-trade":
                 body = json.dumps(first_qualifying_trade(), sort_keys=True).encode()
-                self.send_response(200); self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.path == "/api/runtime/events":
                 body = EVENTS.read_bytes() if EVENTS.exists() else b""
-                self.send_response(200); self.send_header("Content-Type", "application/x-ndjson")
-                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.path not in {"/", "/index.html"}:
                 self.send_response(404)
                 self.end_headers()

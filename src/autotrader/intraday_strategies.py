@@ -1,9 +1,8 @@
 """Cost-aware intraday candidate generation from supplied market features."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Mapping
-
 
 FAMILIES = ("MOMENTUM", "BREAKOUT", "BREAKDOWN", "OPENING_RANGE_BREAKOUT", "VWAP_RECLAIM", "VWAP_DEVIATION", "MEAN_REVERSION", "TREND_CONTINUATION", "VOLATILITY_EXPANSION", "RELATIVE_STRENGTH")
 

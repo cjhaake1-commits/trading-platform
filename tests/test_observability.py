@@ -1,5 +1,7 @@
 import json
+
 from autotrader import observability as obs
+
 
 def _isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(obs, "ROOT", tmp_path)

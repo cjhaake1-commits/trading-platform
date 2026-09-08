@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Mapping
 
-from .opportunity_queue import Opportunity, rank_shadow_opportunities
+from .opportunity_queue import Opportunity
 
 
 def _number(data: Mapping[str, object], *names: str) -> float | None:

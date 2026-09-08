@@ -1,4 +1,5 @@
 import json
+
 from autotrader.activity_diagnostic import persist_activity
 
 

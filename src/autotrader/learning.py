@@ -334,6 +334,10 @@ class RealizedOutcomeLearner:
         evidence: list[dict[str, object]] = []
         with sqlite3.connect(path) as con:
             con.row_factory = sqlite3.Row
+            # A new/empty optional audit database contains no evidence. Do not
+            # invent outcomes; other SQLite errors still fail.
+            if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='audit_events'").fetchone() is None:
+                return []
             query = "SELECT event_type, message, data_json, created_at FROM audit_events ORDER BY id DESC"
             if limit is not None:
                 query += " LIMIT ?"

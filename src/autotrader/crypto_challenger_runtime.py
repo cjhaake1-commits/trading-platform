@@ -1,7 +1,8 @@
 """Governed Crypto challenger runtime adapter; Active-V2 remains quarantined."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Mapping
 
 
@@ -14,11 +15,15 @@ class ChallengerDecision:
     broker_submission: bool
 
 
-def evaluate_challenger(*, cohort: str, evidence: Mapping[str, object], active_quarantine: bool = True, minimum_sample: int = 30) -> dict[str, object]:
+def evaluate_challenger(
+    *, cohort: str, evidence: Mapping[str, object], active_quarantine: bool = True, minimum_sample: int = 30
+) -> dict[str, object]:
     sample = int(evidence.get("sample_size") or 0)
     expectancy = evidence.get("expectancy_after_costs")
-    try: expectancy = float(expectancy) if expectancy is not None else None
-    except (TypeError, ValueError): expectancy = None
+    try:
+        expectancy = float(expectancy) if expectancy is not None else None
+    except (TypeError, ValueError):
+        expectancy = None
     if active_quarantine and cohort == "Active-V2":
         return asdict(ChallengerDecision(cohort, "QUARANTINED", "NEGATIVE_EXISTING_EVIDENCE", False, False))
     if sample < minimum_sample or expectancy is None:

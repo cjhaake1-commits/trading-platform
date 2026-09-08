@@ -1,7 +1,7 @@
 """Provider/economic-separated simulated margin accounting."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 
 @dataclass(frozen=True)

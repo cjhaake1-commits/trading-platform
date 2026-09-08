@@ -404,7 +404,7 @@ class InternationalPaperTradingJob:
             funnel.update({"final_bottleneck": "NO_PROVIDER_INSTRUMENTS", "rejection_reason": "Saxo search returned no instruments"})
             _write_international_funnel(now=now, funnel=funnel)
             return JobResult(True, "International cycle found no instruments", {})
-        open_instruments = tuple(
+        _open_instruments = tuple(
             item for item in instruments
             if self._provider_session(item, now) == "OPEN"
         )

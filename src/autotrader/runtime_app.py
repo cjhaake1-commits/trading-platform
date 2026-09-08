@@ -11,7 +11,7 @@ from pathlib import Path
 from .alpaca_backlog import load_backlog_checkpoint, reconcile_alpaca_equity_backlog
 from .audit import SQLiteAuditStore
 from .autonomous_paper import AutonomousPaperConfig, AutonomousPaperTradingJob
-from .capital_allocations import PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL
+from .capital_allocations import SIX_PILLAR_ALLOCATIONS, TOTAL_PAPER_CAPITAL
 from .crypto_market_archive import AlpacaCryptoArchiveCollector
 from .crypto_replay import load_archive
 from .crypto_shadow import update_shadow
@@ -128,7 +128,7 @@ class FoundationAuditJob:
             if not ledger.load_pillar_day_start_equity(pillar=key_map[pillar], equity_date=day):
                 ledger.save_pillar_day_start_equity(
                     pillar=key_map[pillar], equity_date=day, timezone="UTC",
-                    day_start_timestamp=f"{day}T00:00:00+00:00", starting_economic_equity=PILLAR_ALLOCATIONS[key_map[pillar]],
+                    day_start_timestamp=f"{day}T00:00:00+00:00", starting_economic_equity=SIX_PILLAR_ALLOCATIONS[key_map[pillar]],
                     source="paper_allocation_cap_pending_provider_reconciliation",
                 )
         # Financial input is read directly from providers.  dashboard/data.json
@@ -148,6 +148,9 @@ class FoundationAuditJob:
         live_positions, _metrics, live_status, provider_errors = fetch_live_broker_data()
         crypto_history = _alpaca_crypto_history()
         kalshi = _kalshi_status()
+        # Read-only, allowlisted position observations for app and publisher.
+        from portfolio_reporting import write_position_observations
+        write_position_observations(Path.cwd(), live_positions, live_status, now=now)
         position_values = {pillar: 0.0 for pillar in pillars}
         positions_counts = {pillar: 0 for pillar in pillars}
         unrealized_values = {pillar: 0.0 for pillar in pillars}
@@ -180,7 +183,7 @@ class FoundationAuditJob:
                 status_row = kalshi
             provider_seen = observed[pillar]
             if not provider_seen:
-                normalized[pillar] = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": PILLAR_ALLOCATIONS[key_map[pillar]],
+                normalized[pillar] = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": SIX_PILLAR_ALLOCATIONS[key_map[pillar]],
                     # SQLite keeps the identity columns NOT NULL.  Zero is a
                     # storage sentinel only; accounting_status/source state
                     # that this is not an economic observation.
@@ -194,7 +197,7 @@ class FoundationAuditJob:
             realized = realized_values[pillar]
             unrealized = unrealized_values[pillar]
             day_start = ledger.load_pillar_day_start_equity(pillar=key_map[pillar], equity_date=day)
-            starting = float(day_start["starting_economic_equity"]) if day_start else PILLAR_ALLOCATIONS[key_map[pillar]]
+            starting = float(day_start["starting_economic_equity"]) if day_start else SIX_PILLAR_ALLOCATIONS[key_map[pillar]]
             economic = starting + realized + unrealized
             deployed = float(status_row.get("strategy_cost_basis") or status_row.get("deployed") or 0.0)
             pending = float(status_row.get("pending_capital") or 0.0)
@@ -203,19 +206,18 @@ class FoundationAuditJob:
             market_value = 0.0 if pillar == "Forex" else position_values[pillar]
             # Capital identity is based on economic capital committed, not
             # market value/notional. Exposure remains a separate field.
-            if pillar == "Stocks" and deployed > 1000.0 + 0.02:
-                reason = "legacy allocation breach segregated from current fund"
-                deployed = 0.0
-                market_value = 0.0
-                unrealized = 0.0
-                economic = starting + realized + unrealized
-                positions_counts[pillar] = 0
+            # Preserve observed exposure, including a budget breach. Hiding it
+            # as zero falsely reports idle cash and masks the required review.
             available = economic - deployed - pending
             difference = economic - (available + deployed + pending)
             # A mathematically rearranged identity is not sufficient: bounded
             # pillar accounting cannot verify negative cash or exposure that
             # exceeds the pillar's economic allocation.
-            source_valid = provider_seen and available >= -0.02 and economic >= -0.02
+            source_valid = (
+                provider_seen and available >= -0.02 and economic >= -0.02
+                and starting <= SIX_PILLAR_ALLOCATIONS[key_map[pillar]] + 0.02
+                and deployed + pending <= SIX_PILLAR_ALLOCATIONS[key_map[pillar]] + max(realized, 0.0) + 0.02
+            )
             if pillar == "Kalshi":
                 # The Demo execution gate is disabled and no Kalshi execution
                 # manifests exist in the internal ledger. Provider inventory
@@ -233,7 +235,7 @@ class FoundationAuditJob:
                 f"available_cash + position_market_value differs by {difference:.6f}; "
                 "source fields: available_cash, capital_deployed, unrealized_pnl"
             )
-            record = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": PILLAR_ALLOCATIONS[key_map[pillar]],
+            record = {"pillar": pillar, "observed_at": now.isoformat(), "allocation_cap": SIX_PILLAR_ALLOCATIONS[key_map[pillar]],
                       "starting_equity": starting, "economic_equity": economic, "available_cash": available,
                       "deployed_cash": deployed, "pending": pending, "notional_exposure": market_value,
                       "position_market_value": market_value, "realized_today": realized, "unrealized": unrealized,
@@ -241,7 +243,7 @@ class FoundationAuditJob:
                       "source": "direct provider read", "freshness": "FRESH", "provider_observed": True,
                       "provider_timestamp": now.isoformat(), "age_seconds": 0.0, "positions": positions_counts[pillar],
                       "working_orders": int(status_row.get("working_orders", status_row.get("open_orders", 0)) or 0),
-                      "trades_today": int(crypto_history.get("orders_today", 0) or 0) if pillar == "Crypto" else 0,
+                      "trades_today": int(crypto_history.get("fills_today", 0) or 0) if pillar == "Crypto" else None,
                       "total_pnl": realized + unrealized, "daily_return": (realized + unrealized) / starting}
             ledger.save_accounting_snapshot(record)
             normalized[pillar] = record
@@ -488,6 +490,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    # Stale service flags cannot enlarge the owner-authorized paper budget.
+    args.initial_equity = min(args.initial_equity, TOTAL_PAPER_CAPITAL)
     mode = RunMode(args.mode)
     if args.autonomous_paper and mode is not RunMode.PAPER:
         raise SystemExit("--autonomous-paper is only valid with --mode paper")

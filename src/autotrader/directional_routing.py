@@ -1,7 +1,7 @@
 """Long/short candidate routing with explicit provider and risk gates."""
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Mapping
 
 

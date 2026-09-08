@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Create a secret-free, read-only Kalshi Demo state backup."""
+
 from __future__ import annotations
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+
 from autotrader.kalshi.client import KalshiReadOnlyClient
+
 
 def main() -> int:
     client = KalshiReadOnlyClient()
@@ -23,12 +27,16 @@ def main() -> int:
     }
     state = {"backup_created_at_utc": datetime.now(UTC).isoformat(), "environment": "demo", "read_only": True}
     for name, call in calls.items():
-        try: state[name] = call()
-        except Exception as exc: state[name] = {"error": type(exc).__name__}
+        try:
+            state[name] = call()
+        except Exception as exc:
+            state[name] = {"error": type(exc).__name__}
     destination = Path("var/kalshi/backups") / f"demo-state-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(state, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     print(destination)
     return 0
 
-if __name__ == "__main__": raise SystemExit(main())
+
+if __name__ == "__main__":
+    raise SystemExit(main())

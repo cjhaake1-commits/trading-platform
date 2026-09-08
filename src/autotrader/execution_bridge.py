@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Mapping, Protocol
+from typing import Mapping, Protocol
 
 from .forward_lifecycle import ForwardLifecycle
 

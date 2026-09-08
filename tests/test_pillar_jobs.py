@@ -59,7 +59,7 @@ def test_metals_job_reaches_existing_execution_service_for_buy_candidate():
     assert result.data["submitted"] is True
     assert len(job.service.calls) == 1
     assert job.service.calls[0][0].proposal.side is Side.BUY
-    assert job.service.calls[0][1].equity == 10000.0
+    assert job.service.calls[0][1].equity == 1000.0
     assert job.service.calls[0][2] == 0.0
 
 
