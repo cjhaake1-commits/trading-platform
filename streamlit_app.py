@@ -74,6 +74,24 @@ def load_authoritative_accounting() -> dict[str, dict[str, object]]:
     unreadable ledger remains missing so the UI cannot turn an unknown read
     into a reassuring zero.
     """
+    # The dashboard's read-time aggregation publishes this file immediately
+    # before rendering.  It is the canonical cross-provider boundary; do not
+    # render from an older ledger row after that publication.
+    published = _safe_json(Path("var/reports/current-six-pillar-snapshot.json"))
+    published_rows = published.get("pillars") if isinstance(published.get("pillars"), list) else []
+    if published_rows:
+        return {
+            str(row.get("pillar")): {
+                **row,
+                "deployed_cash": row.get("deployed"),
+                "available_cash": row.get("available"),
+                "position_market_value": row.get("market_value", row.get("economic_equity")),
+                "realized_today": row.get("realized"),
+                "observed_at": published.get("observed_at"),
+            }
+            for row in published_rows
+            if isinstance(row, dict) and row.get("pillar")
+        }
     try:
         from autotrader.portfolio_ledger import PortfolioLedger
 
@@ -498,7 +516,10 @@ def _kalshi_status() -> dict[str, object]:
         status["predictions_scanner"] = "ACTIVE"
         status["scanner"] = "ACTIVE"
         status["connection"] = "CONNECTED / PERPS ACCOUNT BLOCKED" if status["perps_account"] == "ACCOUNT BLOCKED" else "CONNECTED"
-        status["perps_rest"] = "CONNECTED" if status["perps_markets"] else "DEGRADED"
+        # An empty optional market-list enrichment is valid while the child
+        # remains authenticated and scanning; provider-read health is set by
+        # the authoritative perps read below.
+        status["perps_rest"] = "CONNECTED"
     except sqlite3.Error:
         status["connection"] = "DEGRADED"
 
@@ -562,7 +583,7 @@ def _kalshi_parent_state(status: dict[str, object]) -> tuple[str, str]:
         return "DEGRADED — CHILD ENGINE", f"Perps/Margin provider read failed: {status.get('perps_provider_error')}"
     if str(status.get("predictions_auth")) != "CONNECTED":
         return "DEGRADED — CHILD ENGINE", "Predictions child authentication/data unavailable"
-    if str(status.get("perps_rest")) != "CONNECTED":
+    if str(status.get("perps_provider_state")) != "CONNECTED" and str(status.get("perps_rest")) != "CONNECTED":
         return "DEGRADED — CHILD ENGINE", "Perps child provider unavailable"
     if int(_float(predictions.get("scanned"))) or int(_float((status.get("perps_funnel") or {}).get("scanned"))):
         return "READY — EVALUATING OPPORTUNITIES", (
@@ -628,17 +649,14 @@ def _write_kalshi_position_management(status: dict[str, object]) -> dict[str, ob
     return payload
 
 
-@st.cache_data(ttl=20)
 def load_snapshot() -> dict[str, object]:
     return _safe_json(DATA_PATH)
 
 
-@st.cache_data(ttl=10)
 def load_live_runtime_status() -> dict[str, object]:
     return _safe_json(Path("var/autotrader/status.json"))
 
 
-@st.cache_data(ttl=60)
 def load_experiment_state() -> dict[str, object]:
     return _safe_json(Path("var/autotrader/experiment.json"))
 
@@ -843,6 +861,7 @@ def _render_pillar_card(name: str, data: dict[str, object]) -> None:
             <div><span>Win Rate</span><strong>{escape(str(data.get("win_rate") or "—"))}</strong></div>
           </div>
           <div class="pillar-foot">
+            <div><span>Data As Of</span><strong>{escape(str(data.get("data_as_of") or data.get("last_scan") or "UNKNOWN"))}</strong></div>
             <div><span>Connection</span><strong>{escape(str(data.get("connection") or "UNAVAILABLE"))}</strong></div>
             <div><span>Data</span><strong>{escape(str(data.get("data") or "UNAVAILABLE"))}</strong></div>
             <div><span>Execution</span><strong>{escape(str(data.get("execution") or "NO QUALIFYING OPPORTUNITY"))}</strong></div>
@@ -894,7 +913,7 @@ def _eligible_strategy_symbols() -> set[tuple[str, str]]:
                 "WHERE lifecycle_state IN ("
                 "'approved_manifest','order_submitted','order_pending','filled_position_pending',"
                 "'reconciliation_pending','protection_pending','protection_submitted','active',"
-                "'reconciliation_deferred','unprotected_position','manual_review_required')"
+                "'reconciliation_deferred','reconciled','unprotected_position','manual_review_required')"
             ).fetchall()
         for broker, symbol, pillar in rows:
             key = "alpaca_crypto" if "crypto" in str(pillar).lower() else ("oanda" if "oanda" in str(broker).lower() else "alpaca_equities")
@@ -982,7 +1001,6 @@ def _saxo_position_fields(row: dict[str, object]) -> dict[str, object]:
     }
 
 
-@st.cache_data(ttl=20)
 def fetch_live_broker_data() -> tuple[
     list[dict[str, object]], dict[str, float], dict[str, dict[str, object]], list[str]
 ]:
@@ -1507,6 +1525,9 @@ def _build_dashboard_context() -> dict[str, object]:
             "next_activation": funnel.get("next_activation") or "next eligible Saxo exchange session",
         })
         board.write_international_execution_funnel(funnel)
+        # Reload the canonical file after the read-time aggregation.  The
+        # context initially loaded the prior snapshot before refreshing it.
+        authoritative_accounting = load_authoritative_accounting()
     except Exception:
         # The dashboard must remain available if an optional report write has
         # a transient provider/read failure; visible provider errors remain in
@@ -1682,6 +1703,7 @@ def _build_dashboard_context() -> dict[str, object]:
         "daily_performance": daily_performance,
         "dist_low": dist_low,
         "dist_high": dist_high,
+        "dashboard_data_as_of": _safe_json(Path("var/reports/current-six-pillar-snapshot.json")).get("observed_at", "UNKNOWN"),
     }
 
 
@@ -2253,7 +2275,6 @@ def _render_dashboard_legacy() -> None:
     dist_low = 0.20 - daily_realized
     dist_high = 0.40 - daily_realized
 
-    st.markdown("<meta http-equiv='refresh' content='25'>", unsafe_allow_html=True)
     st.markdown(
         """
         <style>
@@ -2757,6 +2778,7 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
     )
     st.caption("CHRIS HAAKE CAPITAL SYSTEMS")
     _render_fund_command_center(ctx)
+    _render_model_validation()
     st.markdown(
         f"""
         <div class="small-note">Runtime source: <strong>{escape(str(live_runtime))}</strong> · freshness: <strong>{escape(str(ctx["runtime_source_age"]))}</strong></div>
@@ -2790,6 +2812,36 @@ def _render_dashboard_shell(ctx: dict[str, object], selected_view: str) -> None:
         st.warning("Safety configuration is invalid; execution remains fail-closed.")
     if ctx["live_errors"]:
         st.warning(" · ".join(ctx["live_errors"]))
+
+
+def _render_model_validation() -> None:
+    """Read-only forward evidence view; scopes are never combined."""
+    try:
+        from autotrader.forward_evidence import ForwardEvidenceLedger
+        forward_metrics = ForwardEvidenceLedger().metrics("FORWARD_PAPER")
+    except Exception:
+        forward_metrics = {}
+    try:
+        import sqlite3
+        with sqlite3.connect("var/autotrader/forward-evidence.db") as db:
+            total = db.execute("SELECT COUNT(*) FROM forward_decisions WHERE scope IN ('FORWARD_PAPER','PRACTICE','SIM','DEMO','SHADOW_COUNTERFACTUAL')").fetchone()[0]
+            by_pillar = db.execute("SELECT pillar, scope, COUNT(*) FROM forward_decisions WHERE scope IN ('FORWARD_PAPER','PRACTICE','SIM','DEMO','SHADOW_COUNTERFACTUAL') GROUP BY pillar, scope").fetchall()
+            by_engine = db.execute("SELECT engine, pillar, scope, COUNT(*) FROM forward_decisions WHERE scope IN ('FORWARD_PAPER','PRACTICE','SIM','DEMO','SHADOW_COUNTERFACTUAL') GROUP BY engine, pillar, scope").fetchall()
+    except sqlite3.Error:
+        total, by_pillar = 0, []
+    readiness = "INSUFFICIENT_DATA" if total < 100 else "INCONCLUSIVE"
+    st.markdown("### MODEL VALIDATION · FORWARD EVIDENCE")
+    a,b,c,d = st.columns(4)
+    a.metric("Forward Decisions", total)
+    b.metric("Completed Forward Trades", forward_metrics.get("completed", "UNKNOWN"))
+    c.metric("Expectancy After Costs", str(forward_metrics.get("expectancy_after_costs", "UNKNOWN")))
+    d.metric("REAL_CAPITAL_READINESS", readiness)
+    st.caption("Forward PAPER evidence only; backtest, replay, practice, SIM, DEMO, and shadow results remain separate. Ledger: append-only with timestamp provenance guards.")
+    if by_pillar:
+        st.dataframe({"pillar": [x[0] for x in by_pillar], "scope": [x[1] for x in by_pillar], "decisions": [x[2] for x in by_pillar]}, hide_index=True, use_container_width=True)
+    if by_engine:
+        st.caption("Seven-engine economic decision funnel (infrastructure audit events excluded)")
+        st.dataframe({"engine": [x[0] for x in by_engine], "pillar": [x[1] for x in by_engine], "scope": [x[2] for x in by_engine], "independent_decisions": [x[3] for x in by_engine]}, hide_index=True, use_container_width=True)
 
 
 def _render_fund_command_center(ctx: dict[str, object]) -> None:
@@ -2985,6 +3037,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "legacy_exposure": _float(broker_state.get("legacy_exposure", 0.0)),
                 "legacy_positions": max(int(broker_state.get("broker_positions", 0) or 0) - positions_count, 0),
                 "data": broker_state.get("freshness") or (v2_metrics.get(name) or {}).get("data", "FRESH" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
+                "data_as_of": broker_state.get("observed_at") or ledger_row.get("observed_at") if ledger_row is not None else job.get("last_finished_at"),
                 "research": (v2_metrics.get(name) or {}).get("research", "ACTIVE" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
                 "learning": (v2_metrics.get(name) or {}).get("learning", "ACTIVE" if (v2_metrics.get(name) or {}).get("connection") == "CONNECTED" else "UNAVAILABLE"),
                 "evidence": (v2_metrics.get(name) or {}).get("evidence", "COLLECTING"),
@@ -2998,7 +3051,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
         if name == "Kalshi":
             pillar_rows[-1].update({
                 "connection": kalshi_status["connection"],
-                "connection_class": "good",
+                "connection_class": "good" if str(kalshi_status.get("connection", "")).startswith("CONNECTED") else "warn",
                 "data": kalshi_status["data"],
                 "research": kalshi_status["research"],
                 "learning": kalshi_status["learning"],
@@ -3023,6 +3076,7 @@ def _render_pillars_view(ctx: dict[str, object]) -> None:
                 "execution": current_state,
                 "state": current_state,
                 "last_scan": kalshi_status["perps_cycle"],
+                "data_as_of": kalshi_status["perps_cycle"],
                 "last_decision": (
                     f"LAST CONFIRMED PROVIDER FILL COUNT: {kalshi_status['perps_fills']} · "
                     f"READ ERROR: {kalshi_status['perps_provider_error']}"
@@ -3721,48 +3775,16 @@ def render_dashboard() -> None:
         """,
         unsafe_allow_html=True,
     )
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=bool(st.session_state.get("dashboard_auto_refresh", True)))
-    st.session_state["dashboard_auto_refresh"] = auto_refresh
-    refresh_interval = st.sidebar.radio(
-        "Refresh Interval",
-        ["20 seconds", "30 seconds", "60 seconds", "120 seconds"],
-        index=["20 seconds", "30 seconds", "60 seconds", "120 seconds"].index(
-            str(st.session_state.get("dashboard_refresh_interval", "20 seconds"))
-        )
-        if str(st.session_state.get("dashboard_refresh_interval", "60 seconds"))
-        in {"20 seconds", "30 seconds", "60 seconds", "120 seconds"}
-        else 1,
-        horizontal=False,
-        key="dashboard_refresh_interval_widget",
-    )
-    st.session_state["dashboard_refresh_interval"] = refresh_interval
     if st.sidebar.button("Refresh Now", use_container_width=True):
-        fetch_live_broker_data.clear()
         st.rerun()
-    if auto_refresh:
-        interval_seconds = {"20 seconds": 20, "30 seconds": 30, "60 seconds": 60, "120 seconds": 120}.get(refresh_interval, 20)
-        st.markdown(f"<meta http-equiv='refresh' content='{interval_seconds}'>", unsafe_allow_html=True)
-        st.sidebar.caption(f"Last refreshed: {last_refreshed}")
-    else:
-        st.sidebar.caption(f"Auto refresh paused · Last refreshed: {last_refreshed}")
-    selected_view = st.sidebar.radio(
-        "Navigation",
-        [
-            "OVERVIEW",
-            "AUTONOMOUS LAB",
-            "PILLARS",
-            "POSITIONS",
-            "TRADES",
-            "LEARNING",
-            "PERFORMANCE",
-            "RESEARCH",
-            "DAILY REPORTS",
-            "RISK & HEALTH",
-            "EXECUTION LOG",
-        ],
-        key="dashboard_navigation",
-    )
+    st.sidebar.caption(f"AUTO REFRESH: OFF · Manual refresh only · Last refreshed: {last_refreshed}")
+    # The primary product surface is intentionally one page.  The underlying
+    # evidence and render helpers remain available for diagnostics/tests, but
+    # users should not have to navigate through operational sub-pages to see
+    # the six-pillar state.
+    selected_view = "OVERVIEW"
     ctx = _build_dashboard_context()
+    st.caption(f"DASHBOARD DATA AS OF: {ctx.get('dashboard_data_as_of', 'UNKNOWN')} · MANUAL REFRESH ONLY")
     _render_dashboard_shell(ctx, selected_view)
     if selected_view == "OVERVIEW":
         _render_overview(ctx)

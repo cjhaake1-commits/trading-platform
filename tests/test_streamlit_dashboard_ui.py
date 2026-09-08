@@ -131,6 +131,24 @@ def test_kalshi_provider_read_failure_is_not_rendered_as_flat_healthy():
     assert "HTTP 500" in reason
 
 
+def test_kalshi_empty_market_enrichment_does_not_degrade_authenticated_child():
+    module = importlib.import_module("streamlit_app")
+    state, _ = module._kalshi_parent_state({
+        "connection": "CONNECTED",
+        "predictions_auth": "CONNECTED",
+        "perps_rest": "DEGRADED",  # optional market enrichment is empty
+        "predictions_provider_state": "CONNECTED",
+        "perps_provider_state": "CONNECTED",
+        "predictions_funnel": {"scanned": 10},
+        "perps_funnel": {"scanned": 10},
+        "predictions_positions": 0,
+        "predictions_open_orders": 0,
+        "perps_positions": 0,
+        "perps_open_orders": 0,
+    })
+    assert state == "READY — EVALUATING OPPORTUNITIES"
+
+
 def test_return_and_cash_harvest_objectives_are_separate():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
     assert "TOTAL DAILY RETURN" in source
@@ -146,10 +164,13 @@ def test_streamlit_dashboard_reads_normalized_ledger_authority():
     assert '"authoritative_accounting"' in source
 
 
-def test_streamlit_dashboard_defaults_to_read_only_auto_refresh():
+def test_streamlit_dashboard_uses_manual_refresh_only():
     source = Path("streamlit_app.py").read_text(encoding="utf-8")
-    assert 'st.session_state.get("dashboard_auto_refresh", True)' in source
-    assert '"20 seconds"' in source
+    assert "Manual refresh only" in source
+    assert "http-equiv='refresh'" not in source
+    assert "AUTO REFRESH: OFF" in source
+    assert 'st.sidebar.radio(' not in source
+    assert 'selected_view = "OVERVIEW"' in source
 
 
 def test_provider_health_uses_lab_utc_cutoff_not_sqlite_wall_clock():

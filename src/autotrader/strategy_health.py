@@ -19,6 +19,55 @@ def load_persisted_health(path: str = "var/reports/strategy-health.json") -> dic
     return {(str(key[0]), str(key[1])): value for key, value in rows.items() if isinstance(key, (tuple, list)) and len(key) == 2 and isinstance(value, dict)}
 
 
+def load_crypto_runtime_health(
+    path: str = "var/autotrader/learning/crypto-loss-attribution.json",
+    *, minimum_sample: int = 30,
+) -> dict[tuple[str, str], dict[str, object]]:
+    """Adapt durable Crypto outcome evidence to the existing health gate.
+
+    This is deliberately Crypto-only: shared provider account metrics and
+    health for the other pillars are not consulted or changed.  Strategy
+    cohorts are retained as evidence, while the aggregate Active-V2 cohort is
+    used as the conservative hierarchical fallback when specific cohorts are
+    below the evidence threshold.
+    """
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    result: dict[tuple[str, str], dict[str, object]] = {}
+    total = int(payload.get("sample_size", 0) or 0)
+    aggregate = assess_strategy_health("crypto.active-v2", "v1", total, payload.get("expectancy"), minimum_sample=minimum_sample)
+    aggregate["cohort_id"] = "crypto:active-v2"
+    result[("crypto.active-v2", "v1")] = aggregate
+    for strategy, row in (payload.get("pnl_by_strategy") or {}).items():
+        if not isinstance(row, dict):
+            continue
+        state = assess_strategy_health(strategy, "v1", int(row.get("sample", 0) or 0), row.get("expectancy"), minimum_sample=minimum_sample)
+        state["cohort_id"] = f"crypto:strategy:{strategy}"
+        result[(strategy, "v1")] = state
+    return result
+
+
+def rank_crypto_opportunities(candidates: list[dict[str, object]], health: dict[tuple[str, str], dict[str, object]]) -> list[dict[str, object]]:
+    """Apply exact strategy evidence, then the durable Active-V2 fallback."""
+    ranked = rank_opportunities(candidates, health)
+    broad = health.get(("crypto.active-v2", "v1"))
+    if not broad or broad.get("state") != "QUARANTINED":
+        return ranked
+    for item in ranked:
+        exact = item.get("strategy_health", {})
+        if exact.get("state") in {"QUARANTINED", "HEALTHY", "WATCH"}:
+            continue
+        item["strategy_health"] = broad
+        item["learning_adjustment"] = -1.0
+        item["final_score"] = item["raw_score"] - 1.0
+        item["execution_eligible"] = False
+        item["shadow_eligible"] = True
+        item["governance_fallback"] = "crypto:active-v2"
+    return sorted(ranked, key=lambda value: value["final_score"], reverse=True)
+
+
 def assess_strategy_health(strategy: str, version: str, sample_size: int, expectancy: float | None,
                            *, minimum_sample: int = 30, quarantine_expectancy: float = -0.5) -> dict[str, object]:
     if sample_size < minimum_sample:

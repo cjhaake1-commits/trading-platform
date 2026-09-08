@@ -104,7 +104,12 @@ def _objective_progress(actual: object, *, target_return_pct: float = 0.20, snap
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
     status = "TARGET_NOT_REACHED"
-    if isinstance(daily_return, (int, float)) and daily_return > 0:
+    # Explicit realized telemetry is authoritative for this report.  It is
+    # measurement only and must never be replaced by a stale snapshot value.
+    reported_realized = values.get("cumulative_realized_pnl")
+    if isinstance(reported_realized, (int, float)) and float(reported_realized) <= 0:
+        status = "TARGET_NOT_REACHED"
+    elif isinstance(daily_return, (int, float)) and daily_return > 0:
         status = "TARGET_REACHED" if daily_return < target_return_pct else "TARGET_EXCEEDED"
     return {
         "starting_daily_equity": starting, "current_equity": current_equity,

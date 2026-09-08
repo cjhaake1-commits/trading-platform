@@ -16,10 +16,10 @@ class KalshiEndpoints:
     @classmethod
     def demo(cls) -> "KalshiEndpoints":
         return cls(
-            "https://demo-api.kalshi.co/trade-api/v2",
-            "wss://demo-api.kalshi.co/trade-api/ws/v2",
-            "https://demo-api.kalshi.co/trade-api/v2", 
-            "wss://demo-api.kalshi.co/trade-api/ws/v2",
+            "https://external-api.demo.kalshi.co/trade-api/v2",
+            "wss://external-api-ws.demo.kalshi.co/trade-api/ws/v2",
+            "https://external-api.demo.kalshi.co/trade-api/v2/margin/",
+            "wss://external-api-margin-ws.demo.kalshi.co/trade-api/ws/v2/margin",
             "fix-demo://kalshi-disabled",
         )
 
@@ -28,4 +28,3 @@ def endpoints_for(config: KalshiConfig) -> KalshiEndpoints:
     if config.environment != "demo":
         raise ValueError("only Demo endpoints are permitted")
     return KalshiEndpoints.demo()
-

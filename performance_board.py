@@ -12,8 +12,8 @@ from autotrader.international_trading import INTERNATIONAL_CURRENT_EPOCH
 
 # Read-only observation board. No controls in this module may alter trading,
 # allocation, execution, strategy, risk, credentials, or provider state.
-# The board is read-only and refreshes through Streamlit's browser-safe reload
-# hint; it never submits orders or mutates trading state.
+# The board is read-only and updates only on a manual browser rerun; it never
+# submits orders or mutates trading state.
 
 PILLAR_ORDER = [
     "stocks",
@@ -224,6 +224,22 @@ def _exposure_state(engine_active, positions, working_orders):
     return "ACTIVE — SEEKING EDGE"
 
 
+def _kalshi_child_freshness(kalshi):
+    """Use child runtime cycles for freshness, not optional research DB age."""
+    stamps = []
+    for key in ("predictions_cycle", "perps_cycle"):
+        value = kalshi.get(key)
+        if value:
+            try:
+                stamps.append(datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC))
+            except (TypeError, ValueError):
+                continue
+    if not stamps:
+        return "UNKNOWN"
+    age = (datetime.now(UTC) - max(stamps)).total_seconds()
+    return "FRESH" if age <= 180 else "STALE"
+
+
 def build_pillars(
     snapshot,
     runtime,
@@ -256,6 +272,11 @@ def build_pillars(
     rows = []
     for name in PILLAR_ORDER:
         n = normalized.get(name)
+        # Kalshi has two independent child engines.  Its consolidated row
+        # must always be rebuilt from the current child provider/runtime read;
+        # an older persisted row must never mask a successful read.
+        if name == "Kalshi":
+            n = None
         # A ledger snapshot can be older than the direct provider read.  For
         # Crypto, force the live Alpaca path whenever it is connected so stale
         # persisted accounting cannot override current positions/orders/P&L.
@@ -371,8 +392,21 @@ def build_pillars(
             # scoped history.  Current economic equity must use the same
             # provider-reconstructed realized basis shown on this card.
             total_pnl = realized + unrealized
-        equity = first_number(state, ["account_equity", "equity"], BASE_CAPITAL + total_pnl)
-        available = max(equity - deployed - pending, 0.0)
+        # Provider exposure is not economic allocation.  Keep the former
+        # value for provenance/display, but derive pillar capital strictly
+        # from the platform's $1,000 economic allocation model.
+        provider_deployed = deployed
+        provider_market_value = f(broker.get("market_value"))
+        provider_gross_notional = first_number(state, ["gross_notional", "position_value"], provider_market_value)
+        if name == "Forex":
+            # OANDA position value is leveraged notional; only margin consumes
+            # the economic allocation.
+            economic_deployed = min(max(first_number(state, ["margin_used"], deployed), 0.0), BASE_CAPITAL)
+        else:
+            economic_deployed = min(max(deployed, 0.0), BASE_CAPITAL)
+        deployed = economic_deployed
+        equity = BASE_CAPITAL + total_pnl
+        available = max(BASE_CAPITAL - deployed - pending, 0.0)
         daily_return = today_pnl / BASE_CAPITAL if BASE_CAPITAL else 0.0
         engine_active = _engine_active(name, runtime, state, kalshi, saxo_live)
         exposure_state = _exposure_state(engine_active, broker_positions, working_orders)
@@ -406,6 +440,9 @@ def build_pillars(
                 "state": exposure_state,
                 "equity": equity,
                 "deployed": deployed,
+                "provider_deployed": provider_deployed,
+                "provider_market_value": provider_market_value,
+                "provider_gross_notional": provider_gross_notional,
                 "pending": pending,
                 "available": available,
                 "today_pnl": today_pnl,
@@ -420,7 +457,7 @@ def build_pillars(
                 "freshness": (
                     state.get("freshness", "MISSING")
                     if name != "Kalshi"
-                    else ("FRESH" if str(kalshi.get("data", "")).upper() == "FRESH" else str(kalshi.get("data") or "MISSING"))
+                    else _kalshi_child_freshness(kalshi)
                 ),
                 "accounting_status": (foundation_pillars.get(
                     "Crypto" if name == "Crypto" else ("Stocks" if name == "stocks" else name), {}
@@ -468,11 +505,21 @@ def write_authoritative_portfolio_snapshot(pillars, *, output="var/reports/curre
             "pillar": row.get("name"), "provider": provider, "environment": environment,
             "account_scope": account_scope, "equity": economic_equity,
             "provider_account_equity": provider_equity,
+            "provider_position_cost_basis": row.get("provider_deployed"),
+            "provider_market_value": row.get("provider_market_value"),
+            "provider_gross_notional": row.get("provider_gross_notional"),
             "economic_equity": economic_equity, "deployed": row.get("deployed"),
             "pending": row.get("pending"), "available": row.get("available"),
             "positions": row.get("positions"), "working_orders": row.get("working_orders"),
             "realized": row.get("realized"), "unrealized": row.get("unrealized"),
             "freshness": row.get("freshness"), "status": row.get("state"),
+            "engine_status": row.get("engine_status") or row.get("state"),
+            "accounting_status": row.get("accounting_status") or "ACCOUNTING_UNVERIFIED",
+            "investment_status": row.get("investment_status") or row.get("state"),
+            "last_provider_read": row.get("last_provider_read") or observed_at,
+            "last_engine_cycle": row.get("last_engine_cycle"),
+            "data_source": row.get("data_source") or "direct provider/runtime reads",
+            "error": row.get("error"),
             "provenance": field_sources,
         })
     def total(field):
@@ -591,7 +638,6 @@ def _load_foundation_report():
 
 
 def main():
-    st.markdown('<meta http-equiv="refresh" content="20">', unsafe_allow_html=True)
     st.markdown(
         """
         <style>
@@ -630,7 +676,6 @@ def main():
     runtime = core.load_live_runtime_status()
     if not isinstance(runtime, dict) or not runtime:
         runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}
-    core.fetch_live_broker_data.clear()
     live_positions, _, live_status, live_errors = core.fetch_live_broker_data()
     kalshi = core._kalshi_status()
     saxo_live = _saxo_live_truth()
@@ -673,7 +718,7 @@ def main():
         unsafe_allow_html=True,
     )
     st.markdown(
-        f'<div class="live">● LIVE PROVIDER SNAPSHOT · {datetime.now(UTC).strftime("%H:%M:%S UTC")} · AUTO-REFRESH 20s · READ-ONLY</div>',
+        f'<div class="live">● LIVE PROVIDER SNAPSHOT · {datetime.now(UTC).strftime("%H:%M:%S UTC")} · MANUAL REFRESH · READ-ONLY</div>',
         unsafe_allow_html=True,
     )
 

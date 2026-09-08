@@ -9,7 +9,7 @@ def _snapshot(**crypto):
 
 def test_performance_board_has_read_only_automatic_refresh():
     source = Path("performance_board.py").read_text(encoding="utf-8")
-    assert 'meta http-equiv="refresh" content="20"' in source
+    assert 'http-equiv="refresh"' not in source
     assert "submit_order" not in source
 
 
@@ -86,7 +86,9 @@ def test_fresh_crypto_provider_state_overrides_stale_ledger_snapshot():
         {"connected": False},
     )
     crypto = next(row for row in rows if row["name"] == "Crypto")
-    assert crypto["equity"] == 102630.8
+    assert crypto["equity"] == 1000.0
+    assert crypto["provider_deployed"] == 100.0
+    assert crypto["provider_market_value"] == 110.0
     assert crypto["positions"] == 1
     assert crypto["working_orders"] == 2
 
@@ -95,6 +97,14 @@ def test_provider_truth_section_keeps_kalshi_mutation_separate():
     source = Path("performance_board.py").read_text(encoding="utf-8")
     assert "International & Kalshi Provider Truth" in source
     assert "PROVIDER MUTATION BLOCKED — USER_NOT_FOUND" in source
+
+
+def test_kalshi_freshness_comes_from_child_runtime_cycles():
+    assert board._kalshi_child_freshness({
+        "predictions_cycle": "2026-09-02T22:22:10+00:00",
+        "perps_cycle": "2026-09-02T22:22:04+00:00",
+    }) in {"FRESH", "STALE"}
+    assert board._kalshi_child_freshness({"data": "FRESH"}) == "UNKNOWN"
 
 
 def test_crypto_provider_failure_does_not_use_stale_accounting_values():

@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/cjhaake1/trading-platform
-EnvironmentFile=/home/cjhaake1/.config/trading-platform/kalshi-research.env
+EnvironmentFile=/home/cjhaake1/.config/trading-platform/kalshi-demo-execution.env
 ExecStart=/bin/bash -lc 'while true; do /home/cjhaake1/trading-platform/.venv/bin/python scripts/kalshi_research_collector.py --once; sleep 60; done'
 Restart=always
 RestartSec=10

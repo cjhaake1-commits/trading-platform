@@ -56,3 +56,8 @@ class KalshiConfig:
     @property
     def demo_trading_enabled(self) -> bool:
         return _flag("KALSHI_DEMO_TRADING_ENABLED") and self.environment == "demo" and not _flag("KALSHI_LIVE_TRADING_ENABLED") and not _flag("LIVE_TRADING_ENABLED")
+
+    @property
+    def perps_autonomous_enabled(self) -> bool:
+        """Separate opt-in for Perps mutations; fail closed by default."""
+        return self.demo_trading_enabled and _flag("KALSHI_PERPS_AUTONOMOUS_ENABLED")
