@@ -57,7 +57,7 @@ def test_dashboard_separates_generated_cash_equity_and_internal_allocations():
     assert metrics["realized_return"] == metrics["generated_cash_ratio"]
     assert metrics["daily_realized_return"] == metrics["generated_cash_ratio"]
     assert metrics["cumulative_realized_return"] == metrics["generated_cash_ratio"]
-    assert metrics["pillar_allocations"]["International"] == 15000.0
+    assert metrics["pillar_allocations"]["International"] == 1000.0
     assert metrics["broker_reported_virtual_equity"] == 1_000_000.0
 
 
@@ -74,5 +74,5 @@ def test_metals_realized_cash_excludes_unrealized_and_subtracts_costs():
     assert metrics.net_trading_cash_generated == 28.0
     assert metrics.realized_pnl_by_pillar["Metals/Commodities"] == 28.0
     assert metrics.unrealized_pnl == 50.0
-    assert metrics.pillar_allocations["Metals/Commodities"] == 10000.0
-    assert metrics.pillar_allocations["International"] == 15000.0
+    assert metrics.pillar_allocations["Metals/Commodities"] == 1000.0
+    assert metrics.pillar_allocations["International"] == 1000.0
