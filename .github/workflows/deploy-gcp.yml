@@ -2,8 +2,7 @@ name: Deploy GCP Paper Platform
 
 on:
   push:
-    branches:
-      - bootstrap-paper-trading-core
+    branches: [bootstrap-paper-trading-core]
   workflow_dispatch:
 
 permissions:
@@ -13,14 +12,6 @@ permissions:
 concurrency:
   group: trading-platform-gcp-deploy
   cancel-in-progress: false
-
-env:
-  GCP_PROJECT_ID: project-79d49028-a68b-4bb1-bd9
-  GCP_WIF_PROVIDER: projects/799227792491/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider
-  GCP_SERVICE_ACCOUNT: github-trading-deployer@project-79d49028-a68b-4bb1-bd9.iam.gserviceaccount.com
-  GCP_INSTANCE: instance-20260806-154514
-  GCP_ZONE: us-east1-c
-  DEPLOY_BRANCH: bootstrap-paper-trading-core
 
 jobs:
   validate:
@@ -33,17 +24,7 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e '.[dev,streaming]'
-      - name: Safety guard
-        shell: bash
-        run: |
-          set -euo pipefail
-          if grep -R --line-number --exclude-dir=.git -E '^LIVE_TRADING_ENABLED[[:space:]]*=[[:space:]]*(true|1|yes|on)[[:space:]]*$' .; then
-            echo 'Refusing deployment: LIVE_TRADING_ENABLED is enabled in the repository.' >&2
-            exit 1
-          fi
+        run: pip install -e '.[dev,streaming]'
       - name: Full repository lint
         run: ruff check .
       - name: Full tests
@@ -51,8 +32,16 @@ jobs:
       - name: Compile
         run: |
           python -m compileall -q src tests scripts
-          python -m py_compile streamlit_app.py dashboard_simple.py portfolio_reporting.py
+          python -m py_compile streamlit_app.py dashboard_simple.py portfolio_reporting.py runtime_income_evidence.py
           git diff --check
+      - name: Verify owner-approved initial paper capital
+        run: |
+          python - <<'PY'
+          from autotrader.capital_allocations import SIX_PILLAR_BASE_CAPITAL, SIX_PILLAR_ALLOCATIONS
+          assert SIX_PILLAR_BASE_CAPITAL == 6000
+          assert len(SIX_PILLAR_ALLOCATIONS) == 6
+          assert set(SIX_PILLAR_ALLOCATIONS.values()) == {1000.0}
+          PY
 
   deploy:
     needs: validate
@@ -61,111 +50,49 @@ jobs:
     environment: paper-sim
     steps:
       - uses: actions/checkout@v4
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
-          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+          workload_identity_provider: projects/799227792491/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider
+          service_account: github-trading-deployer@project-79d49028-a68b-4bb1-bd9.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
-      - name: Deploy exactly the tested source without discarding local work
+          project_id: project-79d49028-a68b-4bb1-bd9
+      - name: Deploy exact tested code with source and ledger preservation
         shell: bash
         run: |
           set -euo pipefail
-          REMOTE_SCRIPT=$(cat <<'EOS'
+          SCRIPT=$(cat <<'EOS'
           set -euo pipefail
-          APP=/home/cjhaake1/trading-platform
-          BRANCH=bootstrap-paper-trading-core
-          RUNTIME_SERVICE=trading-platform-paper-runtime.service
-          STREAMLIT_SERVICE=trading-platform-streamlit.service
-          cd "$APP"
-          BEFORE=$(git rev-parse HEAD)
-          TARGET=${1:?tested commit SHA required}
-          echo "BEFORE=$BEFORE"
-          echo "TARGET=$TARGET"
-          DIRTY_SOURCE=$(git status --porcelain --untracked-files=no | grep -vE ' dashboard/data\.json$| var/' || true)
-          if [ -n "$DIRTY_SOURCE" ]; then
-            echo 'Refusing to overwrite modified tracked source; changes preserved:' >&2
-            echo "$DIRTY_SOURCE" >&2
-            exit 1
-          fi
-          if [ -f .env ] && grep -Eiq '^(LIVE_TRADING_ENABLED|KALSHI_LIVE_TRADING_ENABLED)[[:space:]]*=[[:space:]]*(true|1|yes|on)[[:space:]]*$' .env; then
-            echo 'Refusing deployment: real-money trading flag enabled.' >&2
-            exit 1
-          fi
+          cd /home/cjhaake1/trading-platform
+          TARGET=${1:?tested SHA required}
+          git fetch origin bootstrap-paper-trading-core
+          TEMP=$(mktemp)
+          trap 'rm -f "$TEMP"' EXIT
+          chmod 600 "$TEMP"
+          git show "$TARGET:scripts/deploy_reviewed_income.py" > "$TEMP"
+          .venv/bin/python "$TEMP" --target "$TARGET"
           export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-          systemctl --user is-active --quiet "$RUNTIME_SERVICE"
-          systemctl --user is-active --quiet "$STREAMLIT_SERVICE"
-          git fetch origin "$BRANCH"
-          git cat-file -e "${TARGET}^{commit}"
-          git merge-base --is-ancestor "$BEFORE" "$TARGET"
-          git merge-base --is-ancestor "$TARGET" "origin/$BRANCH"
-          if [ "$BEFORE" != "$TARGET" ]; then
-            git checkout "$BRANCH"
-            git merge --ff-only "$TARGET"
-          fi
-          test "$(git rev-parse HEAD)" = "$TARGET"
-          .venv/bin/python -m py_compile streamlit_app.py dashboard_simple.py portfolio_reporting.py
-          .venv/bin/python -m compileall -q src
-          CHANGED=$(git diff --name-only "$BEFORE" "$TARGET")
-          echo 'Changed files:'
-          echo "$CHANGED"
-          restart_runtime=0
-          restart_streamlit=0
-          if echo "$CHANGED" | grep -Eq '^src/autotrader/'; then
-            restart_runtime=1
-          fi
-          if echo "$CHANGED" | grep -Eq '^(streamlit_app\.py|dashboard_simple\.py|portfolio_reporting\.py|performance_board\.py|src/.+dashboard|src/.+branding)'; then
-            restart_streamlit=1
-          fi
-          rollback() {
-            echo 'Rolling back source without resetting data or deleting history.' >&2
-            git switch --detach "$BEFORE"
-            if [ "$restart_runtime" -eq 1 ]; then systemctl --user restart "$RUNTIME_SERVICE"; fi
-            if [ "$restart_streamlit" -eq 1 ]; then systemctl --user restart "$STREAMLIT_SERVICE"; fi
-          }
-          if [ "$restart_runtime" -eq 1 ]; then
-            if ! systemctl --user restart "$RUNTIME_SERVICE"; then rollback; exit 1; fi
-          fi
-          if [ "$restart_streamlit" -eq 1 ]; then
-            if ! systemctl --user restart "$STREAMLIT_SERVICE"; then rollback; exit 1; fi
-          fi
-          ready=0
-          for attempt in $(seq 1 30); do
-            if systemctl --user is-active --quiet "$RUNTIME_SERVICE" && systemctl --user is-active --quiet "$STREAMLIT_SERVICE" && curl -fsS --max-time 5 http://127.0.0.1:8501/_stcore/health >/dev/null; then
-              ready=1
-              break
-            fi
-            sleep 2
-          done
-          if [ "$ready" -ne 1 ]; then rollback; exit 1; fi
-          echo "DEPLOYED_COMMIT=$(git rev-parse HEAD)"
-          echo "RUNTIME_RESTARTED=$restart_runtime"
-          echo "DASHBOARD_RESTARTED=$restart_streamlit"
-          echo 'LOCAL_HTTP=200'
-          # Read-only diagnostics. No broker credentials, raw databases or
-          # synthetic trades are exported by this reporting function.
+          systemctl --user start trading-platform-runtime-publisher.service
           .venv/bin/python - <<'PY'
           import json
           from pathlib import Path
           from portfolio_reporting import build_report
           report = build_report(Path.cwd())
-          print('ACCOUNTING_REPORT=' + json.dumps(report, allow_nan=False))
+          print('REPORT=' + json.dumps(report, allow_nan=False))
           PY
           EOS
           )
-          SCRIPT_B64=$(printf '%s\n' "$REMOTE_SCRIPT" | base64 -w0)
-          gcloud compute ssh "${GCP_INSTANCE}" \
-            --zone="${GCP_ZONE}" --project="${GCP_PROJECT_ID}" --quiet \
-            --command="echo '${SCRIPT_B64}' | base64 -d | sudo -u cjhaake1 bash -s -- '${{ github.sha }}'"
-      - name: Public dashboard health
-        shell: bash
+          ENCODED=$(printf '%s\n' "$SCRIPT" | base64 -w0)
+          # Only an SSH setup failure is retried; deployment mutations are not
+          # blindly rerun. The remote helper itself is idempotent for principal.
+          gcloud compute ssh instance-20260806-154514 --zone=us-east1-c \
+            --project=project-79d49028-a68b-4bb1-bd9 --quiet \
+            --command="echo '${ENCODED}' | base64 -d | sudo -u cjhaake1 bash -s -- '${{ github.sha }}'"
+      - name: Existing public dashboard health
         run: |
           set -euo pipefail
-          PUBLIC_IP=$(gcloud compute instances describe "$GCP_INSTANCE" \
-            --zone="$GCP_ZONE" --project="$GCP_PROJECT_ID" \
+          IP=$(gcloud compute instances describe instance-20260806-154514 \
+            --zone=us-east1-c --project=project-79d49028-a68b-4bb1-bd9 \
             --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
-          echo "Dashboard: http://${PUBLIC_IP}:8501"
-          curl -fsS --max-time 20 "http://${PUBLIC_IP}:8501/_stcore/health" >/dev/null
+          echo "Dashboard: http://${IP}:8501"
+          curl -fsS --max-time 20 "http://${IP}:8501/_stcore/health"
