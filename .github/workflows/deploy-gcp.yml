@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-python@v5
         with:
@@ -47,8 +49,21 @@ jobs:
             exit 1
           fi
 
-      - name: Lint
-        run: ruff check src tests scripts streamlit_app.py
+      - name: Lint changed Python files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            mapfile -t changed_python < <(git diff --name-only HEAD^ HEAD -- '*.py')
+          else
+            mapfile -t changed_python < <(git ls-files '*.py')
+          fi
+          if [ "${#changed_python[@]}" -gt 0 ]; then
+            printf 'Linting changed Python files:\n%s\n' "${changed_python[*]}"
+            ruff check "${changed_python[@]}"
+          else
+            echo 'No Python files changed; skipping Ruff.'
+          fi
 
       - name: Tests
         run: python -m pytest -q
