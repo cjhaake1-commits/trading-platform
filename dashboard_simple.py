@@ -53,6 +53,7 @@ def main() -> None:
     pillars = ctx.get("pillars", []) if isinstance(ctx, dict) else []
     positions = ctx.get("positions", []) if isinstance(ctx, dict) else []
     forward = ctx.get("forward_evidence", {}) if isinstance(ctx, dict) else {}
+
     data_as_of = snapshot.get("as_of") or snapshot.get("timestamp") or ctx.get("as_of") or datetime.now(UTC).isoformat()
     st.caption(f"DATA AS OF: {data_as_of}")
 
@@ -89,7 +90,7 @@ def main() -> None:
         for col, name in zip(row, pillar_names[start:start + 3], strict=True):
             p = lookup.get(name, {})
             status = simple_status(p.get("state") or p.get("status"))
-            if status != "ERROR":
+            if status not in {"ERROR"}:
                 engaged += 1
             owned = int(number(p.get("platform_owned_positions", p.get("positions", 0))))
             owned_total += int(owned > 0)
@@ -107,18 +108,27 @@ def main() -> None:
                 bottleneck = p.get("bottleneck") or p.get("reason") or p.get("message")
                 if bottleneck:
                     st.caption(str(bottleneck)[:140])
-    st.info(f"Pillars engaged: {engaged}/6 · Pillars with platform-owned positions: {owned_total}/6")
+
+    st.info(f"Pillars engaged: {engaged}/6   ·   Pillars with platform-owned positions: {owned_total}/6")
 
     st.markdown("## Current Positions")
-    rows = []
-    for p in positions:
-        if isinstance(p, dict):
-            rows.append({"Pillar": p.get("pillar", "—"), "Symbol": p.get("symbol", p.get("instrument", "—")),
-                         "Side": p.get("side", "—"), "Size": p.get("quantity", p.get("qty", "—")),
-                         "Value": p.get("market_value", p.get("current_value", "—")),
-                         "P&L": p.get("unrealized_pnl", "—"),
-                         "Ownership": p.get("ownership", p.get("ownership_state", "UNKNOWN"))})
-    st.dataframe(rows or [{"Status": "No reconciled position rows available"}], use_container_width=True, hide_index=True)
+    if positions:
+        rows = []
+        for p in positions:
+            if not isinstance(p, dict):
+                continue
+            rows.append({
+                "Pillar": p.get("pillar", "—"),
+                "Symbol": p.get("symbol", p.get("instrument", "—")),
+                "Side": p.get("side", "—"),
+                "Size": p.get("quantity", p.get("qty", "—")),
+                "Value": p.get("market_value", p.get("current_value", "—")),
+                "P&L": p.get("unrealized_pnl", "—"),
+                "Ownership": p.get("ownership", p.get("ownership_state", "UNKNOWN")),
+            })
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No reconciled position rows available in the loaded snapshot.")
 
     st.markdown("## Returns")
     ret_cols = st.columns(4)
@@ -128,9 +138,11 @@ def main() -> None:
     ret_cols[3].metric("Forward Strategy Return", "INSUFFICIENT DATA" if completed == 0 else str(forward.get("return_pct", "—")))
 
     st.markdown("## What the platform is doing now")
-    st.dataframe([{"Pillar": name.replace("US Stocks / ETFs", "Stocks"),
-                   "Current Action": simple_status(lookup.get(name, {}).get("state") or lookup.get(name, {}).get("status"))}
-                  for name in pillar_names], use_container_width=True, hide_index=True)
+    action_rows = []
+    for name in pillar_names:
+        p = lookup.get(name, {})
+        action_rows.append({"Pillar": name.replace("US Stocks / ETFs", "Stocks"), "Current Action": simple_status(p.get("state") or p.get("status"))})
+    st.dataframe(action_rows, use_container_width=True, hide_index=True)
 
     with st.expander("Advanced Details", expanded=False):
         choice = st.selectbox("Show", ["Provider Status", "Engine Funnel", "Risk & Health", "Learning", "Performance", "Execution Log"])
