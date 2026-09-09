@@ -27,11 +27,11 @@
   "environment": "PAPER/PRACTICE/SIM/DEMO",
   "first_qualifying_post_boundary_trade": {
     "boundary_id": "81d8b45a-172b-49fa-a272-782f7db3157f",
-    "checked_at": "2026-09-09T04:49:35.982056+00:00",
+    "checked_at": "2026-09-09T04:50:35.119066+00:00",
     "qualified": false,
     "runtime_healthy": true
   },
-  "generated_at_utc": "2026-09-09T04:49:35.813303+00:00",
+  "generated_at_utc": "2026-09-09T04:50:34.944357+00:00",
   "git": {
     "branch": "bootstrap-paper-trading-core",
     "commit_sha": "cb9ad5c7391f8948b9cc76ed51a156fabe19ea49"
@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-09-09T04:49:39.779723+00:00",
+    "checked_at": "2026-09-09T04:50:44.087166+00:00",
     "deployed": null,
     "equity": null,
     "execution_evidence": {
@@ -110,7 +110,7 @@
           "engine": "autonomous-paper-trading",
           "equity_qualified": null,
           "forex_qualified": null,
-          "observed_at": "2026-09-09T04:49:34.096720+00:00",
+          "observed_at": "2026-09-09T04:50:43.909390+00:00",
           "qualified": null,
           "qualified_signals": null,
           "risk_rejection_count": null,
@@ -187,7 +187,7 @@
     "fills_today": null,
     "first_qualifying_post_boundary_trade": {
       "boundary_id": "81d8b45a-172b-49fa-a272-782f7db3157f",
-      "checked_at": "2026-09-09T04:49:39.625316+00:00",
+      "checked_at": "2026-09-09T04:50:35.119066+00:00",
       "qualified": false,
       "runtime_healthy": true
     },
@@ -197,7 +197,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 24.937916,
+        "age_seconds": 89.245359,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -228,7 +228,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 24.937916,
+        "age_seconds": 89.245359,
         "authorized_capital": 1000.0,
         "available": 995.9575646475519,
         "deployed": 8.34e-15,
@@ -259,7 +259,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 24.937916,
+        "age_seconds": 89.245359,
         "authorized_capital": 1000.0,
         "available": 876.5305999999999,
         "deployed": 144.9171,
@@ -290,7 +290,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 24.937916,
+        "age_seconds": 89.245359,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -321,7 +321,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 24.937916,
+        "age_seconds": 89.245359,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -352,7 +352,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 24.937916,
+        "age_seconds": 89.245359,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -1008,7 +1008,7 @@
     "realized_today": null,
     "runtime": {
       "healthy": true,
-      "heartbeat_at": "2026-09-09T04:49:39.396628+00:00",
+      "heartbeat_at": "2026-09-09T04:50:34.943799+00:00",
       "heartbeat_fresh": true,
       "live_trading_enabled": false,
       "pillars": {
@@ -1039,8 +1039,8 @@
         "Kalshi": {
           "active": true,
           "last_activity_at": [
-            "2026-09-09T04:48:45.121641+00:00",
-            "2026-09-09T04:49:13.524461+00:00"
+            "2026-09-09T04:49:46.689298+00:00",
+            "2026-09-09T04:50:16.425528+00:00"
           ],
           "reasons": [
             "RUNTIME_OR_PROVIDER_REJECTION",
@@ -1090,7 +1090,7 @@
     },
     "forex": {
       "enabled": true,
-      "last_activity_at": "2026-09-09T04:48:22.190301+00:00",
+      "last_activity_at": "2026-09-09T04:49:37.741931+00:00",
       "last_error": null,
       "mode": "PRACTICE",
       "provider": "OANDA Practice"
@@ -1104,18 +1104,18 @@
     },
     "kalshi_perps": {
       "capacity": {
-        "account_equity": 516.8097,
+        "account_equity": 518.0115,
         "available_balance": 0.0,
-        "capital_deployed": 233.6207,
-        "maintenance_margin": 196.6116,
-        "margin_used": 233.6207,
+        "capital_deployed": 233.9269,
+        "maintenance_margin": 196.8496,
+        "margin_used": 233.9269,
         "resting_orders_margin": 0.0,
         "settled_funds": 298.536
       },
       "configured": true,
-      "cycle_count": 13664,
+      "cycle_count": 13665,
       "enabled": true,
-      "last_activity_at": "2026-09-09T04:49:13.524461+00:00",
+      "last_activity_at": "2026-09-09T04:50:16.425528+00:00",
       "last_error": "READY_TO_SUBMIT",
       "mode": "DEMO",
       "provider": "Kalshi DEMO",
@@ -1129,9 +1129,9 @@
         "provider_portfolio_value": 0
       },
       "configured": true,
-      "cycle_count": 14123,
+      "cycle_count": 14124,
       "enabled": true,
-      "last_activity_at": "2026-09-09T04:48:45.121641+00:00",
+      "last_activity_at": "2026-09-09T04:49:46.689298+00:00",
       "last_error": "INSUFFICIENT_SPREAD_OR_LIQUIDITY",
       "mode": "DEMO",
       "provider": "Kalshi DEMO",
