@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-DEFAULT_EXPERIMENT_ID = "income_6000_v1"
+DEFAULT_EXPERIMENT_ID = "income_6000_v2"
 DEFAULT_EXPERIMENT_PATH = Path("var/autotrader/experiment.json")
 DEFAULT_PORTFOLIO_PATH = Path("var/autotrader/portfolio.db")
 
