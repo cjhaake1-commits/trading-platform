@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 from .brokers.practice_orders import submit_oanda_practice_market_order
+from .brokers.safety import close_oanda_position
 from .capital_allocations import PILLAR_ALLOCATIONS, PILLAR_FOREX, TOTAL_PAPER_CAPITAL
 from .execution_safety import IdempotencyStore
 from .experiment_state import load_experiment_baseline_start, position_is_experiment_eligible
@@ -37,11 +38,14 @@ class FxPaperConfig:
     idempotency_path: str = "var/autotrader/idempotency.db"
     initial_equity: float = TOTAL_PAPER_CAPITAL
     cadence_seconds: float = 60.0
-    lookback_days: int = 7
-    interval: str = "15m"
-    minimum_score: float = 1.5
-    max_entries_per_cycle: int = 1
-    min_entry_notional: float = 50.0
+    lookback_days: int = 2
+    interval: str = "5m"
+    minimum_score: float = 1.25
+    max_entries_per_cycle: int = 2
+    min_entry_notional: float = 25.0
+    take_profit_r_multiple: float = 1.0
+    max_holding_minutes: int = 240
+    reconcile_legacy_practice_positions: bool = True
     universe: tuple[str, ...] = DEFAULT_OANDA_UNIVERSE
 
 
@@ -55,10 +59,9 @@ class FxPaperTradingJob:
         self.feed = YahooHistoricalData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
-        # Short selling is enabled only inside this dedicated OANDA job. All hard
-        # loss/drawdown/notional limits remain identical to the default profile.
         self.risk = RiskEngine(replace(RiskLimits(), allow_short_selling=True))
         self.idempotency = IdempotencyStore(self.config.idempotency_path)
+        self._legacy_reconciled = False
 
     def run(self, now: datetime) -> JobResult:
         if now.tzinfo is None:
@@ -77,10 +80,30 @@ class FxPaperTradingJob:
             )
 
         histories = self._load_histories(now)
+        legacy_cleanup = self._reconcile_legacy_positions(preflight.portfolio)
+        position_management = self._manage_positions(preflight.portfolio, histories, now)
+        if legacy_cleanup or position_management:
+            preflight = run_preflight(
+                ledger_path=self.config.ledger_path,
+                idempotency_path=self.config.idempotency_path,
+                initial_equity=self.config.initial_equity,
+            )
+            if not preflight.ready:
+                return JobResult(
+                    True,
+                    "OANDA FX positions reconciled; waiting for refreshed provider state",
+                    {
+                        "legacy_cleanup": legacy_cleanup,
+                        "position_management": position_management,
+                        "failed_checks": list(preflight.failed_checks),
+                    },
+                )
+
         diagnostics: list[dict[str, object]] = []
         qualified = []
         for instrument, bars in histories.items():
-            if instrument.symbol in preflight.portfolio.positions:
+            current = preflight.portfolio.positions.get(instrument.symbol)
+            if current is not None:
                 diagnostics.append({"symbol": instrument.symbol, "qualified": False, "reason": "position already open"})
                 continue
             decision = qualify_fx_signal(
@@ -93,7 +116,10 @@ class FxPaperTradingJob:
             )
             diagnostics.append(decision.diagnostic)
             if decision.qualified and decision.proposal is not None:
-                governance = rank_opportunities([{"strategy": decision.proposal.source, "strategy_version": "fx-baseline-v1", "raw_score": decision.score, "risk_approved": True}], load_persisted_health())[0]
+                governance = rank_opportunities(
+                    [{"strategy": decision.proposal.source, "strategy_version": "fx-income-v2", "raw_score": decision.score, "risk_approved": True}],
+                    load_persisted_health(),
+                )[0]
                 decision.diagnostic["strategy_health"] = governance["strategy_health"]
                 decision.diagnostic["learning_adjustment"] = governance["learning_adjustment"]
                 if governance["execution_eligible"]:
@@ -103,7 +129,13 @@ class FxPaperTradingJob:
                     decision.diagnostic["reason"] = "STRATEGY_HEALTH_QUARANTINED_SHADOW_ONLY"
 
         qualified.sort(key=lambda item: item.score, reverse=True)
-        counts = {"forex_scanned": len(histories), "forex_qualified": len(qualified), "fx_diagnostics": diagnostics}
+        counts = {
+            "forex_scanned": len(histories),
+            "forex_qualified": len(qualified),
+            "fx_diagnostics": diagnostics,
+            "legacy_cleanup": legacy_cleanup,
+            "position_management": position_management,
+        }
         if not qualified:
             return JobResult(True, "OANDA FX cycle found no qualifying entry", counts)
 
@@ -147,18 +179,12 @@ class FxPaperTradingJob:
                     {
                         "symbol": signal.proposal.symbol,
                         "pillar": PILLAR_FOREX,
-                        "reason": (
-                            f"pillar capital fully allocated ({pillar_notional:.2f} >= "
-                            f"{pillar_limit:.2f})"
-                        ),
+                        "reason": f"pillar capital fully allocated ({pillar_notional:.2f} >= {pillar_limit:.2f})",
                     }
                 )
                 continue
 
-            gross = sum(
-                abs(position.quantity * position.average_price)
-                for position in strategy_portfolio.positions.values()
-            )
+            gross = sum(abs(position.quantity * position.average_price) for position in strategy_portfolio.positions.values())
             risk_decision = self.risk.evaluate(
                 signal.proposal,
                 strategy_portfolio,
@@ -183,7 +209,7 @@ class FxPaperTradingJob:
                     "side": signal.proposal.side.value,
                     "remaining_notional": round(remaining_notional, 4),
                     "minimum_entry_notional": self.config.min_entry_notional,
-                    "reason": "remaining FX pillar capacity below minimum meaningful entry notional",
+                    "reason": "remaining FX pillar capacity below minimum entry notional",
                 })
                 continue
 
@@ -199,7 +225,7 @@ class FxPaperTradingJob:
                     "capacity_quantity": capacity_quantity,
                     "proposed_notional": round(proposed_notional, 4),
                     "minimum_entry_notional": self.config.min_entry_notional,
-                    "reason": "FX order below minimum meaningful entry notional",
+                    "reason": "FX order below minimum entry notional",
                 })
                 continue
 
@@ -223,16 +249,10 @@ class FxPaperTradingJob:
                 ttl_seconds=max(int(self.cadence_seconds * 2), 600),
                 now=now,
             ):
-                duplicates.append(
-                    {
-                        "symbol": signal.proposal.symbol,
-                        "broker": "oanda-practice",
-                        "side": signal.proposal.side.value,
-                    }
-                )
+                duplicates.append({"symbol": signal.proposal.symbol, "broker": "oanda-practice", "side": signal.proposal.side.value})
                 continue
 
-            client_id = f"fx-{bucket}-{signal.proposal.side.value[0]}-{signal.proposal.symbol.replace('/', '')}"[:48]
+            client_id = f"fx-v2-{bucket}-{signal.proposal.side.value[0]}-{signal.proposal.symbol.replace('/', '')}"[:48]
             try:
                 result = submit_oanda_practice_market_order(
                     signal.proposal.symbol,
@@ -299,6 +319,68 @@ class FxPaperTradingJob:
                 "duplicate_skips": duplicates,
             },
         )
+
+    def _reconcile_legacy_positions(self, portfolio) -> list[dict[str, object]]:
+        if self._legacy_reconciled or not self.config.reconcile_legacy_practice_positions:
+            return []
+        results: list[dict[str, object]] = []
+        allowed = {symbol.upper() for symbol in self.config.universe}
+        for symbol, position in list(portfolio.positions.items()):
+            if position.asset_class is not AssetClass.FOREX or symbol.upper() not in allowed:
+                continue
+            if position_is_experiment_eligible(position.opened_at, self.experiment_baseline_start):
+                continue
+            result = close_oanda_position(symbol, ledger_path=self.config.ledger_path)
+            results.append({"symbol": symbol, "ok": result.ok, "message": result.message, "legacy_epoch": True})
+        if not results or all(item["ok"] for item in results):
+            self._legacy_reconciled = True
+        return results
+
+    def _manage_positions(self, portfolio, histories, now: datetime) -> list[dict[str, object]]:
+        by_symbol = {instrument.symbol: bars for instrument, bars in histories.items()}
+        actions: list[dict[str, object]] = []
+        for symbol, position in list(portfolio.positions.items()):
+            if position.asset_class is not AssetClass.FOREX:
+                continue
+            if not position_is_experiment_eligible(position.opened_at, self.experiment_baseline_start):
+                continue
+            bars = by_symbol.get(symbol)
+            if not bars:
+                continue
+            mark = float(bars[-1].close)
+            average = float(position.average_price)
+            quantity = float(position.quantity)
+            if average <= 0 or quantity == 0:
+                continue
+            if quantity > 0:
+                risk_per_unit = max(average - float(position.stop_price), average * 0.0025)
+                target = average + self.config.take_profit_r_multiple * risk_per_unit
+                target_hit = mark >= target
+                pnl_positive = mark > average
+            else:
+                risk_per_unit = max(float(position.stop_price) - average, average * 0.0025)
+                target = average - self.config.take_profit_r_multiple * risk_per_unit
+                target_hit = mark <= target
+                pnl_positive = mark < average
+            age_minutes = None
+            if position.opened_at is not None:
+                opened = position.opened_at if position.opened_at.tzinfo is not None else position.opened_at.replace(tzinfo=UTC)
+                age_minutes = max((now.astimezone(UTC) - opened.astimezone(UTC)).total_seconds() / 60.0, 0.0)
+            timed_profit_exit = age_minutes is not None and age_minutes >= self.config.max_holding_minutes and pnl_positive
+            if not target_hit and not timed_profit_exit:
+                continue
+            result = close_oanda_position(symbol, ledger_path=self.config.ledger_path)
+            actions.append({
+                "symbol": symbol,
+                "ok": result.ok,
+                "message": result.message,
+                "mark": mark,
+                "average_price": average,
+                "target": target,
+                "age_minutes": age_minutes,
+                "reason": "TAKE_PROFIT" if target_hit else "TIMED_PROFIT_RECYCLE",
+            })
+        return actions
 
     def _strategy_portfolio(self, portfolio):
         strategy_positions = {
