@@ -72,6 +72,13 @@ jobs:
           git show "$TARGET:scripts/deploy_reviewed_income.py" > "$TEMP"
           .venv/bin/python "$TEMP" --target "$TARGET"
 
+          # The SSH command is launched through sudo -u, not a login shell.
+          # Set the target user's HOME/runtime bus explicitly before any
+          # systemctl --user operation so the stress override can be activated.
+          export HOME=/home/cjhaake1
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+
           # Install an explicit PAPER-only stress-mode override. The override
           # changes cadence/selection/utilization only; runtime_stress itself
           # hard-disables live trading and keeps the $1,000 pillar caps.
@@ -87,12 +94,21 @@ jobs:
           Environment=METALS_MIN_CASH_RESERVE_PCT=0
           Environment=SAXO_MIN_CASH_RESERVE_PCT=0
           UNIT
+
+          # Kalshi is the highest-frequency test pillar. Install the reviewed
+          # 5-second DEMO scanner units from the tested commit and restart them.
+          install -m 0644 systemd/trading-platform-kalshi-perps.service "$HOME/.config/systemd/user/trading-platform-kalshi-perps.service"
+          install -m 0644 systemd/trading-platform-kalshi-predictions.service "$HOME/.config/systemd/user/trading-platform-kalshi-predictions.service"
+
           systemctl --user daemon-reload
           systemctl --user restart trading-platform-paper-runtime.service
+          systemctl --user restart trading-platform-kalshi-perps.service
+          systemctl --user restart trading-platform-kalshi-predictions.service
           sleep 5
           systemctl --user is-active --quiet trading-platform-paper-runtime.service
+          systemctl --user is-active --quiet trading-platform-kalshi-perps.service
+          systemctl --user is-active --quiet trading-platform-kalshi-predictions.service
 
-          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           systemctl --user start trading-platform-runtime-publisher.service
           .venv/bin/python - <<'PY'
           import json
