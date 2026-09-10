@@ -1,5 +1,5 @@
 [Unit]
-Description=Kalshi Perps Demo scanner (margin API gate)
+Description=Kalshi Perps Demo high-frequency scanner (margin API gate)
 After=trading-platform-kalshi-research.service
 
 [Service]
@@ -7,9 +7,12 @@ Type=simple
 WorkingDirectory=/home/cjhaake1/trading-platform
 EnvironmentFile=/home/cjhaake1/.config/trading-platform/kalshi-demo-execution.env
 Environment=KALSHI_ENGINE=perps
-ExecStart=/bin/bash -lc 'while true; do /home/cjhaake1/trading-platform/.venv/bin/python scripts/kalshi_execution_cycle.py; sleep 60; done'
+Environment=PAPER_STRESS_MODE=true
+Environment=LIVE_TRADING_ENABLED=false
+Environment=KALSHI_LIVE_TRADING_ENABLED=false
+ExecStart=/bin/bash -lc 'while true; do /home/cjhaake1/trading-platform/.venv/bin/python scripts/kalshi_execution_cycle.py; sleep 5; done'
 Restart=always
-RestartSec=10
+RestartSec=2
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=false
