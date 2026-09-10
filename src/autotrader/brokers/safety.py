@@ -192,10 +192,6 @@ def alpaca_open_orders() -> BrokerSafetyResult:
 def cancel_alpaca_open_orders_for_symbol(symbol: str) -> BrokerSafetyResult:
     key, secret, base = _alpaca_auth()
     api_symbol = _alpaca_api_symbol(symbol)
-    # Alpaca's Crypto order filter expects the slash form (ONDO/USD), while
-    # position endpoints accept the compact form (ONDOUSD). Fetch the bounded
-    # open-order set and canonicalize locally so stale-order cancellation
-    # cannot silently miss a valid Crypto order.
     query = urlencode({"status": "open", "nested": "true", "limit": 500})
     payload, _ = _request(f"{base}/v2/orders?{query}", method="GET", headers=_alpaca_headers(key, secret))
     orders = payload if isinstance(payload, list) else []
@@ -341,17 +337,24 @@ def oanda_open_positions() -> BrokerSafetyResult:
 def close_oanda_position(
     symbol: str,
     *,
-    long_units: str = "ALL",
-    short_units: str = "ALL",
+    long_units: str | None = "ALL",
+    short_units: str | None = "ALL",
     ledger_path: str | Path = "var/autotrader/portfolio.db",
 ) -> BrokerSafetyResult:
+    if long_units is None and short_units is None:
+        raise ValueError("at least one OANDA position side must be selected")
     token, base, account_id = _oanda_auth()
     instrument = symbol.strip().upper().replace("/", "_")
+    body: dict[str, object] = {}
+    if long_units is not None:
+        body["longUnits"] = str(long_units)
+    if short_units is not None:
+        body["shortUnits"] = str(short_units)
     payload, headers = _request(
         f"{base}/v3/accounts/{account_id}/positions/{instrument}/close",
         method="PUT",
         headers=_oanda_headers(token),
-        body={"longUnits": str(long_units), "shortUnits": str(short_units)},
+        body=body,
     )
     positions = oanda_open_positions().details.get("positions", [])
     normalized = instrument.replace("_", "/")
@@ -392,8 +395,16 @@ def flatten_oanda_account() -> BrokerSafetyResult:
         if not isinstance(position, dict) or not position.get("instrument"):
             continue
         instrument = str(position["instrument"])
+        long = position.get("long") if isinstance(position.get("long"), dict) else {}
+        short = position.get("short") if isinstance(position.get("short"), dict) else {}
+        long_open = abs(float(long.get("units", 0) or 0)) > 1e-12
+        short_open = abs(float(short.get("units", 0) or 0)) > 1e-12
         try:
-            result = close_oanda_position(instrument)
+            result = close_oanda_position(
+                instrument,
+                long_units="ALL" if long_open else None,
+                short_units="ALL" if short_open else None,
+            )
             results.append({"instrument": instrument, "ok": result.ok, "details": result.details})
             if not result.ok:
                 failures.append(f"{instrument}: position remains open")
