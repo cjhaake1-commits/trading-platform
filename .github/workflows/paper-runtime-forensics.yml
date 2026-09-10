@@ -1,0 +1,118 @@
+name: Paper Runtime Forensics
+
+on:
+  push:
+    branches: [bootstrap-paper-trading-core]
+    paths:
+      - '.github/workflows/paper-runtime-forensics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: paper-runtime-forensics
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: paper-sim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/799227792491/locations/global/workloadIdentityPools/github-deploy-pool/providers/github-deploy-provider
+          service_account: github-trading-deployer@project-79d49028-a68b-4bb1-bd9.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: project-79d49028-a68b-4bb1-bd9
+      - name: Read bounded exception evidence without executing trading jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCRIPT=$(cat <<'EOS'
+          set -euo pipefail
+          cd /home/cjhaake1/trading-platform
+          .venv/bin/python - <<'PY'
+          import json
+          import re
+          import sqlite3
+          import time
+          from pathlib import Path
+
+          root = Path.cwd()
+          path = root / 'var/autotrader/lifecycle.db'
+          engines = (
+              'oanda-fx-paper-trading',
+              'autonomous-paper-trading',
+              'alpaca-metals-paper-trading',
+              'saxo-international-paper-trading',
+          )
+          with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=2) as db:
+              deadline = time.monotonic() + 10
+              db.set_progress_handler(lambda: int(time.monotonic() > deadline), 10000)
+              for engine in engines:
+                  rows = db.execute(
+                      'SELECT finished_at,provider_status,payload_json FROM engine_cycles WHERE engine=? ORDER BY finished_at DESC LIMIT 3',
+                      (engine,),
+                  ).fetchall()
+                  for finished, status, raw in rows:
+                      data = json.loads(raw)
+                      error = str(data.get('error', ''))
+                      diagnostic = {
+                          'engine': engine,
+                          'finished_at': finished,
+                          'status': status,
+                          'exception_type': data.get('exception_type'),
+                          'timeout': data.get('timeout'),
+                      }
+                      signatures = {
+                          'FLOAT_NONE': "float() argument must be a string or a real number, not 'NoneType'",
+                          'NONE_NOT_SUBSCRIPTABLE': "'NoneType' object is not subscriptable",
+                          'NONE_NOT_ITERABLE': "'NoneType' object is not iterable",
+                          'DATABASE_LOCKED': 'database is locked',
+                          'JOB_TIMEOUT': 'job exceeded',
+                      }
+                      diagnostic['error_signatures'] = [
+                          code for code, text in signatures.items() if text in error
+                      ]
+                      for label, pattern in (
+                          ('undefined_name', r"name '([A-Za-z_][A-Za-z0-9_]{0,60})' is not defined"),
+                          ('missing_attribute', r"has no attribute '([A-Za-z_][A-Za-z0-9_]{0,60})'"),
+                          ('unexpected_argument', r"unexpected keyword argument '([A-Za-z_][A-Za-z0-9_]{0,60})'"),
+                      ):
+                          match = re.search(pattern, error)
+                          if match:
+                              diagnostic[label] = match.group(1)
+                      for key in (
+                          'qualified_signals', 'crypto_qualified', 'forex_qualified',
+                          'submitted', 'risk_approved', 'capital_approved',
+                      ):
+                          value = data.get(key)
+                          if isinstance(value, (bool, int, float)):
+                              diagnostic[key] = value
+                      for key in ('entries', 'risk_rejections', 'submission_failures', 'position_management'):
+                          if isinstance(data.get(key), list):
+                              diagnostic[key + '_count'] = len(data[key])
+                      print(json.dumps(diagnostic, sort_keys=True))
+
+          for engine in ('perps', 'predictions'):
+              status_path = root / 'var/kalshi' / ('execution-' + engine + '.json')
+              data = json.loads(status_path.read_text()) if status_path.exists() else {}
+              keys = (
+                  'engine', 'observed_at', 'orders', 'fills', 'decision',
+                  'execution_enabled', 'live_trading_enabled', 'state', 'rejection',
+                  'stage', 'risk_approved', 'capital_approved', 'qualified',
+                  'funnel', 'cycle_count',
+              )
+              print(json.dumps({key: data[key] for key in keys if key in data}, sort_keys=True))
+          PY
+          EOS
+          )
+          ENCODED=$(printf '%s\n' "$SCRIPT" | base64 -w0)
+          gcloud compute ssh instance-20260806-154514 --zone=us-east1-c \
+            --project=project-79d49028-a68b-4bb1-bd9 --quiet \
+            --command="echo '${ENCODED}' | base64 -d | sudo -u cjhaake1 bash -s"
