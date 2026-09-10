@@ -71,6 +71,27 @@ jobs:
           chmod 600 "$TEMP"
           git show "$TARGET:scripts/deploy_reviewed_income.py" > "$TEMP"
           .venv/bin/python "$TEMP" --target "$TARGET"
+
+          # Install an explicit PAPER-only stress-mode override. The override
+          # changes cadence/selection/utilization only; runtime_stress itself
+          # hard-disables live trading and keeps the $1,000 pillar caps.
+          mkdir -p "$HOME/.config/systemd/user/trading-platform-paper-runtime.service.d"
+          cat > "$HOME/.config/systemd/user/trading-platform-paper-runtime.service.d/stress.conf" <<'UNIT'
+          [Service]
+          ExecStart=
+          ExecStart=/home/cjhaake1/trading-platform/.venv/bin/python -m autotrader.runtime_stress --mode paper --audit-db var/autotrader/audit.db --status var/autotrader/status.json --heartbeat 1 --trade-cadence 30 --ledger var/autotrader/portfolio.db --idempotency var/autotrader/idempotency.db --initial-equity 5000 --autonomous-paper
+          Environment=LIVE_TRADING_ENABLED=false
+          Environment=KALSHI_LIVE_TRADING_ENABLED=false
+          Environment=AUTONOMOUS_TRADING_ENABLED=true
+          Environment=PAPER_STRESS_MODE=true
+          Environment=METALS_MIN_CASH_RESERVE_PCT=0
+          Environment=SAXO_MIN_CASH_RESERVE_PCT=0
+          UNIT
+          systemctl --user daemon-reload
+          systemctl --user restart trading-platform-paper-runtime.service
+          sleep 5
+          systemctl --user is-active --quiet trading-platform-paper-runtime.service
+
           export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           systemctl --user start trading-platform-runtime-publisher.service
           .venv/bin/python - <<'PY'
@@ -83,8 +104,6 @@ jobs:
           EOS
           )
           ENCODED=$(printf '%s\n' "$SCRIPT" | base64 -w0)
-          # Only an SSH setup failure is retried; deployment mutations are not
-          # blindly rerun. The remote helper itself is idempotent for principal.
           gcloud compute ssh instance-20260806-154514 --zone=us-east1-c \
             --project=project-79d49028-a68b-4bb1-bd9 --quiet \
             --command="echo '${ENCODED}' | base64 -d | sudo -u cjhaake1 bash -s -- '${{ github.sha }}'"
