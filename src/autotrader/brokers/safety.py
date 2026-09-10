@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import time
@@ -320,18 +321,44 @@ def oanda_open_positions() -> BrokerSafetyResult:
     payload, headers = _request(
         f"{base}/v3/accounts/{account_id}/openPositions", method="GET", headers=_oanda_headers(token)
     )
-    if not isinstance(payload, dict):
+    if not isinstance(payload, dict) or not isinstance(payload.get("positions"), list):
         raise RuntimeError("Unexpected OANDA open-position response")
     return BrokerSafetyResult(
         "oanda-practice",
         True,
         "Fetched OANDA practice open positions",
         {
-            "positions": payload.get("positions", []),
+            "positions": payload["positions"],
             "last_transaction_id": payload.get("lastTransactionID"),
             "request_id": headers.get("RequestID") or headers.get("requestid"),
         },
     )
+
+
+def _oanda_position_sides(positions: object, normalized: str) -> tuple[bool, bool]:
+    """Require a valid provider snapshot before treating either side as flat."""
+    if not isinstance(positions, list):
+        raise RuntimeError("Unverified OANDA position snapshot")
+    matching = []
+    for position in positions:
+        if not isinstance(position, dict) or not position.get("instrument"):
+            raise RuntimeError("Unverified OANDA position snapshot")
+        instrument = str(position["instrument"]).replace("_", "/").upper()
+        if instrument == normalized:
+            matching.append(position)
+    if not matching:
+        return False, False
+    if len(matching) != 1:
+        raise RuntimeError("Ambiguous OANDA position snapshot")
+    try:
+        long_units = float(matching[0]["long"]["units"])
+        short_units = float(matching[0]["short"]["units"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("Unverified OANDA position units") from exc
+    if not math.isfinite(long_units) or not math.isfinite(short_units) or long_units < 0 or short_units > 0:
+        raise RuntimeError("Unverified OANDA position units")
+    # Equal and opposite hedge legs are NOT a flat position.
+    return long_units != 0, short_units != 0
 
 
 def close_oanda_position(
@@ -345,41 +372,46 @@ def close_oanda_position(
         raise ValueError("at least one OANDA position side must be selected")
     token, base, account_id = _oanda_auth()
     instrument = symbol.strip().upper().replace("/", "_")
-    body: dict[str, object] = {}
-    if long_units is not None:
-        body["longUnits"] = str(long_units)
-    if short_units is not None:
-        body["shortUnits"] = str(short_units)
-    payload, headers = _request(
-        f"{base}/v3/accounts/{account_id}/positions/{instrument}/close",
-        method="PUT",
-        headers=_oanda_headers(token),
-        body=body,
-    )
-    positions = oanda_open_positions().details.get("positions", [])
     normalized = instrument.replace("_", "/")
-    still_open = False
-    if isinstance(positions, list):
-        for position in positions:
-            if not isinstance(position, dict):
-                continue
-            if str(position.get("instrument") or "").replace("_", "/").upper() != normalized:
-                continue
-            long = position.get("long") if isinstance(position.get("long"), dict) else {}
-            short = position.get("short") if isinstance(position.get("short"), dict) else {}
-            if abs(float(long.get("units", 0) or 0) + float(short.get("units", 0) or 0)) > 1e-12:
-                still_open = True
-                break
+    snapshot = oanda_open_positions()
+    long_open, short_open = _oanda_position_sides(snapshot.details.get("positions"), normalized)
+    # ALL on an absent side raises CLOSEOUT_POSITION_DOESNT_EXIST. Explicit
+    # NONE also prevents an omitted side inheriting the provider's ALL default.
+    body = {
+        "longUnits": str(long_units) if long_open and long_units is not None else "NONE",
+        "shortUnits": str(short_units) if short_open and short_units is not None else "NONE",
+    }
+    submitted = any(value != "NONE" for value in body.values())
+    payload: object = {}
+    request_id = snapshot.details.get("request_id")
+    if submitted:
+        payload, headers = _request(
+            f"{base}/v3/accounts/{account_id}/positions/{instrument}/close",
+            method="PUT",
+            headers=_oanda_headers(token),
+            body=body,
+        )
+        request_id = headers.get("RequestID") or headers.get("requestid")
+        positions = oanda_open_positions().details.get("positions")
+        long_open, short_open = _oanda_position_sides(positions, normalized)
+    still_open = long_open or short_open
     ledger_cleared = False if still_open else _clear_flat_ledger_symbol(normalized, ledger_path)
+    if still_open:
+        message = "OANDA position remains open"
+    elif submitted:
+        message = "Submitted OANDA practice position close"
+    else:
+        message = "OANDA practice position already flat; reconciled without an order"
     return BrokerSafetyResult(
         "oanda-practice",
         not still_open,
-        "Submitted OANDA practice position close" if not still_open else "OANDA position remains open",
+        message,
         {
             "result": payload,
+            "submitted": submitted,
             "position_still_open": still_open,
             "ledger_position_cleared": ledger_cleared,
-            "request_id": headers.get("RequestID") or headers.get("requestid"),
+            "request_id": request_id,
         },
     )
 
