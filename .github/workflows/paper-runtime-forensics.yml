@@ -37,6 +37,7 @@ jobs:
           set -euo pipefail
           cd /home/cjhaake1/trading-platform
           .venv/bin/python - <<'PY'
+          import ast
           import json
           import re
           import sqlite3
@@ -51,6 +52,16 @@ jobs:
               'alpaca-metals-paper-trading',
               'saxo-international-paper-trading',
           )
+          # Match only immutable repository literals, never print raw HTTP
+          # bodies, environment values, account IDs, or credentials.
+          literals = []
+          for source in (root / 'src/autotrader').rglob('*.py'):
+              tree = ast.parse(source.read_text())
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+                      for arg in node.exc.args:
+                          if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                              literals.append((str(source.relative_to(root)), node.lineno, arg.value))
           with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=2) as db:
               deadline = time.monotonic() + 10
               db.set_progress_handler(lambda: int(time.monotonic() > deadline), 10000)
@@ -79,6 +90,16 @@ jobs:
                       diagnostic['error_signatures'] = [
                           code for code, text in signatures.items() if text in error
                       ]
+                      diagnostic['source_literal_matches'] = [
+                          {'source': source, 'line': line, 'literal': literal}
+                          for source, line, literal in literals if literal == error
+                      ][:5]
+                      http = re.match(r'HTTP ([1-5][0-9]{2}):', error)
+                      if http:
+                          diagnostic['http_status'] = int(http.group(1))
+                          diagnostic['provider_codes'] = re.findall(
+                              r'"(?:errorCode|rejectReason|reason)"\s*:\s*"([A-Z][A-Z_]{2,79})"', error
+                          )[:10]
                       for label, pattern in (
                           ('undefined_name', r"name '([A-Za-z_][A-Za-z0-9_]{0,60})' is not defined"),
                           ('missing_attribute', r"has no attribute '([A-Za-z_][A-Za-z0-9_]{0,60})'"),
