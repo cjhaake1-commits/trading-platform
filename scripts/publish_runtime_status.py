@@ -38,7 +38,10 @@ def now():
 
 
 def run(*args, check=True):
-    return subprocess.run(args, cwd=WORKTREE, text=True, capture_output=True, check=check, timeout=60)
+    # Never allow missing Git credentials/network to hold the publisher (or
+    # its systemd oneshot) indefinitely.  This process is observability-only.
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    return subprocess.run(args, cwd=WORKTREE, text=True, capture_output=True, check=check, timeout=15, env=env)
 
 
 def validate_payloads(payloads, boundary, status):
