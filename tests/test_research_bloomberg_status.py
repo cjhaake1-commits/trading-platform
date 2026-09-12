@@ -9,6 +9,9 @@ from autotrader.research_platform import ResearchStore
 def test_research_refresh_records_disabled_bloomberg_without_failing(tmp_path, monkeypatch):
     monkeypatch.setenv("BLOOMBERG_ENABLED", "false")
     monkeypatch.setenv("BENCHMARK_TRACKING_ENABLED", "false")
+    # This test verifies Bloomberg status recording; unrelated public-data
+    # collectors must remain outside the unit's network boundary.
+    monkeypatch.setenv("PUBLIC_INTELLIGENCE_ENABLED", "false")
     path = tmp_path / "research.db"
     result = ResearchRefreshJob(path=str(path), benchmark_path=str(tmp_path / "benchmark.json")).run(
         datetime(2026, 8, 29, tzinfo=UTC)
