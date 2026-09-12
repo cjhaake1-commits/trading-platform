@@ -7,4 +7,7 @@ Type=oneshot
 WorkingDirectory=/home/cjhaake1/trading-platform
 Environment=PYTHONPATH=/home/cjhaake1/trading-platform/src
 ExecStart=/home/cjhaake1/trading-platform/.venv/bin/python /home/cjhaake1/trading-platform/scripts/publish_runtime_status.py
-TimeoutStartSec=60
+# Publication includes bounded report generation plus several bounded Git
+# operations. Keep the whole oneshot budget above their aggregate while each
+# subprocess still has its own timeout.
+TimeoutStartSec=180

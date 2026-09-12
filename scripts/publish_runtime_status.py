@@ -31,6 +31,7 @@ SECRET_PATTERNS = (
     re.compile(r"\b(?:broker|account)[_-]?(?:credential|secret|password|token)\b", re.I),
     re.compile(r"(?:^|[\\/])\.env(?:$|[.])", re.I),
 )
+CURRENT_STAGE = "startup"
 
 
 def now():
@@ -40,7 +41,16 @@ def now():
 def run(*args, check=True):
     # Never allow missing Git credentials/network to hold the publisher (or
     # its systemd oneshot) indefinitely.  This process is observability-only.
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    env = {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        # Fail promptly on a stalled HTTPS transport; preserve last-known-good
+        # remote state and let the next timer attempt retry.
+        "GIT_HTTP_LOW_SPEED_LIMIT": "1",
+        "GIT_HTTP_LOW_SPEED_TIME": "10",
+    }
+    global CURRENT_STAGE
+    CURRENT_STAGE = "git_" + (args[1] if len(args) > 1 else args[0])
     return subprocess.run(args, cwd=WORKTREE, text=True, capture_output=True, check=check, timeout=15, env=env)
 
 
@@ -84,6 +94,8 @@ def main():
             return 0
         try:
             from portfolio_reporting import build_report
+            global CURRENT_STAGE
+            CURRENT_STAGE = "source_reads"
 
             raw = {name: (SOURCE / local).read_bytes() for name, local in SOURCE_FILES.items()}
             boundary = json.loads(raw["post_fix_boundary.json"])
@@ -95,6 +107,7 @@ def main():
             status["running_sha"] = status.get("git", {}).get("commit_sha")
             status["publisher_sha"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
             status["qualified"] = (status.get("first_qualifying_post_boundary_trade") or {}).get("qualified") is True
+            CURRENT_STAGE = "build_report"
             status["portfolio_accounting"] = build_report(ROOT)
             raw["external_status.json"] = (json.dumps(status, indent=2, sort_keys=True, allow_nan=False) + "\n").encode()
             validate_payloads(raw, boundary, status)
@@ -119,9 +132,9 @@ def main():
             atomic_write(HEALTH, (json.dumps(result, indent=2) + "\n").encode())
             return 0
         except Exception as exc:
-            result = {"status": "ERROR", "last_attempt": now(), "error_type": type(exc).__name__}
+            result = {"status": "ERROR", "last_attempt": now(), "error_type": type(exc).__name__, "stage": CURRENT_STAGE}
             atomic_write(HEALTH, (json.dumps(result, indent=2) + "\n").encode())
-            print(f"Runtime publication failed: {type(exc).__name__}")
+            print(f"Runtime publication failed: {type(exc).__name__} at {CURRENT_STAGE}")
             return 1
 
 
