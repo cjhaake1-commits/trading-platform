@@ -20,6 +20,7 @@ SOURCE = ROOT / "var" / "runtime"
 WORKTREE = Path(os.environ.get("RUNTIME_STATUS_WORKTREE", ROOT / "var" / "runtime-status-worktree"))
 PUBLIC = WORKTREE / "runtime-status"
 HEALTH = SOURCE / "publisher_health.json"
+MAX_PUBLIC_LIFECYCLE_BYTES = 5 * 1024 * 1024
 SOURCE_FILES = {
     "external_status.json": "external_status.json",
     "post_fix_boundary.json": "post_fix_boundary.json",
@@ -85,6 +86,15 @@ def atomic_write(path, data):
     os.replace(temporary, path)
 
 
+def bounded_lifecycle(raw: bytes) -> bytes:
+    """Keep the public mirror bounded; the complete ledger stays local."""
+    if len(raw) <= MAX_PUBLIC_LIFECYCLE_BYTES:
+        return raw
+    window = raw[-MAX_PUBLIC_LIFECYCLE_BYTES:]
+    newline = window.find(b"\n")
+    return window[newline + 1:] if newline >= 0 else window
+
+
 def main():
     SOURCE.mkdir(parents=True, exist_ok=True)
     with (SOURCE / "publisher.lock").open("a") as lock:
@@ -98,6 +108,7 @@ def main():
             CURRENT_STAGE = "source_reads"
 
             raw = {name: (SOURCE / local).read_bytes() for name, local in SOURCE_FILES.items()}
+            raw["trade_lifecycle_public.jsonl"] = bounded_lifecycle(raw["trade_lifecycle_public.jsonl"])
             boundary = json.loads(raw["post_fix_boundary.json"])
             status = json.loads(raw["external_status.json"])
             validate_payloads(raw, boundary, status)
