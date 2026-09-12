@@ -6,6 +6,7 @@ After=network-online.target
 Type=oneshot
 WorkingDirectory=/home/cjhaake1/trading-platform
 Environment=PYTHONPATH=/home/cjhaake1/trading-platform/src
+Environment=RUNTIME_STATUS_WORKTREE=/home/cjhaake1/trading-platform/var/runtime-status-publish-clean
 ExecStart=/home/cjhaake1/trading-platform/.venv/bin/python /home/cjhaake1/trading-platform/scripts/publish_runtime_status.py
 # Publication includes bounded report generation plus several bounded Git
 # operations. Keep the whole oneshot budget above their aggregate while each
