@@ -1,0 +1,9 @@
+[Unit]
+Description=Trading Platform fail-closed reliability watchdog
+After=trading-platform-paper-runtime.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/cjhaake1/trading-platform
+Environment=LIVE_TRADING_ENABLED=false
+ExecStart=/home/cjhaake1/trading-platform/.venv/bin/python scripts/platform_watchdog.py
