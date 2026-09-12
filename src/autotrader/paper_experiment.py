@@ -119,6 +119,10 @@ class PaperExperimentLedger:
                 )"""
             )
             connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_counterfactual_state_occurred "
+                "ON counterfactual_observations(state, occurred_at)"
+            )
+            connection.execute(
                 """CREATE TABLE IF NOT EXISTS activity_observations (
                     event_id TEXT PRIMARY KEY,
                     experiment_id TEXT NOT NULL,
@@ -525,7 +529,9 @@ class PaperExperimentLedger:
         counts = {"evaluated": 0, "partially_evaluated": 0, "pending": 0, "insufficient_data": 0, "expired": 0}
         with sqlite3.connect(self.path, timeout=30.0) as connection:
             rows = connection.execute(
-                "SELECT * FROM counterfactual_observations WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED')"
+                "SELECT * FROM counterfactual_observations "
+                "WHERE state IN ('PENDING_OUTCOME','PARTIALLY_EVALUATED') "
+                "ORDER BY occurred_at LIMIT 500"
             ).fetchall()
             for row in rows:
                 (
