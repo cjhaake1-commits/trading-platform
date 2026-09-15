@@ -27,11 +27,11 @@
   "environment": "PAPER/PRACTICE/SIM/DEMO",
   "first_qualifying_post_boundary_trade": {
     "boundary_id": "23f19b0e-fc9e-4124-b420-63bf01aaa9da",
-    "checked_at": "2026-09-15T00:52:37.247958+00:00",
+    "checked_at": "2026-09-15T00:54:23.597110+00:00",
     "qualified": false,
     "runtime_healthy": true
   },
-  "generated_at_utc": "2026-09-15T00:52:36.860455+00:00",
+  "generated_at_utc": "2026-09-15T00:54:23.217004+00:00",
   "git": {
     "branch": "bootstrap-paper-trading-core",
     "commit_sha": "afd81799e287af61bd59bf20c0fce92d2f72e726"
@@ -98,13 +98,13 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-09-15T00:52:38.320244+00:00",
+    "checked_at": "2026-09-15T00:54:24.195587+00:00",
     "deployed": null,
     "equity": null,
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 41.296607,
+          "age_seconds": 53.505394,
           "crypto_qualified": 5.0,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -112,7 +112,7 @@
           "engine": "autonomous-paper-trading",
           "equity_qualified": 11.0,
           "forex_qualified": 0.0,
-          "observed_at": "2026-09-15T00:51:57.023637+00:00",
+          "observed_at": "2026-09-15T00:53:30.690193+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -123,7 +123,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 37.891899,
+          "age_seconds": 45.240764,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -131,7 +131,7 @@
           "engine": "oanda-fx-paper-trading",
           "equity_qualified": null,
           "forex_qualified": 0.0,
-          "observed_at": "2026-09-15T00:52:00.428345+00:00",
+          "observed_at": "2026-09-15T00:53:38.954823+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -142,7 +142,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 177.730354,
+          "age_seconds": 283.605697,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -161,7 +161,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 177.520129,
+          "age_seconds": 283.395472,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -195,23 +195,23 @@
     "fills_today": null,
     "first_qualifying_post_boundary_trade": {
       "boundary_id": "23f19b0e-fc9e-4124-b420-63bf01aaa9da",
-      "checked_at": "2026-09-15T00:52:37.247958+00:00",
+      "checked_at": "2026-09-15T00:54:23.597110+00:00",
       "qualified": false,
       "runtime_healthy": true
     },
     "income_status": "COST_COMPLETE_FORWARD_OUTCOMES_REQUIRED",
     "net_income": null,
-    "observed_at": "2026-09-15T00:50:53.809910+00:00",
+    "observed_at": "2026-09-15T00:53:30.892728+00:00",
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 104.510334,
+        "age_seconds": 53.302859,
         "authorized_capital": 1000.0,
         "available": 138.48001599999998,
         "deployed": 877.279992,
         "equity": 1015.760008,
         "fills_today": null,
-        "observed_at": "2026-09-15T00:50:53.809910+00:00",
+        "observed_at": "2026-09-15T00:53:30.892728+00:00",
         "pending": 0.0,
         "pillar": "Stocks",
         "position_market_value": 893.04,
@@ -236,13 +236,13 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 104.510334,
+        "age_seconds": 53.302859,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
         "equity": 1000.0,
         "fills_today": 0.0,
-        "observed_at": "2026-09-15T00:50:53.809910+00:00",
+        "observed_at": "2026-09-15T00:53:30.892728+00:00",
         "pending": 0.0,
         "pillar": "Crypto",
         "position_market_value": 0.0,
@@ -267,60 +267,60 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 104.510334,
+        "age_seconds": 53.302859,
         "authorized_capital": 1000.0,
-        "available": 899.7919999999999,
-        "deployed": 104.4754,
-        "equity": 1004.2674,
+        "available": 900.0347,
+        "deployed": 104.4661,
+        "equity": 1004.5008,
         "fills_today": null,
-        "observed_at": "2026-09-15T00:50:53.809910+00:00",
+        "observed_at": "2026-09-15T00:53:30.892728+00:00",
         "pending": 0.0,
         "pillar": "Forex",
         "position_market_value": 0.0,
         "positions": 8.0,
         "realized_today": 0.0,
         "reported_values": {
-          "available": 899.7919999999999,
-          "deployed": 104.4754,
-          "equity": 1004.2674,
+          "available": 900.0347,
+          "deployed": 104.4661,
+          "equity": 1004.5008,
           "fills_today": null,
           "pending": 0.0,
           "position_market_value": 0.0,
           "positions": 8.0,
           "realized_today": 0.0,
-          "total_pnl": 4.2674,
-          "unrealized": 4.2674,
+          "total_pnl": 4.5008,
+          "unrealized": 4.5008,
           "working_orders": 0.0
         },
         "status": "VERIFIED",
-        "total_pnl": 4.2674,
-        "unrealized": 4.2674,
+        "total_pnl": 4.5008,
+        "unrealized": 4.5008,
         "working_orders": 0.0
       },
       {
-        "age_seconds": 104.510334,
+        "age_seconds": 53.302859,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
         "equity": null,
         "fills_today": null,
-        "observed_at": "2026-09-15T00:50:53.809910+00:00",
+        "observed_at": "2026-09-15T00:53:30.892728+00:00",
         "pending": null,
         "pillar": "Metals",
         "position_market_value": null,
         "positions": null,
         "realized_today": null,
         "reported_values": {
-          "available": -626.0600079999998,
+          "available": -625.9900079999998,
           "deployed": 1573.7200039999998,
-          "equity": 947.659996,
+          "equity": 947.729996,
           "fills_today": null,
           "pending": 0.0,
-          "position_market_value": 1521.38,
+          "position_market_value": 1521.45,
           "positions": 4.0,
           "realized_today": 0.0,
-          "total_pnl": -52.340004,
-          "unrealized": -52.340004,
+          "total_pnl": -52.270004,
+          "unrealized": -52.270004,
           "working_orders": 0.0
         },
         "status": "ACCOUNTING_UNVERIFIED",
@@ -329,13 +329,13 @@
         "working_orders": null
       },
       {
-        "age_seconds": 104.510334,
+        "age_seconds": 53.302859,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
         "equity": null,
         "fills_today": null,
-        "observed_at": "2026-09-15T00:50:53.809910+00:00",
+        "observed_at": "2026-09-15T00:53:30.892728+00:00",
         "pending": null,
         "pillar": "International",
         "position_market_value": null,
@@ -360,13 +360,13 @@
         "working_orders": null
       },
       {
-        "age_seconds": 104.510334,
+        "age_seconds": 53.302859,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
         "equity": null,
         "fills_today": null,
-        "observed_at": "2026-09-15T00:50:53.809910+00:00",
+        "observed_at": "2026-09-15T00:53:30.892728+00:00",
         "pending": null,
         "pillar": "Kalshi",
         "position_market_value": null,
@@ -399,7 +399,7 @@
         "current_price": 346.77,
         "margin_committed": null,
         "market_value": 693.54,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Stocks",
         "provider": "Alpaca Paper",
@@ -414,7 +414,7 @@
         "current_price": 2.75e-06,
         "margin_committed": null,
         "market_value": 0.0,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Crypto",
         "provider": "Alpaca Paper",
@@ -426,31 +426,31 @@
       {
         "average_price": 99.32,
         "classification": "LEGACY_BROKER_EXPOSURE",
-        "current_price": 94.09,
+        "current_price": 94.19,
         "margin_committed": null,
-        "market_value": 5645.4,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "market_value": 5651.4,
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Metals",
         "provider": "Alpaca Paper",
         "quantity": 60.0,
         "symbol": "GDX",
-        "unrealized_pnl": -313.8,
+        "unrealized_pnl": -307.8,
         "valuation_currency": "USD"
       },
       {
         "average_price": 79.752292,
         "classification": "LEGACY_BROKER_EXPOSURE",
-        "current_price": 80.04,
+        "current_price": 80.09,
         "margin_committed": null,
-        "market_value": 21130.56,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "market_value": 21143.76,
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Stocks",
         "provider": "Alpaca Paper",
         "quantity": 264.0,
         "symbol": "NFLX",
-        "unrealized_pnl": 75.954912,
+        "unrealized_pnl": 89.154912,
         "valuation_currency": "USD"
       },
       {
@@ -459,7 +459,7 @@
         "current_price": 172.85,
         "margin_committed": null,
         "market_value": 864.25,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Stocks",
         "provider": "Alpaca Paper",
@@ -474,7 +474,7 @@
         "current_price": 40.77,
         "margin_committed": null,
         "market_value": 285.39,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Metals",
         "provider": "Alpaca Paper",
@@ -489,7 +489,7 @@
         "current_price": 5.28e-06,
         "margin_committed": null,
         "market_value": 0.0,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Crypto",
         "provider": "Alpaca Paper",
@@ -504,7 +504,7 @@
         "current_price": 93.27,
         "margin_committed": null,
         "market_value": 1119.24,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Metals",
         "provider": "Alpaca Paper",
@@ -519,7 +519,7 @@
         "current_price": 59.8,
         "margin_committed": null,
         "market_value": 59.8,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Metals",
         "provider": "Alpaca Paper",
@@ -531,16 +531,16 @@
       {
         "average_price": 56.93,
         "classification": "VALID_STRATEGY_POSITION",
-        "current_price": 56.95,
+        "current_price": 57.02,
         "margin_committed": null,
-        "market_value": 56.95,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "market_value": 57.02,
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Metals",
         "provider": "Alpaca Paper",
         "quantity": 1.0,
         "symbol": "SLV",
-        "unrealized_pnl": 0.02,
+        "unrealized_pnl": 0.09,
         "valuation_currency": "USD"
       },
       {
@@ -549,7 +549,7 @@
         "current_price": 37.21,
         "margin_committed": null,
         "market_value": 893.04,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Stocks",
         "provider": "Alpaca Paper",
@@ -564,13 +564,13 @@
         "current_price": null,
         "margin_committed": 1.50423,
         "market_value": 75.2115,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Forex",
         "provider": "OANDA Practice",
         "quantity": -130.0,
         "symbol": "NZD/USD",
-        "unrealized_pnl": 0.1014,
+        "unrealized_pnl": 0.1092,
         "valuation_currency": "UNVERIFIED"
       },
       {
@@ -579,13 +579,13 @@
         "current_price": null,
         "margin_committed": 16.64104,
         "market_value": 832.052,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Forex",
         "provider": "OANDA Practice",
         "quantity": -4.0,
         "symbol": "GBP/JPY",
-        "unrealized_pnl": -0.0163,
+        "unrealized_pnl": -0.0172,
         "valuation_currency": "UNVERIFIED"
       },
       {
@@ -594,13 +594,13 @@
         "current_price": null,
         "margin_committed": 19.979377200000002,
         "market_value": 998.9688600000001,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Forex",
         "provider": "OANDA Practice",
         "quantity": -1398.0,
         "symbol": "AUD/USD",
-        "unrealized_pnl": 1.5238,
+        "unrealized_pnl": 1.6217,
         "valuation_currency": "UNVERIFIED"
       },
       {
@@ -609,13 +609,13 @@
         "current_price": null,
         "margin_committed": 18.49116,
         "market_value": 924.558,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Forex",
         "provider": "OANDA Practice",
         "quantity": 6.0,
         "symbol": "USD/JPY",
-        "unrealized_pnl": 0.018,
+        "unrealized_pnl": 0.0194,
         "valuation_currency": "UNVERIFIED"
       },
       {
@@ -624,13 +624,13 @@
         "current_price": null,
         "margin_committed": 19.986512,
         "market_value": 999.3256,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Forex",
         "provider": "OANDA Practice",
         "quantity": -740.0,
         "symbol": "GBP/USD",
-        "unrealized_pnl": 0.4514,
+        "unrealized_pnl": 0.5328,
         "valuation_currency": "UNVERIFIED"
       },
       {
@@ -639,13 +639,13 @@
         "current_price": null,
         "margin_committed": 2.1646404,
         "market_value": 108.23202,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Forex",
         "provider": "OANDA Practice",
         "quantity": 78.0,
         "symbol": "USD/CAD",
-        "unrealized_pnl": 0.1531,
+        "unrealized_pnl": 0.1571,
         "valuation_currency": "UNVERIFIED"
       },
       {
@@ -654,13 +654,13 @@
         "current_price": null,
         "margin_committed": 17.8095,
         "market_value": 890.475,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Forex",
         "provider": "OANDA Practice",
         "quantity": -5.0,
         "symbol": "EUR/JPY",
-        "unrealized_pnl": -0.0117,
+        "unrealized_pnl": -0.0131,
         "valuation_currency": "UNVERIFIED"
       },
       {
@@ -669,31 +669,31 @@
         "current_price": null,
         "margin_committed": 19.992441600000003,
         "market_value": 999.6220800000001,
-        "observed_at": "2026-09-15T00:50:54.230301+00:00",
+        "observed_at": "2026-09-15T00:53:31.569854+00:00",
         "ownership": "NOT_PROVEN_BY_THIS_REPORT",
         "pillar": "Forex",
         "provider": "OANDA Practice",
         "quantity": -864.0,
         "symbol": "EUR/USD",
-        "unrealized_pnl": 2.0477,
+        "unrealized_pnl": 2.0909,
         "valuation_currency": "UNVERIFIED"
       }
     ],
     "positions": null,
     "positions_fresh": true,
-    "positions_observed_at": "2026-09-15T00:50:53.809910+00:00",
+    "positions_observed_at": "2026-09-15T00:53:30.892728+00:00",
     "realized_scope": "ledger reported realized today; fee completeness not established",
     "realized_today": null,
     "runtime": {
       "healthy": true,
-      "heartbeat_at": "2026-09-15T00:52:36.859718+00:00",
+      "heartbeat_at": "2026-09-15T00:54:23.216184+00:00",
       "heartbeat_fresh": true,
       "live_trading_enabled": false,
       "pillars": {
         "Crypto": {
           "active": true,
           "last_activity_at": [
-            "2026-09-15T00:51:57.023637+00:00"
+            "2026-09-15T00:53:30.690193+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -701,7 +701,7 @@
         "Forex": {
           "active": true,
           "last_activity_at": [
-            "2026-09-15T00:52:00.428345+00:00"
+            "2026-09-15T00:53:38.954823+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -717,8 +717,8 @@
         "Kalshi": {
           "active": true,
           "last_activity_at": [
-            "2026-09-15T00:52:30.728646+00:00",
-            "2026-09-15T00:52:22.094736+00:00"
+            "2026-09-15T00:54:18.287691+00:00",
+            "2026-09-15T00:54:10.711693+00:00"
           ],
           "reasons": [
             "RUNTIME_OR_PROVIDER_REJECTION",
@@ -737,7 +737,7 @@
         "Stocks": {
           "active": true,
           "last_activity_at": [
-            "2026-09-15T00:51:57.023637+00:00"
+            "2026-09-15T00:53:30.690193+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -761,14 +761,14 @@
   "six_pillars": {
     "crypto": {
       "enabled": true,
-      "last_activity_at": "2026-09-15T00:51:57.023637+00:00",
+      "last_activity_at": "2026-09-15T00:53:30.690193+00:00",
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "forex": {
       "enabled": true,
-      "last_activity_at": "2026-09-15T00:52:00.428345+00:00",
+      "last_activity_at": "2026-09-15T00:53:38.954823+00:00",
       "last_error": null,
       "mode": "PRACTICE",
       "provider": "OANDA Practice"
@@ -791,9 +791,9 @@
         "settled_funds": 248.8414
       },
       "configured": true,
-      "cycle_count": 10112,
+      "cycle_count": 10124,
       "enabled": true,
-      "last_activity_at": "2026-09-15T00:52:22.094736+00:00",
+      "last_activity_at": "2026-09-15T00:54:10.711693+00:00",
       "last_error": "READY_TO_SUBMIT",
       "mode": "DEMO",
       "provider": "Kalshi DEMO",
@@ -807,9 +807,9 @@
         "provider_portfolio_value": 0
       },
       "configured": true,
-      "cycle_count": 13913,
+      "cycle_count": 13930,
       "enabled": true,
-      "last_activity_at": "2026-09-15T00:52:30.728646+00:00",
+      "last_activity_at": "2026-09-15T00:54:18.287691+00:00",
       "last_error": "INSUFFICIENT_SPREAD_OR_LIQUIDITY",
       "mode": "DEMO",
       "provider": "Kalshi DEMO",
@@ -826,7 +826,7 @@
     },
     "stocks": {
       "enabled": true,
-      "last_activity_at": "2026-09-15T00:51:57.023637+00:00",
+      "last_activity_at": "2026-09-15T00:53:30.690193+00:00",
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
