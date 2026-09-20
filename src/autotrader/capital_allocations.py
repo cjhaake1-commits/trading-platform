@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from .models import AssetClass
 
-TOTAL_PAPER_CAPITAL = 5000.0
+TOTAL_PAPER_CAPITAL = 6000.0
 KALSHI_DEMO_BASE_CAPITAL = 1000.0
-SIX_PILLAR_BASE_CAPITAL = TOTAL_PAPER_CAPITAL + KALSHI_DEMO_BASE_CAPITAL
+# This is the complete internal authorization.  Kalshi is one of the six
+# $1,000 silos, not an amount added on top of the authorization.
+SIX_PILLAR_BASE_CAPITAL = TOTAL_PAPER_CAPITAL
 PILLAR_CAPITAL = 1000.0  # legacy compatibility default; named allocations are authoritative
 
 PILLAR_EQUITIES = "alpaca_equities"
@@ -40,7 +42,7 @@ SIX_PILLARS = (
     PILLAR_KALSHI,
 )
 KALSHI_CHILD_MAX = 500.0
-CAPITAL_POLICY_VERSION = "income_6000_v1"
+CAPITAL_POLICY_VERSION = "income_6000_v2"
 SIX_PILLAR_ALLOCATIONS = {**PILLAR_ALLOCATIONS, PILLAR_KALSHI: KALSHI_DEMO_BASE_CAPITAL}
 
 

@@ -14,7 +14,7 @@ def test_consumer_dispatches_only_when_all_bridge_gates_pass(tmp_path):
     class Adapter:
         def submit(self, record): return {"provider_order_id": "P1", "ack": True}
     consumer = RuntimeExecutionConsumer(tmp_path / "intents.db")
-    record = {"intent_id":"I2", "trade_id":"I2", "execution_mode":"PAPER", "qualified_signal":True, "risk_approved":True, "capital_approved":True, "provider_supported":True, "session_allowed":True, "ownership_allowed":True, "ownership":"PLATFORM_OWNED", "pillar":"stocks", "engine":"stocks", "instrument":"SPY"}
+    record = {"intent_id":"I2", "trade_id":"I2", "execution_mode":"PAPER", "qualified_signal":True, "risk_approved":True, "capital_approved":True, "capital_required":100.0, "provider_supported":True, "session_allowed":True, "ownership_allowed":True, "ownership":"PLATFORM_OWNED", "pillar":"stocks", "engine":"stocks", "instrument":"SPY"}
     assert consumer.consume(record, adapter=Adapter(), now="2026-09-05T01:00:00+00:00")["state"] == "SUBMITTED"
 
 

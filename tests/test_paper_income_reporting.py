@@ -18,6 +18,8 @@ def rows():
 def test_six_pillar_totals_are_not_shared_broker_balances():
     report = normalize_accounting(rows(), now=NOW)
     assert report["authorized_capital"] == 6000
+    assert report["kalshi_authorized_capital"] == 1000
+    assert report["total_authorized_capital"] == 6000
     assert report["equity"] == 6000
     assert report["deployed"] == 600
     assert report["available"] == 5400

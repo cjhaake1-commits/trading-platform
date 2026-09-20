@@ -27,13 +27,15 @@ class KalshiConfig:
 
     @classmethod
     def from_env(cls) -> "KalshiConfig":
+        enabled = _flag("KALSHI_ENABLED")
+        trading_enabled = _flag("KALSHI_TRADING_ENABLED")
         return cls(
-            enabled=_flag("KALSHI_ENABLED"),
-            trading_enabled=_flag("KALSHI_TRADING_ENABLED"),
+            enabled=enabled,
+            trading_enabled=trading_enabled,
             environment=os.getenv("KALSHI_ENV", "demo").strip().lower() or "demo",
             api_key_id=os.getenv("KALSHI_API_KEY_ID") or None,
             private_key_path=os.getenv("KALSHI_PRIVATE_KEY_PATH") or None,
-            paper_capital=float(os.getenv("KALSHI_PAPER_CAPITAL", "0") or 0),
+            paper_capital=float(os.getenv("KALSHI_PAPER_CAPITAL", "0") or 0) if (enabled or trading_enabled) else 0.0,
             perps_rest_url=os.getenv("KALSHI_PERPS_REST_URL") or cls().perps_rest_url,
             perps_websocket_url=os.getenv("KALSHI_PERPS_WEBSOCKET_URL") or cls().perps_websocket_url,
         )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import resource
 import signal
 import sqlite3
 import time
@@ -14,6 +16,7 @@ from typing import Protocol
 
 from .activity_diagnostic import hedge_snapshot, margin_snapshot, persist_activity
 from .audit import SQLiteAuditStore
+from .capital_allocations import TOTAL_PAPER_CAPITAL
 from .capital_recycling import evaluate_position, summarize_releases
 from .crypto_settlement_runtime import settle_from_runtime
 from .forward_economic_lifecycle import EconomicLifecycle
@@ -108,6 +111,13 @@ class AutonomousRuntime:
         if len(self._states) != len(jobs):
             raise ValueError("Runtime job names must be unique")
         self._started_at = self._now_factory()
+        # Stagger expensive research/discovery jobs at startup. Fast position
+        # and execution jobs remain due immediately; slow jobs enter the
+        # scheduler on their normal cadence instead of stampeding together.
+        startup = self._monotonic()
+        for job in jobs:
+            if job.cadence_seconds >= 300:
+                self._states[job.name].next_due_monotonic = startup + min(job.cadence_seconds, 60.0)
         self._last_heartbeat_at: datetime | None = None
         self._last_heartbeat_audit_monotonic = 0.0
         self._experiment_ledger = PaperExperimentLedger(self.config.experiment_path) if self.config.experiment_path else None
@@ -160,8 +170,6 @@ class AutonomousRuntime:
 
             state.last_started_at = now
             started = self._monotonic()
-            self._write_snapshot(self.snapshot())
-
             def _timeout(_signum, _frame):
                 raise TimeoutError(f"job exceeded {self.config.job_timeout_seconds:.0f}s timeout")
 
@@ -258,12 +266,14 @@ class AutonomousRuntime:
                     "pillar": _pillar_for_job(job.name), "engine": job.name,
                     "instrument": str(data.get("candidate") or data.get("symbol") or job.name),
                 }, now=now.isoformat())
-                economic = self._economic_ledger.metrics()
                 # Queue ranking uses one economic portfolio. Provider buying
                 # power is deliberately absent; provider jobs remain the
                 # sole execution owners and prevent duplicate submissions.
                 refresh_allocator(allocations={
-                    "economic_portfolio": float(economic.get("available_released_capital", 0.0))
+                    # The allocator owns one bounded internal pool. Provider
+                    # buying power is never an input; lifecycle releases and
+                    # reservations are applied by the execution consumer.
+                    "economic_portfolio": TOTAL_PAPER_CAPITAL
                 }, health=None)
                 if isinstance(data.get("counterfactual_bars"), dict):
                     settle_from_runtime(bars_by_symbol=data["counterfactual_bars"], now=now)
@@ -361,6 +371,14 @@ class AutonomousRuntime:
             self._last_heartbeat_audit_monotonic = mono_now
 
         snapshot = self.snapshot()
+        # Keep a compact, bounded telemetry record for the always-on service.
+        # RSS is sampled once per scheduler cycle; no provider payloads are retained.
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        snapshot["resource_telemetry"] = {
+            "rss_mb": round(usage.ru_maxrss / (1024 if os.name == "posix" else 1), 1),
+            "cpu_user_seconds": round(usage.ru_utime, 3),
+            "cpu_system_seconds": round(usage.ru_stime, 3),
+        }
         self._write_snapshot(snapshot)
         return snapshot
 
@@ -375,10 +393,16 @@ class AutonomousRuntime:
         )
         try:
             while not stop.is_set():
-                cycle_started = self._monotonic()
                 self.run_once()
-                elapsed = self._monotonic() - cycle_started
-                wait_seconds = max(self.config.heartbeat_seconds - elapsed, 0.0)
+                now_mono = self._monotonic()
+                next_due = min(
+                    (state.next_due_monotonic for state in self._states.values() if not state.disabled),
+                    default=now_mono + self.config.heartbeat_seconds,
+                )
+                # Sleep until the next real job deadline, capped only by the
+                # heartbeat freshness interval. This avoids waking, snapshotting,
+                # and rescanning the whole registry when nothing is due.
+                wait_seconds = max(min(next_due - now_mono, self.config.heartbeat_seconds), 0.05)
                 stop.wait(wait_seconds)
         finally:
             self.audit.append(

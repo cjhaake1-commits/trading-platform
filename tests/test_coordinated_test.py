@@ -8,7 +8,7 @@ from autotrader.coordinated_test import (
 def test_baseline_has_five_immutable_thousand_dollar_allocations():
     config = FivePillarTestConfig()
     assert config.baseline_version == FIVE_PILLAR_BASELINE_VERSION
-    assert config.total_starting_capital == 5000.0
+    assert config.total_starting_capital == 6000.0
     assert set(config.allocations.values()) == {1000.0}
     assert len(config.allocations) == 5
     assert config.as_dict()["broker_excess_balance_deployable"] is False

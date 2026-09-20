@@ -30,7 +30,7 @@ from .crypto_exit import AlpacaCryptoExitCoordinator
 from .execution_safety import IdempotencyStore
 from .experiment_state import load_experiment_baseline_start, position_is_experiment_eligible
 from .learning import load_learned_parameters
-from .marketdata import YahooHistoricalData
+from .marketdata import NativeProviderMarketData
 from .models import AssetClass, Instrument, PortfolioState, Side, TradeIntent, TradeProposal
 from .multi_strategy import aggregate_confluence, evaluate_strategies
 from .order_test_app import _sync_submitted_position
@@ -303,7 +303,7 @@ class AutonomousPaperTradingJob:
         self.config = config or AutonomousPaperConfig()
         self.cadence_seconds = self.config.cadence_seconds
         self.experiment_baseline_start = load_experiment_baseline_start()
-        self.feed = YahooHistoricalData()
+        self.feed = NativeProviderMarketData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
         self.experiment = PaperExperimentConfig.from_env()
@@ -1408,7 +1408,7 @@ class AutonomousPaperTradingJob:
         start = now - timedelta(days=max(self.config.lookback_days, 2))
         histories = {}
         etfs = {"SPY", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV"}
-        provider_crypto = tuple(symbol for symbol in alpaca_crypto_universe() if symbol.endswith("/USD"))
+        provider_crypto = tuple(symbol for symbol in alpaca_crypto_universe() if symbol.endswith("/USD"))[:8]
         self.provider_crypto_universe = provider_crypto
         crypto_symbols = tuple(dict.fromkeys((*self.config.crypto_universe, *provider_crypto)))
         instruments = [

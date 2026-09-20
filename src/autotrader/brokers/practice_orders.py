@@ -33,15 +33,22 @@ class AlpacaCryptoTradingRules:
     tradable: bool
 
 
-def alpaca_crypto_universe() -> tuple[str, ...]:
+_CRYPTO_UNIVERSE_CACHE: tuple[float, tuple[str, ...]] | None = None
+
+
+def alpaca_crypto_universe(*, ttl_seconds: float = 3600.0) -> tuple[str, ...]:
     """Return the provider's active, tradable PAPER crypto universe.
 
     Provider failure is fail-closed to the configured conservative universe;
     it never fabricates symbols or silently changes the broker endpoint.
     """
+    global _CRYPTO_UNIVERSE_CACHE
+    now = time.monotonic()
+    if _CRYPTO_UNIVERSE_CACHE is not None and now - _CRYPTO_UNIVERSE_CACHE[0] < ttl_seconds:
+        return _CRYPTO_UNIVERSE_CACHE[1]
     key, secret, base_url = _alpaca_credentials()
     if not key or not secret:
-        return ()
+        return _CRYPTO_UNIVERSE_CACHE[1] if _CRYPTO_UNIVERSE_CACHE else ()
     try:
         payload, _ = _request_json(
             f"{base_url}/v2/assets?asset_class=crypto&status=active",
@@ -49,7 +56,7 @@ def alpaca_crypto_universe() -> tuple[str, ...]:
             headers=_alpaca_headers(key, secret),
         )
     except RuntimeError:
-        return ()
+        return _CRYPTO_UNIVERSE_CACHE[1] if _CRYPTO_UNIVERSE_CACHE else ()
     if not isinstance(payload, list):
         return ()
     symbols = []
@@ -62,7 +69,9 @@ def alpaca_crypto_universe() -> tuple[str, ...]:
                 symbols.append(symbol)
             elif symbol.endswith("USD"):
                 symbols.append(f"{symbol[:-3]}/USD")
-    return tuple(sorted(set(symbols)))
+    result = tuple(sorted(set(symbols)))
+    _CRYPTO_UNIVERSE_CACHE = (now, result)
+    return result
 
 
 def _request_json(

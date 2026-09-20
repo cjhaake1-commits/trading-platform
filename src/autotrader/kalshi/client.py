@@ -140,6 +140,46 @@ class KalshiReadOnlyClient:
     def fills(self, **params): return self._get("portfolio/fills", params, authenticated=True)
     def orders_read_only(self, **params): return self._get("portfolio/orders", params, authenticated=True)
 
+    def paginate_read_only(self, path: str, *, params: dict[str, str] | None = None,
+                           family: str = "predictions", item_key: str = "fills",
+                           max_pages: int = 10) -> list[dict[str, Any]]:
+        """Fetch bounded cursor-paginated provider history without mutation."""
+        if max_pages < 1 or max_pages > 100:
+            raise ValueError("max_pages must be between 1 and 100")
+        query = dict(params or {})
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for _ in range(max_pages):
+            payload = self._get(path, query, authenticated=True, family=family)
+            page = payload.get(item_key, [])
+            if isinstance(page, list):
+                for row in page:
+                    if not isinstance(row, dict):
+                        continue
+                    identity = str(row.get("fill_id") or row.get("order_id") or row.get("id") or "")
+                    if identity and identity in seen:
+                        continue
+                    if identity:
+                        seen.add(identity)
+                    rows.append(row)
+            cursor = payload.get("cursor") or payload.get("next_cursor")
+            if not cursor or str(cursor) == str(query.get("cursor") or ""):
+                break
+            query["cursor"] = str(cursor)
+        return rows
+
+    def fills_history(self, *, max_pages: int = 10, limit: int = 100, **params) -> list[dict[str, Any]]:
+        return self.paginate_read_only("portfolio/fills", params={"limit": str(limit), **params}, item_key="fills", max_pages=max_pages)
+
+    def orders_history(self, *, max_pages: int = 10, limit: int = 100, **params) -> list[dict[str, Any]]:
+        return self.paginate_read_only("portfolio/orders", params={"limit": str(limit), **params}, item_key="orders", max_pages=max_pages)
+
+    def perps_fills_history(self, *, max_pages: int = 10, limit: int = 100, **params) -> list[dict[str, Any]]:
+        return self.paginate_read_only("fills", params={"limit": str(limit), **params}, family="perps", item_key="fills", max_pages=max_pages)
+
+    def perps_orders_history(self, *, max_pages: int = 10, limit: int = 100, **params) -> list[dict[str, Any]]:
+        return self.paginate_read_only("orders", params={"limit": str(limit), **params}, family="perps", item_key="orders", max_pages=max_pages)
+
     def perps(self, path: str, **params):
         """Call a documented Perps/Margin path, never the Predictions API."""
         if not path:

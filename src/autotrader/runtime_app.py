@@ -131,23 +131,22 @@ class FoundationAuditJob:
                     day_start_timestamp=f"{day}T00:00:00+00:00", starting_economic_equity=SIX_PILLAR_ALLOCATIONS[key_map[pillar]],
                     source="paper_allocation_cap_pending_provider_reconciliation",
                 )
-        # Financial input is read directly from providers.  dashboard/data.json
-        # is an output cache only and is deliberately not read here.
-        # The console entry point starts with ``src`` on sys.path, not the
-        # repository root.  Resolve the dashboard helper explicitly so this
-        # read-only audit job cannot permanently self-disable on restart.
-        import sys
-        repo_root = Path(__file__).resolve().parents[2]
-        if str(repo_root) not in sys.path:
-            sys.path.insert(0, str(repo_root))
-        from streamlit_app import _alpaca_crypto_history, _kalshi_status, fetch_live_broker_data
-
-        # These dashboard reads are intentionally uncached.  Calling the
-        # removed decorator's ``__wrapped__`` attribute caused FoundationAudit
-        # to fail closed and eventually disable itself after restart.
-        live_positions, _metrics, live_status, provider_errors = fetch_live_broker_data()
-        crypto_history = _alpaca_crypto_history()
-        kalshi = _kalshi_status()
+        # Execution is deliberately independent of the dashboard.  The old
+        # implementation imported Streamlit here, causing ScriptRunContext
+        # warnings and a large UI cache in the systemd process.  This audit is
+        # provider telemetry only; execution jobs own provider reconciliation.
+        from .native_provider_scan import native_provider_health
+        health = native_provider_health()
+        live_positions = []
+        live_status = {
+            "US Stocks / ETFs": {"connected": health.get("alpaca_trading", {}).get("status") == "OK", "market_open": True},
+            "Crypto": {"connected": health.get("alpaca_data", {}).get("status") == "OK", "market_open": True},
+            "Forex": {"connected": health.get("oanda_practice", {}).get("status") == "OK", "market_open": True},
+            "Metals / Commodities": {"connected": health.get("alpaca_data", {}).get("status") == "OK", "market_open": True},
+            "International": {"connected": False, "market_open": False},
+        }
+        crypto_history = {"realized_today": 0.0, "transactions": [], "fills_today": 0}
+        kalshi = {"predictions_provider_state": "DISABLED", "perps_provider_state": "DISABLED", "predictions_markets": [], "perps_markets": []}
         # Read-only, allowlisted position observations for app and publisher.
         from portfolio_reporting import write_position_observations
         write_position_observations(Path.cwd(), live_positions, live_status, now=now)
@@ -250,26 +249,10 @@ class FoundationAuditJob:
         # The runtime audit is the authoritative continuous publisher.  The
         # dashboard remains a reader/manual-refresh surface; it must not be
         # the only process capable of advancing canonical P&L timestamps.
-        try:
-            import performance_board as board
-            runtime_snapshot = {}
-            try:
-                runtime_snapshot = json.loads(Path("var/autotrader/status.json").read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                runtime_snapshot = {}
-            saxo_truth = board._saxo_live_truth()
-            canonical_pillars = board.build_pillars(
-                runtime_snapshot, runtime_snapshot, live_status, kalshi, live_positions,
-                saxo_truth, crypto_realized_today=crypto_history.get("realized_today"),
-            )
-            board.write_authoritative_portfolio_snapshot(canonical_pillars)
-        except Exception as exc:
-            # Preserve the last-known-good canonical file and expose the
-            # publication defect in the audit result; never publish partial
-            # or fabricated accounting.
-            report_publication_error = f"{type(exc).__name__}: {exc}"
-        else:
-            report_publication_error = None
+        # Canonical dashboard publication belongs to the separate dashboard
+        # process. Importing performance_board here would initialize
+        # Streamlit in the trading service and consume a large UI cache.
+        report_publication_error = "dashboard_publication_delegated"
         outcomes = []  # Legacy fills have no explicit accounting verification and cannot affect learning.
         report = {
             "observed_at": now.isoformat(), "pillars": {p: {"accounting_status": normalized[p]["accounting_status"],
@@ -485,6 +468,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable autonomous Alpaca paper + OANDA practice scanning and protected execution",
     )
+    parser.add_argument("--once", action="store_true", help="Run one scheduled cycle and exit")
     return parser
 
 
@@ -519,6 +503,7 @@ def main() -> None:
                     initial_equity=args.initial_equity,
                     cadence_seconds=args.trade_cadence,
                     oanda_universe=(),
+                    alpaca_universe=AutonomousPaperConfig().alpaca_universe[:10],
                 )
             )
         )
@@ -564,7 +549,10 @@ def main() -> None:
             "saxo-international-paper-trading",
             f"Execution disarmed: {AUTONOMOUS_ARM_ENV} must be explicitly true",
         )
-    runtime.run_forever()
+    if args.once:
+        runtime.run_once()
+    else:
+        runtime.run_forever()
 
 
 if __name__ == "__main__":

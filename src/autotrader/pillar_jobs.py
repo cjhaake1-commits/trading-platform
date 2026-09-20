@@ -11,7 +11,7 @@ from .brokers.alpaca_metals_paper import AlpacaMetalsConfigurationError
 from .brokers.saxo_sim import SaxoApprovedOrder, SaxoSimAdapter
 from .capital_allocations import PILLAR_ALLOCATIONS, PILLAR_METALS
 from .international_trading import InternationalExecutionService, InternationalOrderSpec
-from .marketdata import YahooHistoricalData
+from .marketdata import NativeProviderMarketData
 from .metals_trading import MetalsExecutionService, MetalsOrderSpec
 from .models import AssetClass, Instrument, MarketBar, PortfolioState, Side
 from .multi_strategy import aggregate_confluence, evaluate_proposals
@@ -87,7 +87,7 @@ class MetalsPaperTradingJob:
     calendar_buffer_days: int = 14
 
     def __post_init__(self) -> None:
-        self.feed = YahooHistoricalData()
+        self.feed = NativeProviderMarketData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
         self.experiment = PaperExperimentConfig.from_env()
@@ -352,7 +352,7 @@ class InternationalPaperTradingJob:
             self.adapter = SaxoSimAdapter.from_env()
         except Exception:
             self.adapter = None
-        self.feed = YahooHistoricalData()
+        self.feed = NativeProviderMarketData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
         try:

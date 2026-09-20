@@ -12,6 +12,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
+from autotrader.capital_allocations import KALSHI_DEMO_BASE_CAPITAL, TOTAL_PAPER_CAPITAL
 from runtime_income_evidence import capital_diagnostics, cycle_evidence
 
 REPORT_VERSION = "income-report-v1"
@@ -126,7 +127,11 @@ def normalize_accounting(rows, *, now=None):
     return {
         "schema_version": REPORT_VERSION, "capital_policy": POLICY_VERSION,
         "status": "AVAILABLE" if complete and all(totals[k] is not None for k in ("equity", "deployed", "available")) else "PARTIAL",
-        "authorized_capital": 6000.0,
+        # Kalshi has a separate shared Demo authorization and must not be
+        # double-counted in the generic five-pillar ledger.
+        "authorized_capital": TOTAL_PAPER_CAPITAL,
+        "kalshi_authorized_capital": KALSHI_DEMO_BASE_CAPITAL,
+        "total_authorized_capital": TOTAL_PAPER_CAPITAL,
         "observed_at": min(times).isoformat() if all(t is not None for t in times) else None,
         "checked_at": now.isoformat(), **totals, "pillars": result,
         "realized_scope": "ledger reported realized today; fee completeness not established",
@@ -201,4 +206,35 @@ def build_report(root, *, now=None):
     report["source"] = "read-only runtime accounting ledger"
     report["capital_state_diagnostics"] = capital_diagnostics(root, now=now)
     report["execution_evidence"] = cycle_evidence(root, now=now)
+    report["evidence_layers"] = evidence_layers(root)
     return report
+
+
+def evidence_layers(root):
+    """Expose provider observations separately from verified experiment P&L."""
+    snapshot = read_json(Path(root) / "var/reports/current-six-pillar-snapshot.json")
+    pillars = snapshot.get("pillars") if isinstance(snapshot.get("pillars"), list) else []
+    observed_equity = sum(finite(row.get("equity")) or 0.0 for row in pillars)
+    observed_realized = sum(finite(row.get("realized")) or 0.0 for row in pillars)
+    observed_unrealized = sum(finite(row.get("unrealized")) or 0.0 for row in pillars)
+    verified = [row for row in pillars if row.get("accounting_status") == "ACCOUNTING_VERIFIED"
+                and row.get("ownership_confidence") == "HIGH"]
+    verified_equity = sum(finite(row.get("equity")) or 0.0 for row in verified) if verified else None
+    verified_realized = sum(finite(row.get("realized")) or 0.0 for row in verified) if verified else None
+    verified_unrealized = sum(finite(row.get("unrealized")) or 0.0 for row in verified) if verified else None
+    unknown = [row.get("pillar") for row in pillars if row not in verified]
+    return {
+        "provider_observed_equity": observed_equity if pillars else None,
+        "provider_observed_realized_pnl": observed_realized if pillars else None,
+        "provider_observed_unrealized_pnl": observed_unrealized if pillars else None,
+        "provider_observed_total_pnl": (observed_realized + observed_unrealized) if pillars else None,
+        "experiment_verified_equity": verified_equity,
+        "experiment_verified_realized_pnl": verified_realized,
+        "experiment_verified_unrealized_pnl": verified_unrealized,
+        "experiment_verified_total_pnl": (verified_realized + verified_unrealized) if verified else None,
+        "unattributed_provider_exposure": unknown,
+        "unresolved_cost_basis": unknown,
+        "unresolved_fees": unknown,
+        "unresolved_funding": ["Kalshi"],
+        "verified_pillars": [row.get("pillar") for row in verified],
+    }

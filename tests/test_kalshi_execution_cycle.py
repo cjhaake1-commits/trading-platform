@@ -57,7 +57,7 @@ def test_perps_positive_edge_invokes_shared_risk_and_reports_short_rejection():
 
 
 def test_perps_risk_approved_candidate_reaches_capital_and_order_boundary():
-    from scripts.kalshi_execution_cycle import _perps_order_payload, _perps_risk_evaluation
+    from scripts.kalshi_execution_cycle import _perps_risk_evaluation
 
     market = {
         "ticker": "KXTESTPERP1",
@@ -72,11 +72,9 @@ def test_perps_risk_approved_candidate_reaches_capital_and_order_boundary():
     result = _perps_risk_evaluation(market)
     assert result["risk_invoked"] is True
     assert result["risk_approved"] is True
-    assert result["capital_approved"] is True
-    assert result["qualified"] is True
-    payload = _perps_order_payload(market, result)
-    assert payload["side"] == "bid"
-    assert payload["count"] == "1.00"
+    assert result["capital_approved"] is False
+    assert result["capital_rejection"] == "KALSHI_SHARED_CAPITAL_UNKNOWN"
+    assert result["qualified"] is False
 
 
 def test_candidate_telemetry_is_append_only_and_research_only(tmp_path, monkeypatch):

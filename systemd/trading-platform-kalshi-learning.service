@@ -4,11 +4,11 @@ After=trading-platform-kalshi-research.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/cjhaake1/trading-platform
+WorkingDirectory=/home/cjhaake/trading-platform
 EnvironmentFile=/home/cjhaake1/.config/trading-platform/kalshi-research.env
 Environment=KALSHI_RESEARCH_DB=var/kalshi/research.db
 Environment=KALSHI_LEARNING_STATUS=var/global-intelligence/learning-status.json
-ExecStart=/home/cjhaake1/trading-platform/.venv/bin/python scripts/kalshi_learning_cycle.py
+ExecStart=/home/cjhaake/trading-platform/.venv/bin/python scripts/kalshi_learning_cycle.py
 Restart=always
 RestartSec=10
 

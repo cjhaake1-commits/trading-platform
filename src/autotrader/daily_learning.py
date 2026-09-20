@@ -11,7 +11,7 @@ from .crypto_strategy_discovery import discover as discover_crypto_strategies
 from .daily_report import write_report
 from .experiment_state import load_experiment_baseline_start
 from .learning import RealizedOutcomeLearner
-from .marketdata import YahooHistoricalData
+from .marketdata import NativeProviderMarketData
 from .models import AssetClass, Instrument
 from .paper_experiment import PaperExperimentLedger
 from .runtime import JobResult
@@ -86,7 +86,7 @@ class DailyLearningJob:
         bars_by_symbol = {}
         for symbol in counterfactual.pending_counterfactual_symbols():
             try:
-                bars_by_symbol[symbol] = YahooHistoricalData().history(
+                bars_by_symbol[symbol] = NativeProviderMarketData().history(
                     Instrument(symbol, AssetClass.CRYPTO), now - timedelta(days=7), now, interval="1m"
                 )
             except Exception:

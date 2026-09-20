@@ -39,6 +39,7 @@ def test_bridge_requires_owned_position_and_records_intent(tmp_path):
         "pillar": "stocks",
         "engine": "stocks",
         "instrument": "SPY",
+        "capital_required": 100.0,
     }
     result = execute_qualified_queue_record(record, adapter=adapter, lifecycle=ledger, now="2026-09-05T01:00:00+00:00")
     assert result["submitted"] is True and adapter.calls == 1

@@ -12,8 +12,8 @@ from autotrader.learning import (
 )
 
 
-def test_five_pillar_capital_is_5000():
-    assert TOTAL_PAPER_CAPITAL == 5000.0
+def test_six_pillar_capital_is_6000():
+    assert TOTAL_PAPER_CAPITAL == 6000.0
     assert set(PILLAR_ALLOCATIONS) == {
         "alpaca_equities",
         "oanda_fx",

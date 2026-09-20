@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
+from urllib.request import Request, urlopen
 
 from .models import AssetClass, Instrument, MarketBar
 
@@ -32,6 +35,53 @@ class HistoricalMarketData(Protocol):
         end: datetime,
         interval: str = "1d",
     ) -> list[MarketBar]: ...
+
+
+@dataclass
+class NativeProviderMarketData:
+    """Small bounded native-data adapter used by execution jobs.
+
+    It intentionally has no Yahoo dependency.  Provider failures return an
+    empty bounded result and are handled as degraded market data by callers.
+    """
+    timeout: float = 5.0
+
+    def history(self, instrument: Instrument, start: datetime, end: datetime, interval: str = "1d") -> list[MarketBar]:
+        symbol = instrument.symbol
+        if instrument.asset_class is AssetClass.FOREX:
+            base = os.getenv("OANDA_PRACTICE_BASE_URL", "https://api-fxpractice.oanda.com").rstrip("/")
+            account = os.getenv("OANDA_PRACTICE_ACCOUNT_ID", "")
+            token = os.getenv("OANDA_PRACTICE_TOKEN", "")
+            if not account or not token:
+                return []
+            granularity = {"5m": "M5", "15m": "M15", "1h": "H1", "1d": "D"}.get(interval, "M5")
+            url = f"{base}/v3/instruments/{symbol.replace('/', '_')}/candles?granularity={granularity}&count=100&price=M"
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            rows = json.loads(urlopen(Request(url, headers=headers), timeout=self.timeout).read()).get("candles", [])
+            values = [(row.get("time"), row.get("mid", {})) for row in rows if row.get("complete")]
+        else:
+            key, secret = os.getenv("ALPACA_PAPER_API_KEY", ""), os.getenv("ALPACA_PAPER_SECRET_KEY", "")
+            if not key or not secret:
+                return []
+            data_base = os.getenv("ALPACA_DATA_BASE_URL", "https://data.alpaca.markets").rstrip("/")
+            asset_class = "crypto/us" if instrument.asset_class is AssetClass.CRYPTO else "stocks"
+            api_symbol = symbol.replace("/", "%2F")
+            timeframe = {"1m": "1Min", "5m": "5Min", "15m": "15Min", "1h": "1Hour", "1d": "1Day"}.get(interval, "1Day")
+            url = f"{data_base}/v2/{asset_class}/bars?symbols={api_symbol}&timeframe={timeframe}&limit=100"
+            headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret, "Accept": "application/json"}
+            payload = json.loads(urlopen(Request(url, headers=headers), timeout=self.timeout).read())
+            raw = payload.get("bars", {})
+            rows = raw.get(symbol) or raw.get(symbol.replace("%2F", "/")) or []
+            values = [(row.get("t"), row) for row in rows]
+        bars = []
+        for timestamp, row in values[-100:]:
+            if not timestamp:
+                continue
+            ts = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+            bars.append(MarketBar(symbol=symbol, asset_class=instrument.asset_class, timestamp=ts,
+                open=float(row.get("o")), high=float(row.get("h")), low=float(row.get("l")),
+                close=float(row.get("c")), volume=float(row.get("v", 0) or 0)))
+        return bars
 
 
 @dataclass(frozen=True)

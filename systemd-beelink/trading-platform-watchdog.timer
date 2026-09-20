@@ -1,0 +1,10 @@
+[Unit]
+Description=Run trading platform reliability watchdog
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=trading-platform-watchdog.service
+
+[Install]
+WantedBy=timers.target

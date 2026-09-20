@@ -68,10 +68,10 @@ def test_snapshot_ignores_stale_ledger_capital_and_derives_internal_cash(monkeyp
 
     snapshot = publisher.build_snapshot(Path("missing"), Path("missing"), Path("missing"))
 
-    assert snapshot["portfolio"]["base_equity"] == 5000.0
-    assert snapshot["cash_dashboard"]["original_capital"] == 5000.0
+    assert snapshot["portfolio"]["base_equity"] == 6000.0
+    assert snapshot["cash_dashboard"]["original_capital"] == 6000.0
     assert snapshot["cash_dashboard"]["capital_deployed"] == 0.0
-    assert snapshot["cash_dashboard"]["available_cash"] == 5000.0
+    assert snapshot["cash_dashboard"]["available_cash"] == 6000.0
     assert snapshot["cash_dashboard"]["unrealized_pnl"] == 0.0
     assert snapshot["cash_dashboard"]["net_trading_cash_generated"] == 0.0
     assert snapshot["cash_dashboard"]["realized_return"] == 0.0

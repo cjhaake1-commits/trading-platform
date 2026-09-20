@@ -1,0 +1,26 @@
+[Unit]
+Description=Trading Platform PAPER Runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/cjhaake/trading-platform
+EnvironmentFile=-/home/cjhaake/trading-platform/.env
+EnvironmentFile=/home/cjhaake/.config/trading-platform/kalshi-demo-execution.env
+Environment=AUTONOMOUS_TRADING_ENABLED=true
+Environment=LIVE_TRADING_ENABLED=false
+ExecStart=/home/cjhaake/trading-platform/.venv/bin/autotrader-runtime --mode paper --autonomous-paper --heartbeat 5
+Environment=LIVE_TRADING_ENABLED=false
+Environment=KALSHI_LIVE_TRADING_ENABLED=false
+Environment=REAL_MONEY_ORDERS=0
+Environment=EXPERIMENT_ID=income_6000_v2
+Environment=VERIFICATION_EPOCH_ID=VE-bb9bd184ffb0ad64
+MemoryHigh=1536M
+MemoryMax=2048M
+CPUQuota=100%
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

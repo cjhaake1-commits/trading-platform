@@ -10,7 +10,7 @@ from .capital_allocations import PILLAR_ALLOCATIONS, PILLAR_FOREX, TOTAL_PAPER_C
 from .execution_safety import IdempotencyStore
 from .experiment_state import load_experiment_baseline_start, position_is_experiment_eligible
 from .fx_signals import qualify_fx_signal
-from .marketdata import YahooHistoricalData
+from .marketdata import NativeProviderMarketData
 from .models import AssetClass, Instrument, Side
 from .order_test_app import _sync_submitted_position
 from .preflight import run_preflight
@@ -56,7 +56,7 @@ class FxPaperTradingJob:
         self.config = config or FxPaperConfig()
         self.cadence_seconds = self.config.cadence_seconds
         self.experiment_baseline_start = load_experiment_baseline_start()
-        self.feed = YahooHistoricalData()
+        self.feed = NativeProviderMarketData()
         self.scanner = CandidateScanner()
         self.strategies = BaselineStrategies()
         self.risk = RiskEngine(replace(RiskLimits(), allow_short_selling=True))

@@ -51,6 +51,37 @@ def _read_status(engine: str) -> dict[str, object]:
         return {}
 
 
+def _number_or_unknown(value: object) -> object:
+    """Sanitize provider fields without turning missing evidence into zero."""
+    if value is None or value == "":
+        return "UNKNOWN"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return number if number == number and abs(number) != float("inf") else "UNKNOWN"
+
+
+def _lifecycle_row(item: dict[str, object], *, source: str) -> dict[str, object]:
+    keys = ("ticker", "instrument", "order_id", "provider_order_id", "fill_id",
+            "client_order_id", "side", "quantity", "filled_quantity", "remaining_quantity",
+            "entry_price", "average_fill_price", "mark_price", "exit_price", "liquidation_price",
+            "fees", "funding", "realized_pnl", "unrealized_pnl", "margin_used",
+            "maintenance_margin", "account_equity", "available_capacity", "timestamp",
+            "status", "state", "exit_type")
+    row = {key: _number_or_unknown(item.get(key)) for key in keys}
+    row["source"] = source
+    return row
+
+
+def _write_reconciliation_artifact(payload: dict[str, object]) -> None:
+    path = Path(os.getenv("KALSHI_RECONCILIATION_PATH", "var/kalshi/reconciliation.json"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
 def _write_candidate_telemetry(engine: str, rows: list[dict[str, object]]) -> None:
     """Append research-only candidate decisions; never participates in execution."""
     if not rows:
@@ -172,14 +203,18 @@ def _perps_risk_evaluation(market: dict[str, object]) -> dict[str, object]:
     risk_reason = decision.reason
     quantity = float(decision.quantity or 0.0)
     required_capital = quantity * dollar_entry if risk_approved else dollar_entry
-    available = kalshi_pool_available(committed=0.0, pending=0.0)
-    capital_approved = risk_approved and required_capital <= available and quantity >= 1.0
+    shared = _read_status("shared-capital")
+    shared_state_valid = all(key in shared for key in ("committed", "pending"))
+    committed = float(shared.get("committed", 0.0) or 0.0) if shared_state_valid else 0.0
+    pending = float(shared.get("pending", 0.0) or 0.0) if shared_state_valid else 0.0
+    available = kalshi_pool_available(committed=committed, pending=pending) if shared_state_valid else 0.0
+    capital_approved = shared_state_valid and risk_approved and required_capital <= available and quantity >= 1.0
     if not risk_approved:
         capital_reason = "NOT_EVALUATED_RISK_REJECTED"
     elif capital_approved:
         capital_reason = "capital capacity available"
     else:
-        capital_reason = "KALSHI_CAPITAL_INSUFFICIENT"
+        capital_reason = "KALSHI_SHARED_CAPITAL_UNKNOWN" if not shared_state_valid else "KALSHI_CAPITAL_INSUFFICIENT"
     # The Demo venue accepts whole contracts for this path.  A fractional
     # risk result is capacity information, not an executable order size.
     executable = quantity >= 1.0
@@ -328,9 +363,22 @@ def cycle() -> dict[str, object]:
             result.update({"state": "SCANNING", "markets": len(rows), "funnel": funnel,
                            "last_rejection_reason": "NO_POSITIVE_EDGE" if funnel["spread_valid"] else "INSUFFICIENT_SPREAD_OR_LIQUIDITY"})
         elif engine == "reconciliation":
-            result.update({"state": "CONNECTED", "positions": len(client.positions(limit="100").get("market_positions", [])),
-                           "orders": len(client.orders_read_only(limit="100").get("orders", [])),
-                           "fills": len(client.fills(limit="100").get("fills", []))})
+            positions = client.positions(limit="100").get("market_positions", [])
+            orders = client.orders_read_only(limit="100").get("orders", [])
+            fills = client.fills(limit="100").get("fills", [])
+            observed = result["observed_at"]
+            _write_reconciliation_artifact({
+                "schema_version": "kalshi-reconciliation-v2", "provider": "Kalshi DEMO",
+                "observed_at": observed, "accounting_state": "EXECUTION_PRESENT_ACCOUNTING_INCOMPLETE" if (orders or fills or positions) else "VERIFIED",
+                "positions": [_lifecycle_row(x, source="positions") for x in positions],
+                "working_orders": [_lifecycle_row(x, source="orders") for x in orders],
+                "fills": [_lifecycle_row(x, source="fills") for x in fills],
+                "liquidations_today": sum(1 for x in [*positions, *orders, *fills] if str(x.get("exit_type", "")).upper() == "LIQUIDATION" or str(x.get("status", "")).upper() == "LIQUIDATED"),
+                "realized_today": "UNKNOWN" if fills else 0.0,
+                "unknown_reason": "COST_BASIS_OR_FEE_DATA_MISSING" if fills else None,
+            })
+            result.update({"state": "CONNECTED", "positions": len(positions), "orders": len(orders), "fills": len(fills),
+                           "accounting_state": "EXECUTION_PRESENT_ACCOUNTING_INCOMPLETE" if (orders or fills or positions) else "VERIFIED"})
         else:
             if not config.perps_autonomous_enabled:
                 result["decision"] = "FAIL_CLOSED"
