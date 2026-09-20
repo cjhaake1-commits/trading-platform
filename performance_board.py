@@ -592,35 +592,16 @@ def _load_foundation_report():
 
 def main():
     st.markdown('<meta http-equiv="refresh" content="20">', unsafe_allow_html=True)
+    st.set_page_config(page_title="Trading Performance", layout="wide")
     st.markdown(
         """
         <style>
-        :root{--bg:#06111e;--panel:#101827;--line:#26364d;--text:#f4f7fb;--muted:#91a1b8;--green:#57d79b;--red:#ff7f8b;--gold:#d8b66c;--blue:#69b7ff;}
-        .stApp{background:linear-gradient(180deg,#071522 0%,#050b13 100%);color:var(--text)}
-        .block-container{max-width:1200px;padding-top:.7rem;padding-bottom:3rem}
+        .block-container{max-width:1100px;padding-top:1rem;padding-bottom:2rem}
         [data-testid="stHeader"],[data-testid="stSidebar"]{display:none}
-        .board-title{font-size:clamp(1.6rem,4vw,2.7rem);font-weight:850;letter-spacing:-.03em;margin:.2rem 0}
-        .board-sub{color:var(--muted);font-size:.88rem;margin-bottom:.45rem}
-        .live{font-size:.72rem;color:var(--green);margin:.2rem 0 .8rem;font-weight:700}
-        .section{font-size:.76rem;letter-spacing:.17em;text-transform:uppercase;color:var(--gold);font-weight:800;margin:1.25rem 0 .6rem}
-        [data-testid="stMetric"]{background:linear-gradient(180deg,#111a2a,#0d1522);border:1px solid var(--line);border-radius:15px;padding:.5rem .68rem}
-        [data-testid="stMetricLabel"]{color:var(--muted);font-size:.66rem;text-transform:uppercase;letter-spacing:.07em}
-        [data-testid="stMetricValue"]{font-size:1.24rem;font-weight:800;color:var(--text)}
-        .fund-status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.55rem;margin:.5rem 0 .9rem}
-        .fund-status>div{background:#0c1623;border:1px solid var(--line);border-radius:14px;padding:.7rem}
-        .fund-status .k{color:var(--muted);font-size:.62rem;text-transform:uppercase;letter-spacing:.08em}
-        .fund-status .v{font-size:1rem;font-weight:850;margin-top:.18rem}
-        .pillar-card{background:linear-gradient(180deg,#111a2a,#0c1420);border:1px solid var(--line);border-radius:18px;padding:.9rem;margin:.3rem 0 .62rem}
-        .pillar-head{display:flex;justify-content:space-between;gap:.7rem;align-items:flex-start;margin-bottom:.35rem}
-        .pillar-name{font-size:1.12rem;font-weight:850}.engine{font-size:.68rem;color:var(--green);font-weight:850;letter-spacing:.07em}.engine-off{color:var(--red)}
-        .market-state{font-size:.77rem;color:var(--blue);font-weight:750;margin-bottom:.72rem}
-        .pillar-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem}
-        .k{color:var(--muted);font-size:.62rem;text-transform:uppercase;letter-spacing:.07em}.v{font-size:.98rem;font-weight:800;margin-top:.1rem}
-        .pos{color:var(--green)}.neg{color:var(--red)}.neutral{color:var(--text)}
-        .goal{border:1px solid rgba(216,182,108,.45);background:rgba(216,182,108,.06);border-radius:15px;padding:.75rem .9rem;margin-top:.8rem}
-        .goal-top{display:flex;justify-content:space-between;gap:.8rem;align-items:center}.goal strong{font-size:1rem}.goal small{color:var(--muted)}
-        .bar{height:7px;background:#172235;border-radius:999px;overflow:hidden;margin-top:.5rem}.bar>div{height:100%;background:linear-gradient(90deg,#d8b66c,#57d79b)}
-        @media(max-width:760px){.block-container{padding-left:.65rem;padding-right:.65rem}.pillar-grid,.fund-status{grid-template-columns:repeat(2,minmax(0,1fr))}.board-title{font-size:1.55rem}[data-testid="stMetricValue"]{font-size:1.05rem}.pillar-card{padding:.78rem}.pillar-name{font-size:1.02rem}}
+        .title{font-size:2rem;font-weight:800;margin-bottom:.1rem}
+        .sub{color:#8b98aa;margin-bottom:1rem}
+        .ok{color:#36c98f;font-weight:700}
+        .muted{color:#8b98aa;font-size:.85rem}
         </style>
         """,
         unsafe_allow_html=True,
@@ -630,13 +611,28 @@ def main():
     runtime = core.load_live_runtime_status()
     if not isinstance(runtime, dict) or not runtime:
         runtime = snapshot.get("runtime") if isinstance(snapshot.get("runtime"), dict) else {}
-    core.fetch_live_broker_data.clear()
-    live_positions, _, live_status, live_errors = core.fetch_live_broker_data()
-    kalshi = core._kalshi_status()
-    saxo_live = _saxo_live_truth()
-    crypto_history = core._alpaca_crypto_history()
-    crypto_realized_today = crypto_history.get("realized_today")
-    foundation_report = _load_foundation_report()
+
+    try:
+        live_positions, _, live_status, _ = core.fetch_live_broker_data()
+    except Exception:
+        live_positions, live_status = [], {}
+
+    try:
+        kalshi = core._kalshi_status()
+    except Exception:
+        kalshi = {}
+
+    try:
+        saxo_live = _saxo_live_truth()
+    except Exception:
+        saxo_live = {}
+
+    try:
+        crypto_history = core._alpaca_crypto_history()
+        crypto_realized_today = crypto_history.get("realized_today")
+    except Exception:
+        crypto_realized_today = None
+
     pillars = build_pillars(
         snapshot,
         runtime,
@@ -645,158 +641,96 @@ def main():
         live_positions,
         saxo_live,
         crypto_realized_today=crypto_realized_today,
-        foundation_report=foundation_report,
+        foundation_report=_load_foundation_report(),
     )
-    write_authoritative_portfolio_snapshot(pillars)
 
-    def aggregate(field):
-        values = [row.get(field) for row in pillars]
-        return None if any(value is None for value in values) else sum(values)
+    def total(field):
+        vals = [row.get(field) for row in pillars if row.get(field) is not None]
+        return sum(vals) if vals else 0.0
 
-    fund_equity = aggregate("equity")
-    deployed = aggregate("deployed")
-    pending = aggregate("pending")
-    available = aggregate("available")
-    realized_today = aggregate("realized")
-    unrealized = aggregate("unrealized")
-    today_pnl = aggregate("today_pnl")
-    total_pnl = fund_equity - FUND_STARTING_CAPITAL if fund_equity is not None else None
-    daily_return = today_pnl / FUND_STARTING_CAPITAL if today_pnl is not None and FUND_STARTING_CAPITAL else None
-    active_count = sum(1 for row in pillars if row["engine_active"])
-    deployed_count = sum(1 for row in pillars if (row["deployed"] or 0) > 0 or (row["pending"] or 0) > 0)
-    position_count = sum(int(row["positions"]) for row in pillars)
-    order_count = sum(int(row["working_orders"]) for row in pillars)
+    deployed = total("deployed")
+    available = total("available")
+    today_pnl = total("today_pnl")
+    realized_today = total("realized")
+    unrealized = total("unrealized")
+    open_positions = sum(int(row.get("positions") or 0) for row in pillars)
+    working_orders = sum(int(row.get("working_orders") or 0) for row in pillars)
+    trades_today = sum(int(row.get("completed_today") or 0) for row in pillars)
 
-    st.markdown('<div class="board-title">AUTONOMOUS FUND PERFORMANCE</div>', unsafe_allow_html=True)
+    cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
+    week_pnl = first_number(cash, ["verified_net_pnl_week", "weekly_realized_pnl", "week_pnl"], 0.0)
+
+    learning = snapshot.get("learning") if isinstance(snapshot.get("learning"), dict) else {}
+    wins = int(first_number(learning, ["wins_today", "wins"], 0.0))
+    losses = int(first_number(learning, ["losses_today", "losses"], 0.0))
+    closed = wins + losses
+    win_rate = (wins / closed * 100.0) if closed else 0.0
+
+    velocity = snapshot.get("cash_velocity") if isinstance(snapshot.get("cash_velocity"), dict) else {}
+    cash_per_hour = first_number(
+        velocity,
+        ["verified_cash_per_hour", "cash_per_hour"],
+        first_number(cash, ["cash_per_hour", "verified_cash_per_hour"], 0.0),
+    )
+
+    resource = runtime.get("resource_telemetry") if isinstance(runtime.get("resource_telemetry"), dict) else {}
+    rss_mb = first_number(resource, ["rss_mb"], 0.0)
+    cpu_user = first_number(resource, ["cpu_user_seconds"], 0.0)
+    cpu_system = first_number(resource, ["cpu_system_seconds"], 0.0)
+
+    active = bool(runtime) and not bool(runtime.get("fatal_error"))
+    last_refresh = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    ranked = sorted(
+        pillars,
+        key=lambda row: (f(row.get("today_pnl")), f(row.get("realized"))),
+        reverse=True,
+    )
+    best = ranked[0]["display"] if ranked else "Collecting data"
+
+    st.markdown('<div class="title">Trading Performance</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="board-sub">Read-only six-pillar performance board · engine activity separated from capital exposure</div>',
+        f'<div class="sub"><span class="ok">● {"ACTIVE" if active else "CHECK ENGINE"}</span> · '
+        f'Paper/PRACTICE only · refreshed {last_refresh}</div>',
         unsafe_allow_html=True,
     )
-    st.markdown(
-        f'<div class="live">● LIVE PROVIDER SNAPSHOT · {datetime.now(UTC).strftime("%H:%M:%S UTC")} · AUTO-REFRESH 20s · READ-ONLY</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        f"""<div class="fund-status">
-        <div><div class="k">Execution Engines</div><div class="v {"pos" if active_count == 6 else "neg"}">{active_count}/6 ACTIVE</div></div>
-        <div><div class="k">Pillars With Capital</div><div class="v">{deployed_count}/6 DEPLOYED / PENDING</div></div>
-        <div><div class="k">Positions / Orders</div><div class="v">{position_count} / {order_count}</div></div>
-        </div>""",
-        unsafe_allow_html=True,
-    )
-
-    if live_errors:
-        st.warning("Provider read warning: " + " · ".join(live_errors))
-    if saxo_live.get("error"):
-        st.warning("International provider read warning: " + str(saxo_live.get("error")))
 
     a = st.columns(4)
-    a[0].metric("Current Equity", money(fund_equity))
-    a[1].metric("Capital Deployed", money(deployed))
-    a[2].metric("Available Cash", money(available))
-    a[3].metric("Pending Capital", money(pending))
+    a[0].metric("Authorized", money(FUND_STARTING_CAPITAL))
+    a[1].metric("Deployed", money(deployed))
+    a[2].metric("Available", money(available))
+    a[3].metric("Deployment", f"{(deployed / FUND_STARTING_CAPITAL * 100):.1f}%")
+
     b = st.columns(4)
     b[0].metric("Today P&L", signed_money(today_pnl))
-    b[1].metric("Daily Return", signed_pct(daily_return))
+    b[1].metric("Week P&L", signed_money(week_pnl))
     b[2].metric("Realized Today", signed_money(realized_today))
-    b[3].metric("Unrealized P&L", signed_money(unrealized))
-    c = st.columns(2)
-    c[0].metric("Total P&L", signed_money(total_pnl))
-    c[1].metric("Total Return", signed_pct(total_pnl / FUND_STARTING_CAPITAL if total_pnl is not None else None))
+    b[3].metric("Unrealized", signed_money(unrealized))
 
-    cash_progress = min(max((realized_today or 0.0) / DAILY_CASH_STRETCH, 0.0), 1.0)
-    st.markdown(
-        f'<div class="goal"><div class="goal-top"><div><small>DAILY REALIZED CASH</small><br><strong>{signed_money(realized_today)}</strong></div><div><small>FLOOR / STRETCH</small><br><strong>$500 / $1,000</strong></div></div><div class="bar"><div style="width:{cash_progress * 100:.1f}%"></div></div></div>',
-        unsafe_allow_html=True,
-    )
+    c = st.columns(4)
+    c[0].metric("Open Positions", str(open_positions))
+    c[1].metric("Working Orders", str(working_orders))
+    c[2].metric("Trades Today", str(trades_today))
+    c[3].metric("Win Rate", f"{win_rate:.1f}% ({wins}W/{losses}L)")
 
-    st.markdown('<div class="section">Six Pillar Performance</div>', unsafe_allow_html=True)
+    d = st.columns(3)
+    d[0].metric("Cash / Hour", signed_money(cash_per_hour))
+    d[1].metric("Best Pillar", best)
+    d[2].metric("Runtime RAM", f"{rss_mb:.0f} MB" if rss_mb else "Collecting")
+
+    st.markdown("### Pillars")
     for row in pillars:
-        pnl_class = "pos" if row["today_pnl"] > 0 else "neg" if row["today_pnl"] < 0 else "neutral"
-        total_class = "pos" if row["total_pnl"] > 0 else "neg" if row["total_pnl"] < 0 else "neutral"
-        engine_class = "engine" if row["engine_active"] else "engine engine-off"
-        engine_label = "ENGINE ACTIVE" if row["engine_active"] else "ENGINE DEGRADED"
-        st.markdown(
-            f"""<div class="pillar-card">
-            <div class="pillar-head"><div class="pillar-name">{row["display"]}</div><div class="{engine_class}">{engine_label}</div></div>
-            <div class="market-state">{row["state"]}</div>
-            <div class="board-sub">{row["activity_reason"]}</div>
-            <div class="board-sub">Accounting: {row["accounting_status"]}</div>
-            <div class="pillar-grid">
-              <div><div class="k">Equity</div><div class="v">{money(row["equity"])}</div></div>
-              <div><div class="k">Deployed</div><div class="v">{money(row["deployed"])}</div></div>
-              <div><div class="k">Available</div><div class="v">{money(row["available"])}</div></div>
-              <div><div class="k">Today P&L</div><div class="v {pnl_class}">{signed_money(row["today_pnl"])}</div></div>
-              <div><div class="k">Daily Return</div><div class="v {pnl_class}">{signed_pct(row["daily_return"])}</div></div>
-              <div><div class="k">Total P&L</div><div class="v {total_class}">{signed_money(row["total_pnl"])}</div></div>
-              <div><div class="k">Realized Today</div><div class="v">{signed_money(row["realized"])}</div></div>
-              <div><div class="k">Unrealized</div><div class="v">{signed_money(row["unrealized"])}</div></div>
-              <div><div class="k">Positions / Orders</div><div class="v">{row["positions"]} / {row["working_orders"]}</div></div>
-              <div><div class="k">Trades Today</div><div class="v">{row["completed_today"]}</div></div>
-            </div></div>""",
-            unsafe_allow_html=True,
-        )
+        cols = st.columns([2.1, 1.2, 1.2, 1.2, 1.2])
+        cols[0].markdown(f"**{row['display']}**")
+        cols[1].metric("Deployed", money(row.get("deployed")))
+        cols[2].metric("Today", signed_money(row.get("today_pnl")))
+        cols[3].metric("Positions", str(row.get("positions") or 0))
+        cols[4].metric("State", "Active" if row.get("engine_active") else "Idle/Blocked")
 
-    # Provider truth for the two previously ambiguous pillars is shown
-    # separately from capital exposure: a closed/flat market is not an engine
-    # failure, and Kalshi read health is independent of its blocked mutation.
-    st.markdown('<div class="section">International & Kalshi Provider Truth</div>', unsafe_allow_html=True)
-    international_session = saxo_live.get("session_state") or saxo_live.get("market_status") or "UNKNOWN"
-    international_next = saxo_live.get("next_activation") or saxo_live.get("next_open") or "UNKNOWN"
-    kalshi_connection = kalshi.get("connection") or kalshi.get("provider_state") or "UNKNOWN"
-    kalshi_mutation = kalshi.get("provider_mutation") or kalshi.get("mutation_state") or "PROVIDER MUTATION BLOCKED — USER_NOT_FOUND"
     st.markdown(
-        f"<div class='board-sub'>International: {international_session} · connected={saxo_live.get('connected', 'UNKNOWN')} · instruments={saxo_live.get('instruments_discovered', 'UNKNOWN')} · next activation={international_next}</div>"
-        f"<div class='board-sub'>Kalshi provider data: {kalshi_connection} · Predictions/Perps scanner: {kalshi.get('scanner', 'UNKNOWN')} · mutation: {kalshi_mutation}</div>",
+        f'<div class="muted">Runtime CPU time: {cpu_user + cpu_system:.1f}s · '
+        f'No trading controls are exposed on this page.</div>',
         unsafe_allow_html=True,
-    )
-
-    hv = _load_high_velocity()
-    lane_summary = _load_lane_summary()
-    micro_candidates = len(hv.get("micro_candidates", [])) if isinstance(hv.get("micro_candidates"), list) else 0
-    derivatives = len(hv.get("derivatives", [])) if isinstance(hv.get("derivatives"), list) else 0
-    arbitrage = len(hv.get("arbitrage", [])) if isinstance(hv.get("arbitrage"), list) else 0
-    st.markdown('<div class="section">Learning & High-Velocity Research</div>', unsafe_allow_html=True)
-    h = st.columns(4)
-    h[0].metric("Learning", "ACTIVE" if _runtime_job_active(runtime, "daily-learning") else "COLLECTING")
-    h[1].metric("Micro Candidates", str(micro_candidates))
-    h[2].metric("Derivative Sims", str(derivatives))
-    h[3].metric("Arbitrage Sims", str(arbitrage))
-    if hv.get("updated_at"):
-        st.caption(f"High-velocity research last update: {hv.get('updated_at')}")
-
-    # Realized cash is the primary research objective. Simulated lanes remain
-    # explicitly separate from provider-realized cash and never affect equity.
-    st.markdown('<div class="section">Cash Generation & Research</div>', unsafe_allow_html=True)
-    realized_today = sum(float(row.get("realized") or 0.0) for row in pillars if row.get("realized") is not None)
-    lane_rows = lane_summary.get("lanes") if isinstance(lane_summary.get("lanes"), dict) else {}
-    def lane_pnl(name):
-        row = lane_rows.get(name, {}) if isinstance(lane_rows, dict) else {}
-        return signed_money(row.get("realized_pnl", row.get("simulated_pnl", 0.0))) if isinstance(row, dict) else signed_money(0.0)
-    st.markdown(
-        f'''<div class="fund-status">
-        <div><div class="k">Realized Today</div><div class="v">{signed_money(realized_today)}</div></div>
-        <div><div class="k">$500 Goal Progress</div><div class="v">{realized_today / DAILY_CASH_FLOOR * 100:.1f}%</div></div>
-        <div><div class="k">$1,000 Goal Progress</div><div class="v">{realized_today / DAILY_CASH_STRETCH * 100:.1f}%</div></div>
-        <div><div class="k">Best Cash Generator</div><div class="v">{lane_summary.get("best_realized_cash_generator") or "EVIDENCE COLLECTING"}</div></div>
-        <div><div class="k">Best Capital Efficiency</div><div class="v">EVIDENCE COLLECTING</div></div>
-        <div><div class="k">Day / Short / Derivative / Arbitrage</div><div class="v">{lane_pnl("DAY_TRADE")} / {lane_pnl("SHORT")} / {lane_pnl("DERIVATIVE_SIM")} / {lane_pnl("ARBITRAGE_SIM")}</div></div>
-        <div><div class="k">Best Research Challenger</div><div class="v">{lane_summary.get("best_realized_cash_generator") or "COLLECTING EVIDENCE"}</div></div>
-        </div>''', unsafe_allow_html=True,
-    )
-
-    st.markdown('<div class="section">Annual Income Objective</div>', unsafe_allow_html=True)
-    cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
-    yearly_realized = first_number(cash, ["net_trading_cash_generated", "cumulative_realized_pnl"], 0.0)
-    d = st.columns(4)
-    d[0].metric("Annual Goal", money(ANNUAL_GOAL))
-    d[1].metric("Realized YTD", money(yearly_realized))
-    d[2].metric("Remaining", money(max(ANNUAL_GOAL - yearly_realized, 0.0)))
-    d[3].metric("Goal Progress", signed_pct(yearly_realized / ANNUAL_GOAL if ANNUAL_GOAL else 0.0))
-
-    st.caption(
-        "ENGINE ACTIVE means the provider/runtime execution loop is running. ACTIVE — POSITION OPEN means capital is currently deployed. ACTIVE — SEEKING EDGE means the engine is live and evaluating but is currently flat."
     )
 
 
