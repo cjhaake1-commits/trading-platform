@@ -649,7 +649,8 @@ def main():
         return sum(vals) if vals else 0.0
 
     deployed = total("deployed")
-    available = total("available")
+    pending = total("pending")
+    available = max(FUND_STARTING_CAPITAL - deployed - pending, 0.0)
     today_pnl = total("today_pnl")
     realized_today = total("realized")
     unrealized = total("unrealized")
@@ -678,7 +679,17 @@ def main():
     cpu_user = first_number(resource, ["cpu_user_seconds"], 0.0)
     cpu_system = first_number(resource, ["cpu_system_seconds"], 0.0)
 
-    active = bool(runtime) and not bool(runtime.get("fatal_error"))
+    jobs = runtime.get("jobs") if isinstance(runtime.get("jobs"), dict) else {}
+    execution_state = str(runtime.get("execution_state") or runtime.get("state") or "").lower()
+    heartbeat_seen = any(
+        isinstance(job, dict) and (job.get("last_started_at") or job.get("last_finished_at"))
+        for job in jobs.values()
+    )
+    active = (
+        execution_state in {"armed_paper", "active", "running"}
+        or bool(runtime.get("healthy"))
+        or heartbeat_seen
+    ) and not bool(runtime.get("fatal_error"))
     last_refresh = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     ranked = sorted(
@@ -725,7 +736,9 @@ def main():
         cols[1].metric("Deployed", money(row.get("deployed")))
         cols[2].metric("Today", signed_money(row.get("today_pnl")))
         cols[3].metric("Positions", str(row.get("positions") or 0))
-        cols[4].metric("State", "Active" if row.get("engine_active") else "Idle/Blocked")
+        provider_up = bool(row.get("provider_available")) or bool(row.get("engine_active"))
+        state_label = "Active" if provider_up else "Idle/Blocked"
+        cols[4].metric("State", state_label)
 
     st.markdown(
         f'<div class="muted">Runtime CPU time: {cpu_user + cpu_system:.1f}s · '
