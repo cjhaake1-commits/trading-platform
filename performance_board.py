@@ -654,9 +654,15 @@ def main():
     today_pnl = total("today_pnl")
     realized_today = total("realized")
     unrealized = total("unrealized")
-    open_positions = sum(int(row.get("positions") or 0) for row in pillars)
-    working_orders = sum(int(row.get("working_orders") or 0) for row in pillars)
-    trades_today = sum(int(row.get("completed_today") or 0) for row in pillars)
+    def strategy_visible(row):
+        if row.get("name") == "Kalshi":
+            return False
+        status = str(row.get("accounting_status") or "").upper()
+        return status in {"ACCOUNTING_VERIFIED", ""} or bool(row.get("engine_active"))
+
+    open_positions = sum(int(row.get("positions") or 0) for row in pillars if strategy_visible(row))
+    working_orders = sum(int(row.get("working_orders") or 0) for row in pillars if strategy_visible(row))
+    trades_today = sum(int(row.get("completed_today") or 0) for row in pillars if strategy_visible(row))
 
     cash = snapshot.get("cash_dashboard") if isinstance(snapshot.get("cash_dashboard"), dict) else {}
     week_pnl = first_number(cash, ["verified_net_pnl_week", "weekly_realized_pnl", "week_pnl"], 0.0)
@@ -673,11 +679,6 @@ def main():
         ["verified_cash_per_hour", "cash_per_hour"],
         first_number(cash, ["cash_per_hour", "verified_cash_per_hour"], 0.0),
     )
-
-    resource = runtime.get("resource_telemetry") if isinstance(runtime.get("resource_telemetry"), dict) else {}
-    rss_mb = first_number(resource, ["rss_mb"], 0.0)
-    cpu_user = first_number(resource, ["cpu_user_seconds"], 0.0)
-    cpu_system = first_number(resource, ["cpu_system_seconds"], 0.0)
 
     jobs = runtime.get("jobs") if isinstance(runtime.get("jobs"), dict) else {}
     execution_state = str(runtime.get("execution_state") or runtime.get("state") or "").lower()
@@ -724,25 +725,24 @@ def main():
     c[2].metric("Trades Today", str(trades_today))
     c[3].metric("Win Rate", f"{win_rate:.1f}% ({wins}W/{losses}L)")
 
-    d = st.columns(3)
+    d = st.columns(2)
     d[0].metric("Cash / Hour", signed_money(cash_per_hour))
     d[1].metric("Best Pillar", best)
-    d[2].metric("Runtime RAM", f"{rss_mb:.0f} MB" if rss_mb else "Collecting")
 
     st.markdown("### Pillars")
     for row in pillars:
-        cols = st.columns([2.1, 1.2, 1.2, 1.2, 1.2])
+        visible = strategy_visible(row)
+        shown_positions = int(row.get("positions") or 0) if visible else 0
+        shown_deployed = row.get("deployed") if visible else 0.0
+        shown_pnl = row.get("today_pnl") if visible else 0.0
+        cols = st.columns([2.2, 1.3, 1.3, 1.0])
         cols[0].markdown(f"**{row['display']}**")
-        cols[1].metric("Deployed", money(row.get("deployed")))
-        cols[2].metric("Today", signed_money(row.get("today_pnl")))
-        cols[3].metric("Positions", str(row.get("positions") or 0))
-        provider_up = bool(row.get("provider_available")) or bool(row.get("engine_active"))
-        state_label = "Active" if provider_up else "Idle/Blocked"
-        cols[4].metric("State", state_label)
+        cols[1].metric("Deployed", money(shown_deployed))
+        cols[2].metric("Today", signed_money(shown_pnl))
+        cols[3].metric("Positions", str(shown_positions))
 
     st.markdown(
-        f'<div class="muted">Runtime CPU time: {cpu_user + cpu_system:.1f}s · '
-        f'No trading controls are exposed on this page.</div>',
+        '<div class="muted">Verified strategy performance only · legacy/unverified provider inventory excluded · read-only.</div>',
         unsafe_allow_html=True,
     )
 
