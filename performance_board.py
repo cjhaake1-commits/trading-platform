@@ -590,6 +590,23 @@ def _load_foundation_report():
     return value if isinstance(value, dict) else {}
 
 
+def simple_pillar_status(row, live_status, kalshi):
+    name = row.get("name")
+    if name == "Kalshi":
+        connected = str(kalshi.get("connection") or "").upper().startswith("CONNECTED")
+        return "OPEN · BLOCKED" if connected else "BLOCKED"
+    if name == "Crypto":
+        state = live_status.get("Crypto") if isinstance(live_status.get("Crypto"), dict) else {}
+        if state.get("connected"):
+            return "OPEN · ACTIVE" if row.get("engine_active") else "OPEN · CONNECTED"
+        return "UNAVAILABLE"
+    if row.get("engine_active"):
+        return "ACTIVE"
+    if row.get("provider_available"):
+        return "CONNECTED"
+    return "IDLE / CLOSED"
+
+
 def main():
     st.markdown('<meta http-equiv="refresh" content="20">', unsafe_allow_html=True)
     st.set_page_config(page_title="Trading Performance", layout="wide")
@@ -735,14 +752,16 @@ def main():
         shown_positions = int(row.get("positions") or 0) if visible else 0
         shown_deployed = row.get("deployed") if visible else 0.0
         shown_pnl = row.get("today_pnl") if visible else 0.0
-        cols = st.columns([2.2, 1.3, 1.3, 1.0])
+        status_label = simple_pillar_status(row, live_status, kalshi)
+        cols = st.columns([2.0, 1.25, 1.25, 0.9, 1.45])
         cols[0].markdown(f"**{row['display']}**")
         cols[1].metric("Deployed", money(shown_deployed))
         cols[2].metric("Today", signed_money(shown_pnl))
         cols[3].metric("Positions", str(shown_positions))
+        cols[4].metric("Status", status_label)
 
     st.markdown(
-        '<div class="muted">Verified strategy performance only · legacy/unverified provider inventory excluded · read-only.</div>',
+        '<div class="muted">Market/provider status is separate from verified strategy exposure. Kalshi may be open but remains blocked until its unresolved demo exposure is reconciled.</div>',
         unsafe_allow_html=True,
     )
 
