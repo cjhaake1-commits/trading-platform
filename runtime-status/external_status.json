@@ -27,11 +27,11 @@
   "environment": "PAPER/PRACTICE/SIM/DEMO",
   "first_qualifying_post_boundary_trade": {
     "boundary_id": "23f19b0e-fc9e-4124-b420-63bf01aaa9da",
-    "checked_at": "2026-10-02T22:34:38.410289+00:00",
+    "checked_at": "2026-10-02T22:38:00.098114+00:00",
     "qualified": false,
     "runtime_healthy": true
   },
-  "generated_at_utc": "2026-10-02T22:32:06.819160+00:00",
+  "generated_at_utc": "2026-10-02T22:35:43.835288+00:00",
   "git": {
     "branch": "bootstrap-paper-trading-core",
     "commit_sha": "29a5c4ae921081e0e2a6cea862563b88ef558814"
@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-02T22:37:53.448132+00:00",
+    "checked_at": "2026-10-02T22:38:59.174143+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,15 +142,15 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 349.72909,
+          "age_seconds": 33.870144,
           "crypto_qualified": null,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "autonomous-paper-trading",
           "equity_qualified": null,
           "forex_qualified": null,
-          "observed_at": "2026-10-02T22:32:03.719042+00:00",
+          "observed_at": "2026-10-02T22:38:25.303999+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -161,15 +161,15 @@
           "submitted": null
         },
         {
-          "age_seconds": 348.370901,
+          "age_seconds": 32.352205,
           "crypto_qualified": null,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "oanda-fx-paper-trading",
           "equity_qualified": null,
           "forex_qualified": null,
-          "observed_at": "2026-10-02T22:32:05.077231+00:00",
+          "observed_at": "2026-10-02T22:38:26.821938+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -180,15 +180,15 @@
           "submitted": null
         },
         {
-          "age_seconds": 346.877258,
+          "age_seconds": 30.859438,
           "crypto_qualified": null,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "alpaca-metals-paper-trading",
           "equity_qualified": null,
           "forex_qualified": null,
-          "observed_at": "2026-10-02T22:32:06.570874+00:00",
+          "observed_at": "2026-10-02T22:38:28.314705+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -199,15 +199,15 @@
           "submitted": null
         },
         {
-          "age_seconds": 346.778731,
+          "age_seconds": 30.761165,
           "crypto_qualified": null,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "saxo-international-paper-trading",
           "equity_qualified": null,
           "forex_qualified": null,
-          "observed_at": "2026-10-02T22:32:06.669401+00:00",
+          "observed_at": "2026-10-02T22:38:28.412978+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -1105,7 +1105,7 @@
     "fills_today": null,
     "first_qualifying_post_boundary_trade": {
       "boundary_id": "23f19b0e-fc9e-4124-b420-63bf01aaa9da",
-      "checked_at": "2026-10-02T22:34:38.410289+00:00",
+      "checked_at": "2026-10-02T22:38:00.098114+00:00",
       "qualified": false,
       "runtime_healthy": true
     },
@@ -1116,7 +1116,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 408.194905,
+        "age_seconds": 473.920916,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -1147,7 +1147,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 408.194905,
+        "age_seconds": 473.920916,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -1178,7 +1178,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 408.194905,
+        "age_seconds": 473.920916,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -1209,7 +1209,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 408.194905,
+        "age_seconds": 473.920916,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -1240,7 +1240,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 408.194905,
+        "age_seconds": 473.920916,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -1271,7 +1271,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 408.194905,
+        "age_seconds": 473.920916,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -1310,62 +1310,62 @@
     "realized_scope": "ledger reported realized today; fee completeness not established",
     "realized_today": null,
     "runtime": {
-      "healthy": false,
-      "heartbeat_at": "2026-10-02T22:32:06.818612+00:00",
-      "heartbeat_fresh": false,
+      "healthy": true,
+      "heartbeat_at": "2026-10-02T22:35:43.833112+00:00",
+      "heartbeat_fresh": true,
       "live_trading_enabled": false,
       "pillars": {
         "Crypto": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-02T22:32:03.719042+00:00"
+            "2026-10-02T22:38:25.303999+00:00"
           ],
           "reasons": [],
-          "state": "STALE / UNKNOWN"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Forex": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-02T22:32:05.077231+00:00"
+            "2026-10-02T22:38:26.821938+00:00"
           ],
           "reasons": [],
-          "state": "STALE / UNKNOWN"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "International": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-02T22:32:06.669401+00:00"
+            "2026-10-02T22:38:28.412978+00:00"
           ],
           "reasons": [],
-          "state": "STALE / UNKNOWN"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Kalshi": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-02T22:32:02.020045+00:00",
-            "2026-10-02T22:31:54.978261+00:00"
+            "2026-10-02T22:35:40.313776+00:00",
+            "2026-10-02T22:35:27.890284+00:00"
           ],
           "reasons": [
             "RUNTIME_OR_PROVIDER_REJECTION",
             "RUNTIME_OR_PROVIDER_REJECTION"
           ],
-          "state": "STALE / UNKNOWN"
+          "state": "ACTIVE / BLOCKED OR DEGRADED"
         },
         "Metals": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-02T22:32:06.570874+00:00"
+            "2026-10-02T22:38:28.314705+00:00"
           ],
           "reasons": [],
-          "state": "STALE / UNKNOWN"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Stocks": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-02T22:32:03.719042+00:00"
+            "2026-10-02T22:38:25.303999+00:00"
           ],
           "reasons": [],
-          "state": "STALE / UNKNOWN"
+          "state": "SCANNING / NO EXECUTION PROOF"
         }
       }
     },
@@ -1387,21 +1387,21 @@
   "six_pillars": {
     "crypto": {
       "enabled": true,
-      "last_activity_at": "2026-10-02T22:32:03.719042+00:00",
+      "last_activity_at": "2026-10-02T22:30:57.918405+00:00",
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "forex": {
       "enabled": true,
-      "last_activity_at": "2026-10-02T22:32:05.077231+00:00",
+      "last_activity_at": "2026-10-02T22:30:59.000005+00:00",
       "last_error": null,
       "mode": "PRACTICE",
       "provider": "OANDA Practice"
     },
     "international": {
       "enabled": true,
-      "last_activity_at": "2026-10-02T22:32:06.669401+00:00",
+      "last_activity_at": "2026-10-02T22:31:00.727560+00:00",
       "last_error": null,
       "mode": "SIM",
       "provider": "Saxo SIM"
@@ -1417,9 +1417,9 @@
         "settled_funds": -79.7627
       },
       "configured": true,
-      "cycle_count": 90096,
+      "cycle_count": 90119,
       "enabled": true,
-      "last_activity_at": "2026-10-02T22:31:54.978261+00:00",
+      "last_activity_at": "2026-10-02T22:35:27.890284+00:00",
       "last_error": "READY_TO_SUBMIT",
       "mode": "DEMO",
       "provider": "Kalshi DEMO",
@@ -1433,9 +1433,9 @@
         "provider_portfolio_value": 0
       },
       "configured": true,
-      "cycle_count": 231078,
+      "cycle_count": 231109,
       "enabled": true,
-      "last_activity_at": "2026-10-02T22:32:02.020045+00:00",
+      "last_activity_at": "2026-10-02T22:35:40.313776+00:00",
       "last_error": "INSUFFICIENT_SPREAD_OR_LIQUIDITY",
       "mode": "DEMO",
       "provider": "Kalshi DEMO",
@@ -1445,14 +1445,14 @@
     },
     "metals": {
       "enabled": true,
-      "last_activity_at": "2026-10-02T22:32:06.570874+00:00",
+      "last_activity_at": "2026-10-02T22:31:00.609602+00:00",
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "stocks": {
       "enabled": true,
-      "last_activity_at": "2026-10-02T22:32:03.719042+00:00",
+      "last_activity_at": "2026-10-02T22:30:57.918405+00:00",
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
