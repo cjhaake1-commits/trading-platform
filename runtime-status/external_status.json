@@ -42,50 +42,7 @@
     "available": null,
     "capital_policy": "income_6000_v1",
     "capital_state_diagnostics": {
-      "day_start_baselines": [
-        {
-          "equity_date": "2026-10-03",
-          "persisted_at": "2026-10-03T00:07:16.963946+00:00",
-          "pillar": "alpaca_crypto",
-          "source": "paper_allocation_cap_pending_provider_reconciliation",
-          "starting_economic_equity": 1000.0
-        },
-        {
-          "equity_date": "2026-10-03",
-          "persisted_at": "2026-10-03T00:07:16.949840+00:00",
-          "pillar": "alpaca_equities",
-          "source": "paper_allocation_cap_pending_provider_reconciliation",
-          "starting_economic_equity": 1000.0
-        },
-        {
-          "equity_date": "2026-10-03",
-          "persisted_at": "2026-10-03T00:07:16.990238+00:00",
-          "pillar": "alpaca_metals",
-          "source": "paper_allocation_cap_pending_provider_reconciliation",
-          "starting_economic_equity": 1000.0
-        },
-        {
-          "equity_date": "2026-10-03",
-          "persisted_at": "2026-10-03T00:07:17.005664+00:00",
-          "pillar": "ibkr_global",
-          "source": "paper_allocation_cap_pending_provider_reconciliation",
-          "starting_economic_equity": 1000.0
-        },
-        {
-          "equity_date": "2026-10-03",
-          "persisted_at": "2026-10-03T00:07:17.017520+00:00",
-          "pillar": "kalshi",
-          "source": "paper_allocation_cap_pending_provider_reconciliation",
-          "starting_economic_equity": 1000.0
-        },
-        {
-          "equity_date": "2026-10-03",
-          "persisted_at": "2026-10-03T00:07:16.977019+00:00",
-          "pillar": "oanda_fx",
-          "source": "paper_allocation_cap_pending_provider_reconciliation",
-          "starting_economic_equity": 1000.0
-        }
-      ],
+      "day_start_baselines": [],
       "portfolio_state": [
         {
           "cash": 4318.052988273546,
@@ -98,7 +55,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-03T23:59:46.850617+00:00",
+    "checked_at": "2026-10-04T00:00:47.030496+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,7 +99,7 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 6.256263,
+          "age_seconds": 66.436142,
           "crypto_qualified": 2.0,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -161,7 +118,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 3.226153,
+          "age_seconds": 63.406032,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -180,7 +137,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 1.773032,
+          "age_seconds": 61.952911,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -199,7 +156,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 1.594804,
+          "age_seconds": 61.774683,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -222,442 +179,12 @@
       "latest_cycles_unreadable_engines": [],
       "net_income_reason": "Cost-complete reconciled ownership and outcomes are required",
       "net_realized_income": null,
-      "observed_receipts_count": 33,
-      "provider_order_receipts_count": 33,
-      "receipts": [
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T23:44:07.814013+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T23:49:46.553398+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "2e1d5221-5cf5-4ed8-96e2-89338cf6088c",
-          "quantity_reported": 5.613416236
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T23:29:37.198615+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T23:36:23.120420+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "9aca1265-084b-43f4-8e33-d5eae0959882",
-          "quantity_reported": 5.638932731
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T23:17:28.115866+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T23:23:47.722383+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "c0c57918-b525-4ea3-abf4-125d0dd26f90",
-          "quantity_reported": 5.655142554
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T23:04:17.841610+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T23:10:14.680351+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "5e422aaf-afaa-4f33-abae-33756586c3b3",
-          "quantity_reported": 5.676390688
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T22:52:23.412157+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T22:57:55.408914+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "7af2825f-6c11-492d-836b-1768ab0a87fc",
-          "quantity_reported": 5.683840776
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T22:38:55.328046+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T22:44:52.877414+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "e8559bb7-9f54-4e04-bf89-c384a5758c87",
-          "quantity_reported": 5.692036434
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T14:56:24.791352+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T15:01:09.512379+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "df3aa8fd-307d-495f-8e7f-ce636eb2832a",
-          "quantity_reported": 5.72561486
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T14:47:30.088438+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T14:51:59.259697+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "e23e38d9-4985-4bd0-8a28-6e9cd8d180c2",
-          "quantity_reported": 5.736986495
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T14:40:51.754740+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T14:45:54.566262+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "41da11c6-a4f6-44e2-b5ad-fb8a0a31586b",
-          "quantity_reported": 5.765310364
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T14:31:10.678953+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T14:36:07.793911+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "3566eaee-6a9b-4e65-a9eb-a09e517738e8",
-          "quantity_reported": 5.786110518
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T14:21:16.658092+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T14:26:10.691693+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "6e58ee4d-f06e-4d90-a78e-1bb8d046e320",
-          "quantity_reported": 5.798713751
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T14:14:54.808740+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T14:19:40.897952+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "41273950-fff6-48c8-8bf4-35dde52f728c",
-          "quantity_reported": 5.803494065
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T13:58:14.411332+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T14:02:20.924438+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "e7242b19-df5c-4e1c-ac8f-033c4e5e1a2c",
-          "quantity_reported": 5.808123836
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T11:50:59.913883+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T11:55:47.284898+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "99c20cd2-8d24-4ded-845b-c6c2fda8c3ff",
-          "quantity_reported": 0.442670744
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T11:43:43.942724+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T11:47:34.429580+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "341861e6-6db7-4f09-87f3-c6590d87af09",
-          "quantity_reported": 0.594037685
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T11:38:00.650747+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T11:42:08.713888+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "dc60b9a3-73eb-4c36-8da9-70cbc79c9d52",
-          "quantity_reported": 0.594590302
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T11:29:23.495936+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T11:33:52.574461+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "6844b304-c194-4668-9e96-673fc050c851",
-          "quantity_reported": 0.595253423
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T11:21:50.293714+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T11:25:50.760970+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "a76afb68-8464-4c42-a7d1-b0b9da83383d",
-          "quantity_reported": 0.595930045
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T11:16:28.119671+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T11:20:14.370001+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "48471cda-bc5d-4772-9668-b34f636478a3",
-          "quantity_reported": 0.596776595
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T11:07:27.609583+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T11:12:09.708966+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "441ce533-894e-4c45-aba2-bae2a1441639",
-          "quantity_reported": 0.597124833
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T10:58:44.857606+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T11:03:10.282039+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "d6bc987c-5ad3-4ccd-a282-6d4528c7be55",
-          "quantity_reported": 0.59729607
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T10:51:40.606531+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T10:55:44.650033+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "a1ad2fff-3fce-4e49-a19b-89f48f5bb8fa",
-          "quantity_reported": 0.597834738
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T10:42:19.747567+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T10:46:08.146755+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "554b8869-a2da-41a1-94e8-a59603449945",
-          "quantity_reported": 0.597787691
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T10:34:47.352141+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T10:38:40.171491+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "17e87252-ec13-44e0-9e9c-a3514b1cf8dd",
-          "quantity_reported": 0.59824361
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T10:25:57.113289+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T10:29:45.330676+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "94bc59cf-8a72-4a80-97f0-50ece2c88a52",
-          "quantity_reported": 0.598767297
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T09:26:14.730367+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T09:30:50.293729+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "4115abe5-6ac8-4931-901b-5ff933f3b3e6",
-          "quantity_reported": 23.329262503
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T09:09:26.357160+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T09:13:18.694328+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "eb9a1ed5-2026-42ee-9204-91fc7eedf5c1",
-          "quantity_reported": 23.264344635
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T07:30:23.619623+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T07:33:45.657998+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "eb1f58f7-d51e-4c09-a85c-83487996ae46",
-          "quantity_reported": 0.604170006
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T06:56:45.693566+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T06:59:58.910007+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "28b787aa-a12f-49a6-a90a-2aadfccdc14e",
-          "quantity_reported": 23.414231902
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T06:50:03.475496+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T06:53:36.101901+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "5b682ac2-c3df-4a20-953d-64981aeeaa94",
-          "quantity_reported": 23.493801345
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T04:04:04.544787+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T04:07:25.651525+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "49063cb4-9de7-46de-ab38-5d9fc48860b4",
-          "quantity_reported": 0.608741846
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T03:25:36.571869+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "ETH/USD",
-          "observed_at": "2026-10-03T03:28:38.069066+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "e13901b9-3438-4f36-9e00-9661554a11fa",
-          "quantity_reported": 0.609827936
-        },
-        {
-          "clean_forward_qualified": null,
-          "cycle_started_at": "2026-10-03T01:37:59.172221+00:00",
-          "engine": "autonomous-paper-trading",
-          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
-          "fill_confirmed": null,
-          "instrument": "LTC/USD",
-          "observed_at": "2026-10-03T01:41:17.337822+00:00",
-          "pillar": "alpaca_crypto",
-          "platform_owned": null,
-          "provider_order_id": "bccb6012-e63c-45cf-af64-4ac022978991",
-          "quantity_reported": 23.250256185
-        }
-      ],
+      "observed_receipts_count": 0,
+      "provider_order_receipts_count": 0,
+      "receipts": [],
       "scope": "current UTC day engine receipts; not reconciled fills or income",
       "unreadable_engines": [],
-      "utc_date": "2026-10-03",
+      "utc_date": "2026-10-04",
       "window_complete": true
     },
     "fills_today": null,
@@ -674,7 +201,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 591.652035,
+        "age_seconds": 651.831914,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -705,7 +232,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 591.652035,
+        "age_seconds": 651.831914,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -736,7 +263,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 591.652035,
+        "age_seconds": 651.831914,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -767,7 +294,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 591.652035,
+        "age_seconds": 651.831914,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -798,7 +325,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 591.652035,
+        "age_seconds": 651.831914,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -829,7 +356,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 591.652035,
+        "age_seconds": 651.831914,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
