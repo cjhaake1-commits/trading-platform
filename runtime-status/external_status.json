@@ -92,13 +92,13 @@
           "daily_pnl": -1088.375127495568,
           "equity": 3911.624872504423,
           "peak_equity": 5000.0,
-          "updated_at": "2026-10-06T12:40:31.473561+00:00",
+          "updated_at": "2026-10-06T12:42:41.505517+00:00",
           "weekly_pnl": -1088.375127495568
         }
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-06T12:42:13.620124+00:00",
+    "checked_at": "2026-10-06T12:43:13.771904+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,26 +142,26 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 108.522047,
-          "crypto_qualified": null,
+          "age_seconds": 31.679854,
+          "crypto_qualified": 5.0,
           "cycle_fresh": true,
           "cycle_result": "OK",
-          "duplicate_count": null,
+          "duplicate_count": 3,
           "engine": "autonomous-paper-trading",
-          "equity_qualified": null,
-          "forex_qualified": null,
-          "observed_at": "2026-10-06T12:40:25.098077+00:00",
+          "equity_qualified": 0.0,
+          "forex_qualified": 0.0,
+          "observed_at": "2026-10-06T12:42:42.092050+00:00",
           "payload_valid": true,
-          "provider_order_receipts_count": 0,
+          "provider_order_receipts_count": 2,
           "qualified": null,
-          "qualified_signals": null,
-          "risk_rejection_count": null,
-          "sizing_skip_count": null,
-          "submission_failure_count": null,
-          "submitted": null
+          "qualified_signals": 5.0,
+          "risk_rejection_count": 0,
+          "sizing_skip_count": 0,
+          "submission_failure_count": 0,
+          "submitted": true
         },
         {
-          "age_seconds": 102.142694,
+          "age_seconds": 162.294474,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -180,7 +180,7 @@
           "submitted": true
         },
         {
-          "age_seconds": 100.640895,
+          "age_seconds": 160.792675,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -199,7 +199,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 100.405672,
+          "age_seconds": 160.557452,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -222,9 +222,35 @@
       "latest_cycles_unreadable_engines": [],
       "net_income_reason": "Cost-complete reconciled ownership and outcomes are required",
       "net_realized_income": null,
-      "observed_receipts_count": 24,
-      "provider_order_receipts_count": 24,
+      "observed_receipts_count": 26,
+      "provider_order_receipts_count": 26,
       "receipts": [
+        {
+          "clean_forward_qualified": null,
+          "cycle_started_at": "2026-10-06T12:25:52.715826+00:00",
+          "engine": "autonomous-paper-trading",
+          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
+          "fill_confirmed": null,
+          "instrument": "ADA/USD",
+          "observed_at": "2026-10-06T12:42:42.092050+00:00",
+          "pillar": "alpaca_crypto",
+          "platform_owned": null,
+          "provider_order_id": "14f12f11-2d7a-4aa7-82ed-c8f37644c3e5",
+          "quantity_reported": 11031.050904246
+        },
+        {
+          "clean_forward_qualified": null,
+          "cycle_started_at": "2026-10-06T12:25:52.715826+00:00",
+          "engine": "autonomous-paper-trading",
+          "evidence_stage": "ENGINE_REPORTED_PROVIDER_ORDER_RECEIPT",
+          "fill_confirmed": null,
+          "instrument": "LTC/USD",
+          "observed_at": "2026-10-06T12:42:42.092050+00:00",
+          "pillar": "alpaca_crypto",
+          "platform_owned": null,
+          "provider_order_id": "e86e42bc-213c-4f66-a17f-45aefa658b1e",
+          "quantity_reported": 12.282846523
+        },
         {
           "clean_forward_qualified": null,
           "cycle_started_at": "2026-10-06T12:25:12.247953+00:00",
@@ -557,7 +583,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 1021.372171,
+        "age_seconds": 1081.523951,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -588,7 +614,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 1021.372171,
+        "age_seconds": 1081.523951,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -619,7 +645,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 1021.372171,
+        "age_seconds": 1081.523951,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -650,7 +676,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 1021.372171,
+        "age_seconds": 1081.523951,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -681,7 +707,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 1021.372171,
+        "age_seconds": 1081.523951,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -712,7 +738,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 1021.372171,
+        "age_seconds": 1081.523951,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -759,7 +785,7 @@
         "Crypto": {
           "active": false,
           "last_activity_at": [
-            "2026-10-06T12:25:36.926052+00:00"
+            "2026-10-06T12:42:42.092050+00:00"
           ],
           "reasons": [],
           "state": "STALE / UNKNOWN"
@@ -803,7 +829,7 @@
         "Stocks": {
           "active": false,
           "last_activity_at": [
-            "2026-10-06T12:25:36.926052+00:00"
+            "2026-10-06T12:42:42.092050+00:00"
           ],
           "reasons": [],
           "state": "STALE / UNKNOWN"
