@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-20T01:56:33.654218+00:00",
+    "checked_at": "2026-10-20T01:58:33.673640+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,26 +142,26 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 380.492892,
-          "crypto_qualified": 1.0,
-          "cycle_fresh": false,
+          "age_seconds": 11.013545,
+          "crypto_qualified": 0.0,
+          "cycle_fresh": true,
           "cycle_result": "OK",
-          "duplicate_count": 1,
+          "duplicate_count": null,
           "engine": "autonomous-paper-trading",
           "equity_qualified": 0.0,
           "forex_qualified": 0.0,
-          "observed_at": "2026-10-20T01:50:13.161326+00:00",
+          "observed_at": "2026-10-20T01:58:22.660095+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
-          "qualified_signals": 1.0,
-          "risk_rejection_count": 0,
-          "sizing_skip_count": 0,
-          "submission_failure_count": 0,
+          "qualified_signals": 0.0,
+          "risk_rejection_count": null,
+          "sizing_skip_count": null,
+          "submission_failure_count": null,
           "submitted": null
         },
         {
-          "age_seconds": 330.250196,
+          "age_seconds": 450.269618,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -180,9 +180,9 @@
           "submitted": null
         },
         {
-          "age_seconds": 297.337665,
+          "age_seconds": 417.357087,
           "crypto_qualified": null,
-          "cycle_fresh": true,
+          "cycle_fresh": false,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "alpaca-metals-paper-trading",
@@ -199,9 +199,9 @@
           "submitted": null
         },
         {
-          "age_seconds": 297.252962,
+          "age_seconds": 417.272384,
           "crypto_qualified": null,
-          "cycle_fresh": true,
+          "cycle_fresh": false,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "saxo-international-paper-trading",
@@ -415,7 +415,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 53.110572,
+        "age_seconds": 173.129994,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -448,7 +448,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 53.110572,
+        "age_seconds": 173.129994,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -481,7 +481,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 53.110572,
+        "age_seconds": 173.129994,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -514,7 +514,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 53.110572,
+        "age_seconds": 173.129994,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -547,7 +547,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 53.110572,
+        "age_seconds": 173.129994,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -580,7 +580,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 53.110572,
+        "age_seconds": 173.129994,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -627,12 +627,12 @@
       "live_trading_enabled": false,
       "pillars": {
         "Crypto": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-20T01:37:13.313684+00:00"
+            "2026-10-20T01:58:22.660095+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Forex": {
           "active": false,
@@ -671,12 +671,12 @@
           "state": "DISABLED / NO RECENT CYCLE"
         },
         "Stocks": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-20T01:37:13.313684+00:00"
+            "2026-10-20T01:58:22.660095+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         }
       }
     },
