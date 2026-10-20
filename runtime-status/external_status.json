@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-20T23:08:33.655700+00:00",
+    "checked_at": "2026-10-20T23:10:33.654768+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,15 +142,15 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 605.922307,
+          "age_seconds": 43.459603,
           "crypto_qualified": 0.0,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "autonomous-paper-trading",
           "equity_qualified": 0.0,
           "forex_qualified": 0.0,
-          "observed_at": "2026-10-20T22:58:27.733393+00:00",
+          "observed_at": "2026-10-20T23:09:50.195165+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -161,7 +161,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 560.46446,
+          "age_seconds": 680.463528,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -180,7 +180,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 527.376415,
+          "age_seconds": 647.375483,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -199,7 +199,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 527.265803,
+          "age_seconds": 647.264871,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -441,7 +441,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 59.604303,
+        "age_seconds": 179.603371,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -474,7 +474,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 59.604303,
+        "age_seconds": 179.603371,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -507,7 +507,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 59.604303,
+        "age_seconds": 179.603371,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -540,7 +540,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 59.604303,
+        "age_seconds": 179.603371,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -573,7 +573,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 59.604303,
+        "age_seconds": 179.603371,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -606,7 +606,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 59.604303,
+        "age_seconds": 179.603371,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -648,33 +648,33 @@
     "realized_today": null,
     "runtime": {
       "healthy": true,
-      "heartbeat_at": "2026-10-20T23:07:34.051397+00:00",
+      "heartbeat_at": "2026-10-20T23:07:17.502444+00:00",
       "heartbeat_fresh": true,
       "live_trading_enabled": false,
       "pillars": {
         "Crypto": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-20T22:47:13.437236+00:00"
+            "2026-10-20T23:09:50.195165+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Forex": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-20T22:42:33.357697+00:00"
+            "2026-10-20T22:59:13.191240+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "International": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-20T22:47:46.408059+00:00"
+            "2026-10-20T22:59:46.389897+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Kalshi": {
           "active": true,
@@ -689,20 +689,20 @@
           "state": "ACTIVE / BLOCKED OR DEGRADED"
         },
         "Metals": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-20T22:47:46.362938+00:00"
+            "2026-10-20T22:59:46.279285+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Stocks": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-20T22:47:13.437236+00:00"
+            "2026-10-20T23:09:50.195165+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         }
       }
     },
