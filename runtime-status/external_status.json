@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-21T12:18:33.783120+00:00",
+    "checked_at": "2026-10-21T12:20:33.662943+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,15 +142,15 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 322.33277,
+          "age_seconds": 24.809598,
           "crypto_qualified": 0.0,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "autonomous-paper-trading",
           "equity_qualified": 0.0,
           "forex_qualified": 0.0,
-          "observed_at": "2026-10-21T12:13:11.450350+00:00",
+          "observed_at": "2026-10-21T12:20:08.853345+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -161,9 +161,9 @@
           "submitted": null
         },
         {
-          "age_seconds": 265.522396,
+          "age_seconds": 385.402219,
           "crypto_qualified": null,
-          "cycle_fresh": true,
+          "cycle_fresh": false,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "oanda-fx-paper-trading",
@@ -180,9 +180,9 @@
           "submitted": null
         },
         {
-          "age_seconds": 232.571157,
+          "age_seconds": 352.45098,
           "crypto_qualified": null,
-          "cycle_fresh": true,
+          "cycle_fresh": false,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "alpaca-metals-paper-trading",
@@ -199,9 +199,9 @@
           "submitted": null
         },
         {
-          "age_seconds": 232.508236,
+          "age_seconds": 352.388059,
           "crypto_qualified": null,
-          "cycle_fresh": true,
+          "cycle_fresh": false,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "saxo-international-paper-trading",
@@ -245,7 +245,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 85.189565,
+        "age_seconds": 205.069388,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -278,7 +278,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 85.189565,
+        "age_seconds": 205.069388,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -311,7 +311,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 85.189565,
+        "age_seconds": 205.069388,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -344,7 +344,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 85.189565,
+        "age_seconds": 205.069388,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -377,7 +377,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 85.189565,
+        "age_seconds": 205.069388,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -410,7 +410,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 85.189565,
+        "age_seconds": 205.069388,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -457,12 +457,12 @@
       "live_trading_enabled": false,
       "pillars": {
         "Crypto": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            null
+            "2026-10-21T12:20:08.853345+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Forex": {
           "active": false,
@@ -501,12 +501,12 @@
           "state": "DISABLED / NO RECENT CYCLE"
         },
         "Stocks": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            null
+            "2026-10-21T12:20:08.853345+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         }
       }
     },
