@@ -27,11 +27,11 @@
   "environment": "PAPER/PRACTICE/SIM/DEMO",
   "first_qualifying_post_boundary_trade": {
     "boundary_id": "22c8856a-c749-48d4-924b-5845f62e45f9",
-    "checked_at": "2026-10-21T12:27:17.039198+00:00",
+    "checked_at": "2026-10-21T12:28:26.103575+00:00",
     "qualified": false,
     "runtime_healthy": true
   },
-  "generated_at_utc": "2026-10-21T12:27:15.682801+00:00",
+  "generated_at_utc": "2026-10-21T12:28:24.760272+00:00",
   "git": {
     "branch": "bootstrap-paper-trading-core",
     "commit_sha": "29a5c4ae921081e0e2a6cea862563b88ef558814"
@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-21T12:27:33.694900+00:00",
+    "checked_at": "2026-10-21T12:29:33.670938+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,7 +142,7 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 141.401386,
+          "age_seconds": 261.377424,
           "crypto_qualified": 1.0,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -161,7 +161,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 51.324815,
+          "age_seconds": 171.300853,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "ERROR",
@@ -180,7 +180,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 18.359337,
+          "age_seconds": 138.335375,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -199,7 +199,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 18.201172,
+          "age_seconds": 138.17721,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -233,7 +233,7 @@
     "fills_today": null,
     "first_qualifying_post_boundary_trade": {
       "boundary_id": "22c8856a-c749-48d4-924b-5845f62e45f9",
-      "checked_at": "2026-10-21T12:27:17.039198+00:00",
+      "checked_at": "2026-10-21T12:28:26.103575+00:00",
       "qualified": false,
       "runtime_healthy": true
     },
@@ -241,23 +241,23 @@
     "kalshi_authorized_capital": 1000.0,
     "net_income": null,
     "notional_exposure": null,
-    "observed_at": "2026-10-21T12:22:18.837524+00:00",
+    "observed_at": "2026-10-21T12:28:24.758098+00:00",
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 314.857376,
+        "age_seconds": 68.91284,
         "authorized_capital": 1000.0,
-        "available": null,
-        "deployed": null,
-        "equity": null,
+        "available": 1000.0,
+        "deployed": 0.0,
+        "equity": 1000.0,
         "fills_today": null,
-        "notional_exposure": null,
-        "observed_at": "2026-10-21T12:22:18.837524+00:00",
-        "pending": null,
+        "notional_exposure": 0.0,
+        "observed_at": "2026-10-21T12:28:24.758098+00:00",
+        "pending": 0.0,
         "pillar": "Stocks",
-        "position_market_value": null,
-        "positions": null,
-        "realized_today": null,
+        "position_market_value": 0.0,
+        "positions": 0.0,
+        "realized_today": 0.0,
         "reported_values": {
           "available": 1000.0,
           "deployed": 0.0,
@@ -272,25 +272,25 @@
           "unrealized": 0.0,
           "working_orders": 0.0
         },
-        "status": "STALE_OR_INVALID_TIMESTAMP",
-        "total_pnl": null,
-        "unrealized": null,
-        "working_orders": null
+        "status": "VERIFIED",
+        "total_pnl": 0.0,
+        "unrealized": 0.0,
+        "working_orders": 0.0
       },
       {
-        "age_seconds": 314.857376,
+        "age_seconds": 68.91284,
         "authorized_capital": 1000.0,
-        "available": null,
-        "deployed": null,
-        "equity": null,
-        "fills_today": null,
-        "notional_exposure": null,
-        "observed_at": "2026-10-21T12:22:18.837524+00:00",
-        "pending": null,
+        "available": 1000.0,
+        "deployed": 0.0,
+        "equity": 1000.0,
+        "fills_today": 0.0,
+        "notional_exposure": 0.0,
+        "observed_at": "2026-10-21T12:28:24.758098+00:00",
+        "pending": 0.0,
         "pillar": "Crypto",
-        "position_market_value": null,
-        "positions": null,
-        "realized_today": null,
+        "position_market_value": 0.0,
+        "positions": 0.0,
+        "realized_today": 0.0,
         "reported_values": {
           "available": 1000.0,
           "deployed": 0.0,
@@ -305,58 +305,58 @@
           "unrealized": 0.0,
           "working_orders": 0.0
         },
-        "status": "STALE_OR_INVALID_TIMESTAMP",
-        "total_pnl": null,
-        "unrealized": null,
-        "working_orders": null
+        "status": "VERIFIED",
+        "total_pnl": 0.0,
+        "unrealized": 0.0,
+        "working_orders": 0.0
       },
       {
-        "age_seconds": 314.857376,
+        "age_seconds": 68.91284,
         "authorized_capital": 1000.0,
-        "available": null,
-        "deployed": null,
-        "equity": null,
+        "available": 445.0363,
+        "deployed": 554.7539,
+        "equity": 999.7902,
         "fills_today": null,
-        "notional_exposure": null,
-        "observed_at": "2026-10-21T12:22:18.837524+00:00",
-        "pending": null,
+        "notional_exposure": 0.0,
+        "observed_at": "2026-10-21T12:28:24.758098+00:00",
+        "pending": 0.0,
         "pillar": "Forex",
-        "position_market_value": null,
-        "positions": null,
-        "realized_today": null,
+        "position_market_value": 0.0,
+        "positions": 1.0,
+        "realized_today": 0.0,
         "reported_values": {
-          "available": 1000.0,
-          "deployed": 0.0,
-          "equity": 1000.0,
+          "available": 445.0363,
+          "deployed": 554.7539,
+          "equity": 999.7902,
           "fills_today": null,
           "notional_exposure": 0.0,
           "pending": 0.0,
           "position_market_value": 0.0,
-          "positions": 0.0,
+          "positions": 1.0,
           "realized_today": 0.0,
-          "total_pnl": 0.0,
-          "unrealized": 0.0,
+          "total_pnl": -0.2098,
+          "unrealized": -0.2098,
           "working_orders": 0.0
         },
-        "status": "STALE_OR_INVALID_TIMESTAMP",
-        "total_pnl": null,
-        "unrealized": null,
-        "working_orders": null
+        "status": "VERIFIED",
+        "total_pnl": -0.2098,
+        "unrealized": -0.2098,
+        "working_orders": 0.0
       },
       {
-        "age_seconds": 314.857376,
+        "age_seconds": 68.91284,
         "authorized_capital": 1000.0,
-        "available": null,
-        "deployed": null,
-        "equity": null,
+        "available": 1000.0,
+        "deployed": 0.0,
+        "equity": 1000.0,
         "fills_today": null,
-        "notional_exposure": null,
-        "observed_at": "2026-10-21T12:22:18.837524+00:00",
-        "pending": null,
+        "notional_exposure": 0.0,
+        "observed_at": "2026-10-21T12:28:24.758098+00:00",
+        "pending": 0.0,
         "pillar": "Metals",
-        "position_market_value": null,
-        "positions": null,
-        "realized_today": null,
+        "position_market_value": 0.0,
+        "positions": 0.0,
+        "realized_today": 0.0,
         "reported_values": {
           "available": 1000.0,
           "deployed": 0.0,
@@ -371,20 +371,20 @@
           "unrealized": 0.0,
           "working_orders": 0.0
         },
-        "status": "STALE_OR_INVALID_TIMESTAMP",
-        "total_pnl": null,
-        "unrealized": null,
-        "working_orders": null
+        "status": "VERIFIED",
+        "total_pnl": 0.0,
+        "unrealized": 0.0,
+        "working_orders": 0.0
       },
       {
-        "age_seconds": 314.857376,
+        "age_seconds": 68.91284,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
         "equity": null,
         "fills_today": null,
         "notional_exposure": null,
-        "observed_at": "2026-10-21T12:22:18.837524+00:00",
+        "observed_at": "2026-10-21T12:28:24.758098+00:00",
         "pending": null,
         "pillar": "International",
         "position_market_value": null,
@@ -404,20 +404,20 @@
           "unrealized": null,
           "working_orders": null
         },
-        "status": "STALE_OR_INVALID_TIMESTAMP",
+        "status": "PROVIDER_NOT_OBSERVED",
         "total_pnl": null,
         "unrealized": null,
         "working_orders": null
       },
       {
-        "age_seconds": 314.857376,
+        "age_seconds": 68.91284,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
         "equity": null,
         "fills_today": null,
         "notional_exposure": null,
-        "observed_at": "2026-10-21T12:22:18.837524+00:00",
+        "observed_at": "2026-10-21T12:28:24.758098+00:00",
         "pending": null,
         "pillar": "Kalshi",
         "position_market_value": null,
@@ -437,7 +437,7 @@
           "unrealized": null,
           "working_orders": null
         },
-        "status": "STALE_OR_INVALID_TIMESTAMP",
+        "status": "PROVIDER_NOT_OBSERVED",
         "total_pnl": null,
         "unrealized": null,
         "working_orders": null
@@ -446,20 +446,20 @@
     "position_market_value": null,
     "position_observations": [],
     "positions": null,
-    "positions_fresh": false,
-    "positions_observed_at": "2026-10-21T12:22:18.837524+00:00",
+    "positions_fresh": true,
+    "positions_observed_at": "2026-10-21T12:28:24.758098+00:00",
     "realized_scope": "ledger reported realized today; fee completeness not established",
     "realized_today": null,
     "runtime": {
       "healthy": false,
-      "heartbeat_at": "2026-10-21T12:27:15.681961+00:00",
+      "heartbeat_at": "2026-10-21T12:28:24.758098+00:00",
       "heartbeat_fresh": true,
       "live_trading_enabled": false,
       "pillars": {
         "Crypto": {
           "active": true,
           "last_activity_at": [
-            "2026-10-21T12:25:12.293514+00:00"
+            "2026-10-21T12:24:34.505170+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -467,7 +467,7 @@
         "Forex": {
           "active": true,
           "last_activity_at": [
-            "2026-10-21T12:26:42.370085+00:00"
+            "2026-10-21T12:26:08.136326+00:00"
           ],
           "reasons": [
             "RUNTIME_OR_PROVIDER_REJECTION"
@@ -477,7 +477,7 @@
         "International": {
           "active": true,
           "last_activity_at": [
-            "2026-10-21T12:27:15.493728+00:00"
+            "2026-10-21T12:22:12.089660+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -485,8 +485,8 @@
         "Kalshi": {
           "active": true,
           "last_activity_at": [
-            "2026-10-21T12:27:07.877257+00:00",
-            "2026-10-21T12:26:57.461208+00:00"
+            "2026-10-21T12:28:19.928527+00:00",
+            "2026-10-21T12:28:18.015264+00:00"
           ],
           "reasons": [
             "RUNTIME_OR_PROVIDER_REJECTION",
@@ -497,7 +497,7 @@
         "Metals": {
           "active": true,
           "last_activity_at": [
-            "2026-10-21T12:27:15.335563+00:00"
+            "2026-10-21T12:22:12.034757+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -505,7 +505,7 @@
         "Stocks": {
           "active": true,
           "last_activity_at": [
-            "2026-10-21T12:25:12.293514+00:00"
+            "2026-10-21T12:24:34.505170+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -521,20 +521,25 @@
     "trades_today_reason": "filled legs and completed round trips are not interchangeable",
     "unrealized": null,
     "verified_subtotal": {
-      "available": 0,
-      "deployed": 0,
-      "equity": 0,
-      "fills_today": 0,
-      "notional_exposure": 0,
-      "pending": 0,
-      "pillar_count": 0,
-      "pillars": [],
-      "position_market_value": 0,
-      "positions": 0,
-      "realized_today": 0,
-      "total_pnl": 0,
-      "unrealized": 0,
-      "working_orders": 0
+      "available": 3445.0362999999998,
+      "deployed": 554.7539,
+      "equity": 3999.7902,
+      "fills_today": 0.0,
+      "notional_exposure": 0.0,
+      "pending": 0.0,
+      "pillar_count": 4,
+      "pillars": [
+        "Stocks",
+        "Crypto",
+        "Forex",
+        "Metals"
+      ],
+      "position_market_value": 0.0,
+      "positions": 1.0,
+      "realized_today": 0.0,
+      "total_pnl": -0.2098,
+      "unrealized": -0.2098,
+      "working_orders": 0.0
     },
     "working_orders": null
   },
@@ -546,21 +551,21 @@
   "six_pillars": {
     "crypto": {
       "enabled": true,
-      "last_activity_at": "2026-10-21T12:25:12.293514+00:00",
+      "last_activity_at": "2026-10-21T12:24:34.505170+00:00",
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "forex": {
       "enabled": true,
-      "last_activity_at": "2026-10-21T12:26:42.370085+00:00",
+      "last_activity_at": "2026-10-21T12:26:08.136326+00:00",
       "last_error": "Job raised an exception",
       "mode": "PRACTICE",
       "provider": "OANDA Practice"
     },
     "international": {
       "enabled": true,
-      "last_activity_at": "2026-10-21T12:27:15.493728+00:00",
+      "last_activity_at": "2026-10-21T12:22:12.089660+00:00",
       "last_error": null,
       "mode": "SIM",
       "provider": "Saxo SIM"
@@ -576,9 +581,9 @@
         "settled_funds": -79.7627
       },
       "configured": true,
-      "cycle_count": 254274,
+      "cycle_count": 254281,
       "enabled": true,
-      "last_activity_at": "2026-10-21T12:26:57.461208+00:00",
+      "last_activity_at": "2026-10-21T12:28:18.015264+00:00",
       "last_error": "READY_TO_SUBMIT",
       "mode": "DEMO",
       "provider": "Kalshi DEMO",
@@ -592,9 +597,9 @@
         "provider_portfolio_value": 0
       },
       "configured": true,
-      "cycle_count": 460549,
+      "cycle_count": 460559,
       "enabled": true,
-      "last_activity_at": "2026-10-21T12:27:07.877257+00:00",
+      "last_activity_at": "2026-10-21T12:28:19.928527+00:00",
       "last_error": "INSUFFICIENT_SPREAD_OR_LIQUIDITY",
       "mode": "DEMO",
       "provider": "Kalshi DEMO",
@@ -604,14 +609,14 @@
     },
     "metals": {
       "enabled": true,
-      "last_activity_at": "2026-10-21T12:27:15.335563+00:00",
+      "last_activity_at": "2026-10-21T12:22:12.034757+00:00",
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
     },
     "stocks": {
       "enabled": true,
-      "last_activity_at": "2026-10-21T12:25:12.293514+00:00",
+      "last_activity_at": "2026-10-21T12:24:34.505170+00:00",
       "last_error": null,
       "mode": "PAPER",
       "provider": "Alpaca Paper"
