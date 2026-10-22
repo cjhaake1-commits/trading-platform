@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-22T14:10:26.922545+00:00",
+    "checked_at": "2026-10-22T14:12:26.924555+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,15 +142,15 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 2594.345221,
-          "crypto_qualified": 2.0,
-          "cycle_fresh": false,
+          "age_seconds": 45.316275,
+          "crypto_qualified": 1.0,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": 2,
           "engine": "autonomous-paper-trading",
-          "equity_qualified": 0.0,
+          "equity_qualified": 1.0,
           "forex_qualified": 0.0,
-          "observed_at": "2026-10-22T13:27:12.577324+00:00",
+          "observed_at": "2026-10-22T14:11:41.608280+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -161,7 +161,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 649.030781,
+          "age_seconds": 769.032791,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -180,7 +180,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 2637.095681,
+          "age_seconds": 2757.097691,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -199,7 +199,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 2637.023,
+          "age_seconds": 2757.02501,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -259,7 +259,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 149.291589,
+        "age_seconds": 269.293599,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -292,7 +292,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 149.291589,
+        "age_seconds": 269.293599,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -325,7 +325,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 149.291589,
+        "age_seconds": 269.293599,
         "authorized_capital": 1000.0,
         "available": 650.7953,
         "deployed": 333.2013,
@@ -358,7 +358,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 149.291589,
+        "age_seconds": 269.293599,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -391,7 +391,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 149.291589,
+        "age_seconds": 269.293599,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -424,7 +424,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 149.291589,
+        "age_seconds": 269.293599,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -471,12 +471,12 @@
       "live_trading_enabled": false,
       "pillars": {
         "Crypto": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-22T13:25:12.148160+00:00"
+            "2026-10-22T14:11:41.608280+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         },
         "Forex": {
           "active": false,
@@ -515,12 +515,12 @@
           "state": "DISABLED / NO RECENT CYCLE"
         },
         "Stocks": {
-          "active": false,
+          "active": true,
           "last_activity_at": [
-            "2026-10-22T13:25:12.148160+00:00"
+            "2026-10-22T14:11:41.608280+00:00"
           ],
           "reasons": [],
-          "state": "DISABLED / NO RECENT CYCLE"
+          "state": "SCANNING / NO EXECUTION PROOF"
         }
       }
     },
