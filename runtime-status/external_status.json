@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-10-22T09:07:41.735560+00:00",
+    "checked_at": "2026-10-22T09:09:41.714220+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,28 +142,28 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 327.402,
-          "crypto_qualified": 5.0,
-          "cycle_fresh": false,
+          "age_seconds": 29.077752,
+          "crypto_qualified": 1.0,
+          "cycle_fresh": true,
           "cycle_result": "OK",
-          "duplicate_count": 5,
+          "duplicate_count": 1,
           "engine": "autonomous-paper-trading",
           "equity_qualified": 0.0,
           "forex_qualified": 0.0,
-          "observed_at": "2026-10-22T09:02:14.333560+00:00",
+          "observed_at": "2026-10-22T09:09:12.636468+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
-          "qualified_signals": 5.0,
+          "qualified_signals": 1.0,
           "risk_rejection_count": 0,
           "sizing_skip_count": 0,
           "submission_failure_count": 0,
           "submitted": null
         },
         {
-          "age_seconds": 276.486875,
+          "age_seconds": 396.465535,
           "crypto_qualified": null,
-          "cycle_fresh": true,
+          "cycle_fresh": false,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "oanda-fx-paper-trading",
@@ -180,7 +180,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 550.393904,
+          "age_seconds": 670.372564,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -199,7 +199,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 550.347847,
+          "age_seconds": 670.326507,
           "crypto_qualified": null,
           "cycle_fresh": false,
           "cycle_result": "OK",
@@ -245,7 +245,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 122.981761,
+        "age_seconds": 242.960421,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -278,7 +278,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 122.981761,
+        "age_seconds": 242.960421,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -311,7 +311,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 122.981761,
+        "age_seconds": 242.960421,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -344,7 +344,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 122.981761,
+        "age_seconds": 242.960421,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -377,7 +377,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 122.981761,
+        "age_seconds": 242.960421,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -410,7 +410,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 122.981761,
+        "age_seconds": 242.960421,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -451,37 +451,37 @@
     "realized_scope": "ledger reported realized today; fee completeness not established",
     "realized_today": null,
     "runtime": {
-      "healthy": true,
-      "heartbeat_at": "2026-10-22T09:05:38.753799+00:00",
-      "heartbeat_fresh": true,
+      "healthy": false,
+      "heartbeat_at": "2026-10-22T09:03:07.673388+00:00",
+      "heartbeat_fresh": false,
       "live_trading_enabled": false,
       "pillars": {
         "Crypto": {
-          "active": true,
+          "active": false,
           "last_activity_at": [
-            "2026-10-22T08:55:32.628251+00:00"
+            "2026-10-22T09:09:19.453091+00:00"
           ],
           "reasons": [],
-          "state": "SCANNING / NO EXECUTION PROOF"
+          "state": "STALE / UNKNOWN"
         },
         "Forex": {
-          "active": true,
+          "active": false,
           "last_activity_at": [
-            "2026-10-22T08:56:23.228807+00:00"
+            "2026-10-22T09:03:05.248685+00:00"
           ],
           "reasons": [],
-          "state": "SCANNING / NO EXECUTION PROOF"
+          "state": "STALE / UNKNOWN"
         },
         "International": {
-          "active": true,
+          "active": false,
           "last_activity_at": [
-            "2026-10-22T08:56:56.229950+00:00"
+            "2026-10-22T08:58:31.387713+00:00"
           ],
           "reasons": [],
-          "state": "SCANNING / NO EXECUTION PROOF"
+          "state": "STALE / UNKNOWN"
         },
         "Kalshi": {
-          "active": true,
+          "active": false,
           "last_activity_at": [
             "2026-10-22T09:05:31.577161+00:00",
             "2026-10-22T09:05:32.201960+00:00"
@@ -490,23 +490,23 @@
             "RUNTIME_OR_PROVIDER_REJECTION",
             "RUNTIME_OR_PROVIDER_REJECTION"
           ],
-          "state": "ACTIVE / BLOCKED OR DEGRADED"
+          "state": "STALE / UNKNOWN"
         },
         "Metals": {
-          "active": true,
+          "active": false,
           "last_activity_at": [
-            "2026-10-22T08:56:56.155912+00:00"
+            "2026-10-22T08:58:31.341656+00:00"
           ],
           "reasons": [],
-          "state": "SCANNING / NO EXECUTION PROOF"
+          "state": "STALE / UNKNOWN"
         },
         "Stocks": {
-          "active": true,
+          "active": false,
           "last_activity_at": [
-            "2026-10-22T08:55:32.628251+00:00"
+            "2026-10-22T09:09:19.453091+00:00"
           ],
           "reasons": [],
-          "state": "SCANNING / NO EXECUTION PROOF"
+          "state": "STALE / UNKNOWN"
         }
       }
     },
