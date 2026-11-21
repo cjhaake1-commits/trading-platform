@@ -92,13 +92,13 @@
           "daily_pnl": -438.98277214179166,
           "equity": 5561.017227858204,
           "peak_equity": 6000.0,
-          "updated_at": "2026-11-21T07:46:52.705654+00:00",
+          "updated_at": "2026-11-21T07:47:36.189287+00:00",
           "weekly_pnl": -438.98277214179166
         }
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-11-21T07:47:25.366281+00:00",
+    "checked_at": "2026-11-21T07:48:25.424195+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,7 +142,7 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 4.585263,
+          "age_seconds": 64.643177,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -161,26 +161,26 @@
           "submitted": null
         },
         {
-          "age_seconds": 22.640422,
+          "age_seconds": 49.229552,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
-          "duplicate_count": null,
+          "duplicate_count": 0,
           "engine": "oanda-fx-paper-trading",
           "equity_qualified": null,
-          "forex_qualified": null,
-          "observed_at": "2026-11-21T07:47:02.725859+00:00",
+          "forex_qualified": 4.0,
+          "observed_at": "2026-11-21T07:47:36.194643+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
           "qualified_signals": null,
-          "risk_rejection_count": null,
-          "sizing_skip_count": null,
-          "submission_failure_count": null,
+          "risk_rejection_count": 0,
+          "sizing_skip_count": 0,
+          "submission_failure_count": 2,
           "submitted": null
         },
         {
-          "age_seconds": 17.127016,
+          "age_seconds": 77.18493,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -199,7 +199,7 @@
           "submitted": null
         },
         {
-          "age_seconds": 17.075088,
+          "age_seconds": 77.133002,
           "crypto_qualified": null,
           "cycle_fresh": true,
           "cycle_result": "OK",
@@ -245,7 +245,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 17339.659005,
+        "age_seconds": 17399.716919,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -278,7 +278,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 17339.659005,
+        "age_seconds": 17399.716919,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -311,7 +311,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 17339.659005,
+        "age_seconds": 17399.716919,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -344,7 +344,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 17339.659005,
+        "age_seconds": 17399.716919,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -377,7 +377,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 17339.659005,
+        "age_seconds": 17399.716919,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -410,7 +410,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 17339.659005,
+        "age_seconds": 17399.716919,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -467,7 +467,7 @@
         "Forex": {
           "active": true,
           "last_activity_at": [
-            "2026-11-21T07:47:02.725859+00:00"
+            "2026-11-21T07:47:36.194643+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
