@@ -98,7 +98,7 @@
       ],
       "scope": "persisted state diagnostics, not provider balances or earned income"
     },
-    "checked_at": "2026-11-27T22:55:17.421395+00:00",
+    "checked_at": "2026-11-27T22:56:17.483851+00:00",
     "deployed": null,
     "equity": null,
     "evidence_layers": {
@@ -142,34 +142,34 @@
     "execution_evidence": {
       "latest_cycles": [
         {
-          "age_seconds": 450.644864,
-          "crypto_qualified": 1.0,
-          "cycle_fresh": false,
+          "age_seconds": 32.314058,
+          "crypto_qualified": 2.0,
+          "cycle_fresh": true,
           "cycle_result": "OK",
-          "duplicate_count": 1,
+          "duplicate_count": 2,
           "engine": "autonomous-paper-trading",
           "equity_qualified": 0.0,
           "forex_qualified": 0.0,
-          "observed_at": "2026-11-27T22:47:46.776531+00:00",
+          "observed_at": "2026-11-27T22:55:45.169793+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
-          "qualified_signals": 1.0,
+          "qualified_signals": 2.0,
           "risk_rejection_count": 0,
           "sizing_skip_count": 0,
           "submission_failure_count": 0,
           "submitted": null
         },
         {
-          "age_seconds": 437.94316,
+          "age_seconds": 29.400683,
           "crypto_qualified": null,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "oanda-fx-paper-trading",
           "equity_qualified": null,
           "forex_qualified": 0.0,
-          "observed_at": "2026-11-27T22:47:59.478235+00:00",
+          "observed_at": "2026-11-27T22:55:48.083168+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -180,15 +180,15 @@
           "submitted": null
         },
         {
-          "age_seconds": 436.357761,
+          "age_seconds": 27.631451,
           "crypto_qualified": null,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "alpaca-metals-paper-trading",
           "equity_qualified": null,
           "forex_qualified": null,
-          "observed_at": "2026-11-27T22:48:01.063634+00:00",
+          "observed_at": "2026-11-27T22:55:49.852400+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -199,15 +199,15 @@
           "submitted": null
         },
         {
-          "age_seconds": 436.254799,
+          "age_seconds": 27.488616,
           "crypto_qualified": null,
-          "cycle_fresh": false,
+          "cycle_fresh": true,
           "cycle_result": "OK",
           "duplicate_count": null,
           "engine": "saxo-international-paper-trading",
           "equity_qualified": null,
           "forex_qualified": null,
-          "observed_at": "2026-11-27T22:48:01.166596+00:00",
+          "observed_at": "2026-11-27T22:55:49.995235+00:00",
           "payload_valid": true,
           "provider_order_receipts_count": 0,
           "qualified": null,
@@ -753,7 +753,7 @@
     "pending": null,
     "pillars": [
       {
-        "age_seconds": 20.536916,
+        "age_seconds": 80.599372,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -786,7 +786,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 20.536916,
+        "age_seconds": 80.599372,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -819,7 +819,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 20.536916,
+        "age_seconds": 80.599372,
         "authorized_capital": 1000.0,
         "available": 28.693800000000124,
         "deployed": 937.7778999999999,
@@ -852,7 +852,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 20.536916,
+        "age_seconds": 80.599372,
         "authorized_capital": 1000.0,
         "available": 1000.0,
         "deployed": 0.0,
@@ -885,7 +885,7 @@
         "working_orders": 0.0
       },
       {
-        "age_seconds": 20.536916,
+        "age_seconds": 80.599372,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -918,7 +918,7 @@
         "working_orders": null
       },
       {
-        "age_seconds": 20.536916,
+        "age_seconds": 80.599372,
         "authorized_capital": 1000.0,
         "available": null,
         "deployed": null,
@@ -967,7 +967,7 @@
         "Crypto": {
           "active": true,
           "last_activity_at": [
-            "2026-11-27T22:42:13.100674+00:00"
+            "2026-11-27T22:55:45.169793+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -975,7 +975,7 @@
         "Forex": {
           "active": true,
           "last_activity_at": [
-            "2026-11-27T22:42:16.740589+00:00"
+            "2026-11-27T22:55:48.083168+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -983,7 +983,7 @@
         "International": {
           "active": true,
           "last_activity_at": [
-            "2026-11-27T22:42:18.513542+00:00"
+            "2026-11-27T22:55:49.995235+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -1003,7 +1003,7 @@
         "Metals": {
           "active": true,
           "last_activity_at": [
-            "2026-11-27T22:42:18.427131+00:00"
+            "2026-11-27T22:55:49.852400+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
@@ -1011,7 +1011,7 @@
         "Stocks": {
           "active": true,
           "last_activity_at": [
-            "2026-11-27T22:42:13.100674+00:00"
+            "2026-11-27T22:55:45.169793+00:00"
           ],
           "reasons": [],
           "state": "SCANNING / NO EXECUTION PROOF"
